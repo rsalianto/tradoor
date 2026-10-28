@@ -23,6 +23,8 @@ function TemplateIcon(props: { template: Template }) {
 const SYNCS: { key: keyof SyncState; label: string; tip: string }[] = [
   { key: 'symbol', label: 'Symbol', tip: 'Every chart on one ticker: change it on one and they all change' },
   { key: 'interval', label: 'Interval', tip: 'Every chart on one timeframe' },
+  { key: 'crosshair', label: 'Crosshair', tip: 'Point at one chart and every chart shows that moment' },
+  { key: 'time', label: 'Time', tip: 'Scroll one chart and every chart scrolls to the same moment, each at its own zoom' },
 ];
 
 export function LayoutPicker(props: { onClose(): void }) {

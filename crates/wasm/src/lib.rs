@@ -313,6 +313,27 @@ impl ChartEngine {
         self.chart.pointer_leave();
     }
 
+    /// The open time under this chart's own crosshair, for the other charts of
+    /// a layout keeping them in step; undefined while it has none.
+    pub fn crosshair_time(&self) -> Option<f64> {
+        self.chart.crosshair_time().map(|t| t as f64)
+    }
+
+    /// Another chart's crosshair time, drawn here; undefined takes it away.
+    pub fn set_linked_crosshair(&mut self, time: Option<f64>) {
+        self.chart.set_linked_crosshair(time.map(|t| t as i64));
+    }
+
+    /// The time at the plot's right edge; undefined before there are bars.
+    pub fn edge_time(&self) -> Option<f64> {
+        self.chart.edge_time().map(|t| t as f64)
+    }
+
+    /// Scrolled so the right edge is where another chart of the layout has its own.
+    pub fn set_edge_time(&mut self, time: f64) {
+        self.chart.set_edge_time(time as i64);
+    }
+
     pub fn double_click(&mut self, x: f32, y: f32) {
         self.chart.double_click(x, y);
     }

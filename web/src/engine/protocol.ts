@@ -196,6 +196,8 @@ export type ToWorker =
   | { t: 'pointer'; id: string; kind: PointerKind; x: number; y: number; button: number; shift?: boolean; ctrl?: boolean; touch?: boolean }
   | { t: 'wheel'; id: string; x: number; y: number; dx: number; dy: number }
   | { t: 'theme'; key: string; value: string }
+  /** What the layout keeps in step across its charts: the crosshair's time, and the time at the right edge. */
+  | { t: 'sync'; crosshair: boolean; time: boolean }
   /** Every exchange's mark, as `markSpec` writes it, numbered by MARK_ORDER. */
   | { t: 'marks'; list: { index: number; box: number; spec: string }[] }
   /** The reader's time zone, minutes east of UTC, for every chart. */

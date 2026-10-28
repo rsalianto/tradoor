@@ -314,6 +314,9 @@ pub struct Chart {
     panes: Vec<PaneView>,
     axis_width: f32,
     crosshair: Option<(f32, f32)>,
+    /// Another chart's crosshair time, in a layout that keeps them in step:
+    /// its vertical line and time label, where this chart has no crosshair of its own.
+    linked_cross: Option<i64>,
     alerts: Vec<AlertLine>,
     /// The alert a click picked: only it is moved by a drag with a mouse, so a
     /// press that only grazes a line on its way to pan leaves the line be.
@@ -390,6 +393,7 @@ impl Chart {
             panes: Vec::new(),
             axis_width: MIN_AXIS_WIDTH,
             crosshair: None,
+            linked_cross: None,
             alerts: Vec::new(),
             flow: Vec::new(),
             loading: false,
@@ -1586,12 +1590,16 @@ impl Chart {
 
         // ---- crosshair
         let hover = self.crosshair.filter(|(x, y)| *x >= 0.0 && *x < plot_w && *y >= 0.0 && *y < avail && !matches!(self.drag, Drag::Separator { .. }));
-        let hover_slot = hover.and_then(|(x, _)| self.slot_at(x));
+        // Another chart's crosshair, in a layout keeping them in step, stands where this one's is not.
+        let hover_slot = match hover {
+            Some((x, _)) => self.slot_at(x),
+            None => self.linked_slot(),
+        };
         f.clip(None);
-        if let (Some((_, cy)), Some(slot)) = (hover, hover_slot) {
+        if let Some(slot) = hover_slot {
             let x = f.snap(self.time.x(slot as f64) as f32);
             f.dashed_line(x, 0.0, x, avail, 1.0, t.crosshair, 4.0, 4.0);
-            if self.pane_at(cy).is_some() {
+            if let Some((_, cy)) = hover.filter(|(_, cy)| self.pane_at(*cy).is_some()) {
                 f.dashed_line(0.0, cy, plot_w, cy, 1.0, t.crosshair, 4.0, 4.0);
             }
         }
@@ -2331,6 +2339,48 @@ impl Chart {
         self.touch();
     }
 
+    // ------------------------------------------------------------ in step with others
+
+    /// The open time of the slot under this chart's own crosshair, for the
+    /// other charts of a layout that keeps crosshairs in step.
+    pub fn crosshair_time(&self) -> Option<i64> {
+        let (x, _) = self.crosshair?;
+        self.slot_time(self.slot_at(x)?)
+    }
+
+    /// Another chart's crosshair time, or none once it has left that chart.
+    pub fn set_linked_crosshair(&mut self, time: Option<i64>) {
+        if self.linked_cross != time {
+            self.linked_cross = time;
+            self.touch();
+        }
+    }
+
+    /// The slot holding the linked crosshair's time — the bar it falls in at
+    /// this chart's timeframe — when it is on screen.
+    fn linked_slot(&self) -> Option<i64> {
+        let slot = time_to_logical(&self.times, self.linked_cross? as f64)?.floor() as i64;
+        let x = self.time.x(slot as f64);
+        (x >= 0.0 && x < f64::from(self.plot_width())).then_some(slot)
+    }
+
+    /// The time at the plot's right edge, for a layout that keeps the charts'
+    /// time in step.
+    pub fn edge_time(&self) -> Option<i64> {
+        Some(logical_to_time(&self.times, self.time.visible().1)?.round() as i64)
+    }
+
+    /// Scrolls so the plot's right edge is at `time`, as another chart of the
+    /// layout is, each chart keeping its own zoom.
+    pub fn set_edge_time(&mut self, time: i64) {
+        let Some(right) = time_to_logical(&self.times, time as f64) else { return };
+        // The plot's right edge is logical `bars - 1 + right_offset + 0.5`.
+        self.time.right_offset = right - 0.5 - (self.time.bars as f64 - 1.0);
+        self.time.clamp();
+        self.view_ready = true;
+        self.touch();
+    }
+
     fn finish_tool(&mut self) {
         self.tool = None;
         self.placed.clear();
@@ -2930,6 +2980,39 @@ mod tests {
         let label = ticks::crosshair_label(projected, Some(HOUR), false);
         assert!(c.render(1_800_000_000_000).texts.iter().any(|t| t.text == label), "the time label shows the projected slot");
         assert_eq!(c.legend().index, Some(newest), "the legend keeps the newest bar");
+    }
+
+    #[test]
+    fn another_charts_crosshair_stands_on_the_bar_holding_its_time() {
+        let mut c = chart();
+        let bar = c.candles()[480].open_time;
+        let label = ticks::crosshair_label(bar, Some(HOUR), false);
+        let shows = |c: &mut Chart, text: &str| c.render(1_800_000_000_000).texts.iter().any(|t| t.text == text);
+        // Half an hour in: a minute chart's crosshair lands in this hour.
+        c.set_linked_crosshair(Some(bar + HOUR / 2));
+        assert!(shows(&mut c, &label), "its time label, at the bar holding it");
+        c.pointer_move(100.0, 200.0);
+        let own = ticks::crosshair_label(c.crosshair_time().unwrap(), Some(HOUR), false);
+        assert!(shows(&mut c, &own) && !shows(&mut c, &label), "the chart's own crosshair takes its place");
+        c.pointer_leave();
+        assert!(shows(&mut c, &label), "and gives it back on leaving");
+        c.set_linked_crosshair(None);
+        assert!(!shows(&mut c, &label), "gone once the other chart's is");
+    }
+
+    #[test]
+    fn another_charts_edge_time_scrolls_this_one_to_it_at_its_own_zoom() {
+        let mut c = chart();
+        let spacing = c.time.bar_spacing;
+        let to = c.candles()[400].open_time;
+        c.set_edge_time(to);
+        c.render(1_800_000_000_000);
+        let edge = c.edge_time().unwrap();
+        assert!((edge - to).abs() <= HOUR, "the right edge at {edge}, asked {to}");
+        assert_eq!(c.time.bar_spacing, spacing, "the zoom is its own");
+        // Further back than the bars go, it stops a few bars in, as a drag does.
+        c.set_edge_time(c.candles()[0].open_time - 1_000 * HOUR);
+        assert!(c.time.visible().1 > 0.0, "some bars still on screen");
     }
 
     #[test]

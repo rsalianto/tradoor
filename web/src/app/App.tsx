@@ -413,6 +413,8 @@ export function App() {
   const [engineError, setEngineError] = createSignal<string | null>(null);
   const [layoutMenu, setLayoutMenu] = createSignal(false);
   useDismiss(layoutMenu, () => setLayoutMenu(false));
+  // The engine keeps the charts' crosshairs and time in step itself, as the layout's switches say.
+  createEffect(() => send({ t: 'sync', crosshair: doc.sync.crosshair, time: doc.sync.time }));
   applyTheme();
   // The chart last used names the browser tab, with its live price. A search
   // engine's crawler keeps the page's own title, which says what the site is.

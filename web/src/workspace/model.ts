@@ -163,6 +163,10 @@ export interface SyncState {
   symbol: boolean;
   /** One timeframe on every chart. */
   interval: boolean;
+  /** The crosshair on one chart drawn on all of them, at its time. */
+  crosshair: boolean;
+  /** Every chart scrolled to the time the one moved ends at, each at its own zoom. */
+  time: boolean;
 }
 
 export interface WorkspaceDoc {
@@ -271,7 +275,7 @@ export function defaultWorkspace(): WorkspaceDoc {
     links,
     theme: {},
     timeframes: [...FAVORITE_TIMEFRAMES],
-    sync: { symbol: false, interval: false },
+    sync: { symbol: false, interval: false, crosshair: false, time: false },
   };
 }
 
@@ -387,7 +391,8 @@ export function validate(raw: unknown): WorkspaceDoc | null {
   const savedAt = Number(raw.savedAt);
   // Kept in the list's own order; a layout from before favourites has the usual ones.
   const timeframes = Array.isArray(raw.timeframes) ? TIMEFRAMES.map((t) => t.value).filter((tf) => (raw.timeframes as unknown[]).includes(tf)) : [...FAVORITE_TIMEFRAMES];
-  const sync = { symbol: isObj(raw.sync) && raw.sync.symbol === true, interval: isObj(raw.sync) && raw.sync.interval === true };
+  const on = (key: keyof SyncState): boolean => isObj(raw.sync) && raw.sync[key] === true;
+  const sync = { symbol: on('symbol'), interval: on('interval'), crosshair: on('crosshair'), time: on('time') };
   return { v: 1, name: str(raw.name, '').slice(0, 120) || 'Default', savedAt: Number.isFinite(savedAt) ? savedAt : 0, root, panels, links, theme, timeframes, sync };
 }
 

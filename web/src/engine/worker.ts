@@ -215,6 +215,8 @@ class Slot {
   private status: ChartStatus = { loading: false, error: null, bars: 0, source: null, live: 'off', relayed: false, exhausted: false };
   private legendKey = '';
   private cursor = '';
+  /** The time at its right edge when last seen or given, so only a scroll of its own goes to the others. */
+  edge: number | undefined;
   private studiesKey = '';
   private metaDirty = true;
   private price = Number.NaN;
@@ -837,6 +839,7 @@ class Slot {
   }
 
   afterInput(): void {
+    if (syncCrosshair || syncTime) keepInStep(this);
     const cursor = this.engine.cursor();
     if (cursor !== this.cursor) {
       this.cursor = cursor;
@@ -1064,7 +1067,35 @@ function tick(): void {
   schedule();
 }
 
+/** What the layout keeps in step across its charts, as the page's switches say. */
+let syncCrosshair = false;
+let syncTime = false;
+
+/** Input on one chart: the others take its crosshair's time and, when it scrolled, the time at its right edge. */
+function keepInStep(from: Slot): void {
+  const time = syncCrosshair ? from.engine.crosshair_time() : undefined;
+  const edge = syncTime ? from.engine.edge_time() : undefined;
+  const moved = edge !== undefined && edge !== from.edge;
+  if (moved) from.edge = edge;
+  for (const slot of slots.values()) {
+    if (slot === from) continue;
+    if (syncCrosshair) slot.engine.set_linked_crosshair(time);
+    if (moved) {
+      slot.engine.set_edge_time(edge);
+      slot.edge = slot.engine.edge_time();
+    }
+  }
+  schedule();
+}
+
 function handle(msg: ToWorker): void {
+  if (msg.t === 'sync') {
+    syncCrosshair = msg.crosshair;
+    syncTime = msg.time;
+    if (!syncCrosshair) for (const slot of slots.values()) slot.engine.set_linked_crosshair(undefined);
+    schedule();
+    return;
+  }
   if (msg.t === 'call') {
     void answer(msg.req, msg.name, msg.args);
     return;

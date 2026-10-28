@@ -205,12 +205,13 @@ export function setLinkMarket(color: LinkColor, market: string): void {
   touched();
 }
 
-/** A sync switch: turned on, every chart takes the one in use's ticker or timeframe at once. */
+/** A sync switch: Symbol or Interval turned on brings every chart to the one in use's ticker or timeframe at once. */
 export function setSync(key: keyof SyncState, on: boolean): void {
   batch(() => {
     setDoc('sync', key, on);
     const chart = targetChart();
-    if (on && chart) stepCharts(key === 'symbol' ? 'market' : 'timeframe', key === 'symbol' ? marketOf(chart) : timeframeOf(chart));
+    if (on && chart && key === 'symbol') stepCharts('market', marketOf(chart));
+    if (on && chart && key === 'interval') stepCharts('timeframe', timeframeOf(chart));
   });
   touched();
 }

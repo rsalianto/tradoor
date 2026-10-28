@@ -15,12 +15,12 @@
     {
       "name": "app js",
       "path": ["dist/assets/index-*.js", "dist/assets/web-*.js", "dist/assets/solid-*.js"],
-      "limit": "51 kB"
+      "limit": "51.5 kB"
     },
     {
       "name": "engine worker js",
       "path": "dist/assets/worker-*.js",
-      "limit": "22.5 kB"
+      "limit": "23 kB"
     },
     {
       "name": "engine wasm",
