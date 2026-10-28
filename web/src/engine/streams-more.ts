@@ -171,8 +171,8 @@ function lighter(urls: string[]): Protocol {
 }
 
 export const PROTOCOLS: Record<string, () => Protocol> = {
-  'okx-business': () => okx(['wss://ws.okx.com:8443/ws/v5/business', ...relay('okx-business')], 'candle'),
-  'okx-public': () => okx(['wss://ws.okx.com:8443/ws/v5/public', ...relay('okx-public')], 'tickers'),
+  'okx-business': () => okx(['wss://ws.okx.com/ws/v5/business', ...relay('okx-business')], 'candle'),
+  'okx-public': () => okx(['wss://ws.okx.com/ws/v5/public', ...relay('okx-public')], 'tickers'),
   bitget: () => bitget(['wss://ws.bitget.com/v2/ws/public', ...relay('bitget')]),
   hyperliquid: () => hyperliquid(['wss://api.hyperliquid.xyz/ws', ...relay('hyperliquid')]),
   'kraken-spot': () => krakenSpot(['wss://ws.kraken.com/v2', ...relay('kraken-spot')]),

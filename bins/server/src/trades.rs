@@ -16,7 +16,7 @@ pub fn stream_urls(venue: Venue) -> &'static [&'static str] {
         Venue::BinancePerp => &["wss://fstream.binance.com/market/ws", "wss://fstream.binance.com/ws"],
         Venue::BybitSpot => &["wss://stream.bybit.com/v5/public/spot"],
         Venue::BybitPerp => &["wss://stream.bybit.com/v5/public/linear"],
-        Venue::OkxSpot | Venue::OkxPerp => &["wss://ws.okx.com:8443/ws/v5/public"],
+        Venue::OkxSpot | Venue::OkxPerp => &["wss://ws.okx.com/ws/v5/public"],
         Venue::HyperliquidPerp => &["wss://api.hyperliquid.xyz/ws"],
         Venue::BitgetSpot | Venue::BitgetPerp => &["wss://ws.bitget.com/v2/ws/public"],
         Venue::KrakenSpot => &["wss://ws.kraken.com/v2"],

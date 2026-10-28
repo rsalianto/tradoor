@@ -110,7 +110,7 @@ pub const VENUES: [Venue; 12] = [
     venue("binance-perp", "wss://fstream.binance.com/market/ws", binance_subscribe, parse_binance_venue),
     // Bybit closes a socket that has not pinged in twenty seconds.
     Venue { ping: Some((|| r#"{"op":"ping"}"#.into(), secs(15))), silence: secs(60), ..venue("bybit-perp", "wss://stream.bybit.com/v5/public/linear", bybit_subscribe, parse_bybit_venue) },
-    Venue { ping: Some((|| "ping".into(), secs(25))), silence: secs(90), prepare: Prepare::OkxSizes, ..venue("okx-perp", "wss://ws.okx.com:8443/ws/v5/public", okx_subscribe, parse_okx) },
+    Venue { ping: Some((|| "ping".into(), secs(25))), silence: secs(90), prepare: Prepare::OkxSizes, ..venue("okx-perp", "wss://ws.okx.com/ws/v5/public", okx_subscribe, parse_okx) },
     Venue { ping: Some((|| "ping".into(), secs(25))), silence: secs(90), ..venue("bitget-perp", "wss://ws.bitget.com/v3/ws/public", bitget_subscribe, parse_bitget) },
     Venue { ping: Some((gate_ping, secs(18))), silence: secs(60), prepare: Prepare::GateSizes, ..venue("gate-perp", "wss://fx-ws.gateio.ws/v4/ws/usdt", gate_subscribe, parse_gate) },
     Venue { reply: htx_reply, silence: secs(60), gzip: true, ..venue("htx-perp", "wss://api.hbdm.com/linear-swap-notification", htx_subscribe, parse_htx) },

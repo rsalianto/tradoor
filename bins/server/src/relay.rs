@@ -56,8 +56,8 @@ fn stream_url(venue: &str) -> Option<&'static str> {
         "binance-perp" => "wss://fstream.binance.com/market/ws",
         "bybit-spot" => "wss://stream.bybit.com/v5/public/spot",
         "bybit-perp" => "wss://stream.bybit.com/v5/public/linear",
-        "okx-business" => "wss://ws.okx.com:8443/ws/v5/business",
-        "okx-public" => "wss://ws.okx.com:8443/ws/v5/public",
+        "okx-business" => "wss://ws.okx.com/ws/v5/business",
+        "okx-public" => "wss://ws.okx.com/ws/v5/public",
         "bitget" => "wss://ws.bitget.com/v2/ws/public",
         "hyperliquid" => "wss://api.hyperliquid.xyz/ws",
         "kraken-spot" => "wss://ws.kraken.com/v2",
@@ -256,7 +256,7 @@ mod tests {
         assert!(!ok("https://futures.kraken.com/api/charts/v1/trade/../../derivatives/api/v3/sendorder"), "a prefix after `..` is resolved");
         assert!(ok("https://www.okx.com/api/v5/market/history-candles?instId=BTC-USDT&bar=1H"));
         assert!(!ok("https://www.okx.com/api/v5/trade/order"));
-        assert_eq!(stream_url("okx-business"), Some("wss://ws.okx.com:8443/ws/v5/business"));
+        assert_eq!(stream_url("okx-business"), Some("wss://ws.okx.com/ws/v5/business"));
         assert_eq!(stream_url("bybit-perp"), Some("wss://stream.bybit.com/v5/public/linear"));
         assert_eq!(stream_url("wss://anything"), None);
     }
