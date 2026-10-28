@@ -314,7 +314,11 @@ function TabsView(props: { node: TabsNode }) {
   const addHere = (type: PanelType, where: DropZone) => {
     setAdding(false);
     const from = active();
-    const panel = newPanel(type, from ? { link: from.link, market: marketOf(from), timeframe: timeframeOf(from) } : undefined);
+    // A new chart starts on its own, on the ticker it came from: many charts
+    // are many tickers, and a link would turn them all with the first one
+    // changed. TPO and the side panels follow the chart they came from.
+    const link = type === 'chart' ? null : from?.link;
+    const panel = newPanel(type, from ? { link, market: marketOf(from), timeframe: timeframeOf(from) } : undefined);
     update((d) => addPanel(d, panel, props.node.id, where));
     focusPanel(panel.id);
   };

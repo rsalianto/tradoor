@@ -48,6 +48,14 @@ const MAX_FOLDED_BARS = 12_000;
 const POLL_MS = 5 * 60_000;
 /** How long a GPU context the browser took is waited for before the chart says so. */
 const GPU_WAIT_MS = 3_000;
+/**
+ * Charts drawn with WebGL2 at once. Chrome keeps only four contexts a worker,
+ * every chart is in this one, and past four it takes the oldest back; a chart
+ * asking for its own back then takes the next one's, until a layout of twenty
+ * charts had four left drawing. The rest draw on their 2D canvas, which holds
+ * up at the size many charts on a screen are.
+ */
+const GPU_CHARTS = 4;
 const GPU_GONE = 'graphics lost — reload to redraw';
 /** A closed bar REST has not vouched for yet is asked for again after these,
  *  the last repeating until it answers. */
@@ -1081,7 +1089,9 @@ function handle(msg: ToWorker): void {
   }
   if (msg.t === 'create') {
     try {
-      const slot = new Slot(msg.id, msg.gl, msg.text, msg.feed, msg.flat === true);
+      // Past the graphics budget a chart draws its shapes on its 2D canvas.
+      const gpu = [...slots.values()].filter((s) => s.engine.renderer() === 'webgl2').length;
+      const slot = new Slot(msg.id, msg.gl, msg.text, msg.feed, msg.flat === true || gpu >= GPU_CHARTS);
       slot.resize(msg.width, msg.height, msg.dpr);
       slots.set(msg.id, slot);
       schedule();
