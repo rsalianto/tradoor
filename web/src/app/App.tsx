@@ -9,6 +9,7 @@ import { lastPrice, onEngineFailure, send } from '../engine/client';
 import { api } from '../lib/api';
 import { deviceZone, formatClock, LOCAL_ZONE, offsetMinutes, timeZone, zoneLabel } from '../lib/timezone';
 import { MARK_ORDER, MARKS, markSpec } from '../lib/exchange-marks';
+import { useDismiss } from '../lib/dismiss';
 import { Icon } from '../lib/icons';
 import { tabTitle } from '../lib/tab-title';
 import { CHART_THEME, FONT_PX, UI_THEME } from '../lib/theme';
@@ -49,6 +50,7 @@ const Help = lazy(() => import('../components/Help').then((m) => ({ default: m.H
 const CommandPalette = lazy(() => import('../components/CommandPalette').then((m) => ({ default: m.CommandPalette })));
 const IndicatorPicker = lazy(() => import('../components/IndicatorPicker').then((m) => ({ default: m.IndicatorPicker })));
 const Settings = lazy(() => import('../components/Settings').then((m) => ({ default: m.Settings })));
+const LayoutPicker = lazy(() => import('../components/LayoutPicker').then((m) => ({ default: m.LayoutPicker })));
 const TpoSettings = lazy(() => import('../components/TpoSettings').then((m) => ({ default: m.TpoSettings })));
 const ReferralDialog = lazy(() => import('../components/Referrals').then((m) => ({ default: m.ReferralDialog })));
 const ReferralCard = lazy(() => import('../components/Referrals').then((m) => ({ default: m.ReferralCard })));
@@ -409,6 +411,8 @@ const IS_CRAWLER = /bot\b|crawler|spider|slurp|facebookexternalhit|bingpreview|e
 
 export function App() {
   const [engineError, setEngineError] = createSignal<string | null>(null);
+  const [layoutMenu, setLayoutMenu] = createSignal(false);
+  useDismiss(layoutMenu, () => setLayoutMenu(false));
   applyTheme();
   // The chart last used names the browser tab, with its live price. A search
   // engine's crawler keeps the page's own title, which says what the site is.
@@ -472,8 +476,13 @@ export function App() {
         <button class="item" classList={{ on: trainingOpen() }} data-tip="Paper trading at live prices" onClick={() => (setJournalOpen(false), setTrainingOpen(!trainingOpen()))}>
           <Icon name="indicators" size={12} /> <span>Training</span>
         </button>
-        <span class="item dim">
-          <span>{doc.name}</span>
+        <span class="layout-at">
+          <button class="item" classList={{ on: layoutMenu() }} data-tip="Charts on screen: a layout of one to twenty" onPointerDown={(e) => e.stopPropagation()} onClick={() => setLayoutMenu(!layoutMenu())}>
+            <Icon name="layout" size={12} /> <span>{doc.name}</span>
+          </button>
+          <Show when={layoutMenu()}>
+            <LayoutPicker onClose={() => setLayoutMenu(false)} />
+          </Show>
         </span>
         <span class="spacer" />
         <button class="item ref-btn" data-tip="Partner exchanges: Nado, Bybit and Binance" onClick={() => setOverlay({ kind: 'referrals' })}>

@@ -176,7 +176,7 @@ export type DropZone = 'center' | 'left' | 'right' | 'top' | 'bottom';
 export const DEFAULT_STUDIES = 'rsi:14,stochrsi:14:14:3:3';
 export const DEFAULT_TIMEFRAME = '1h';
 /** The coins, then the market around them: the index perpetuals, the VIX, and the crypto market's own measures. */
-const DEFAULT_WATCHLIST = [
+export const DEFAULT_WATCHLIST = [
   'binance-perp:BTCUSDT',
   'binance-perp:ETHUSDT',
   'binance-perp:SOLUSDT',

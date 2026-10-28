@@ -126,6 +126,14 @@ button:has(> svg) > span, .venue-name, .sig-score .div { text-box: trim-both cap
 .menu button:hover, .menu button.cur { background: var(--surface-3); color: var(--primary); }
 .menu .group { display: flex; flex-wrap: wrap; gap: 1px; padding: 3px 6px; border-top: 1px solid var(--border); }
 .menu .group:first-child { border-top: 0; }
+/* The layout menu under the workspace's name: a row of templates per chart count. */
+.layout-at { position: relative; display: flex; }
+.layout-menu { top: 100%; left: 0; min-width: 0; padding: 0 0 4px; }
+.layout-menu .cap { padding: 7px 10px 5px; color: var(--muted); font-size: 11px; }
+.lm-row { display: flex; align-items: center; gap: 2px; padding: 2px 8px; border-top: 1px solid var(--border); }
+.lm-count { flex: 0 0 22px; color: var(--dim); font-size: 11px; }
+.layout-menu .lm-tpl { width: auto; padding: 4px; color: var(--muted); }
+.layout-menu .lm-tpl:hover { color: var(--primary); }
 .menu .group button { width: auto; padding: 2px 6px; }
 .debug-line { position: absolute; left: 4px; right: 4px; bottom: 4px; z-index: 6; padding: 2px 4px; background: #000c; color: #ff0; font-size: 10px; line-height: 1.3; pointer-events: none; }
 .menu.tf-menu { min-width: 0; width: max-content; max-width: calc(100% - 8px); }

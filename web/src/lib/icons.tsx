@@ -27,6 +27,7 @@ const PATHS = {
   chevron: 'M6 9l6 6 6-6',
   splitRight: 'M4 5h16v14H4zM12 5v14',
   splitDown: 'M4 5h16v14H4zM4 12h16',
+  layout: 'M4 5h16v14H4zM12 5v14M4 12h16',
   settings: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9L7 7M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1',
   command: 'M4 7l5 5-5 5M11 17h9',
   indicators: 'M3 17l5-6 4 3 8-9M3 21h18',
