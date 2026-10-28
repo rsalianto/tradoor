@@ -452,6 +452,8 @@ impl Chart {
         self.width = width.max(0.0);
         self.height = height.max(0.0);
         self.dpr = dpr.max(0.5);
+        // The feed's layer is sized as it is drawn: a new size draws it again too.
+        self.feed_dirty = true;
         self.touch();
     }
 

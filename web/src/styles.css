@@ -227,7 +227,7 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .btn.big { gap: 7px; padding: 6px 14px; font-size: 12px; font-weight: 600; }
 /* On a phone Settings is the whole screen: its five sections a row of tabs,
    each an icon over its name, and the colours two to a row. */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .backdrop:has(> .dialog.settings) { padding: 0; }
   .dialog.settings { max-width: none; height: 100dvh; max-height: 100dvh; border: 0; }
   .dialog.settings > header { flex-wrap: nowrap; padding: 0 0 0 12px; min-height: 44px; }
@@ -300,7 +300,7 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .pattern-bar .bear { color: var(--bear); }
 .pattern-bar .bull { color: var(--bull); }
 .pattern-bar .tb { border: 1px solid var(--border); }
-@media (max-width: 760px) { .pattern-bar { gap: 6px; padding-left: 8px; } .pattern-bar .dim { display: none; } }
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) { .pattern-bar { gap: 6px; padding-left: 8px; } .pattern-bar .dim { display: none; } }
 .chartwrap { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .rail { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 0 38px; padding: 4px 0; scrollbar-width: none; border-right: 1px solid var(--border); background: var(--surface-2); overflow-y: auto; overflow-x: hidden; }
 .rail button { display: flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; color: var(--muted); }
@@ -450,7 +450,7 @@ table.venues tr.off td { color: var(--dim); }
 .mdrawer hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--border); }
 .mdrawer .cap { padding: 8px 16px 2px; color: var(--dim); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   /* The chart's own toolbar is the top of the app; the desktop bar above it
      only took height, and everything on it is in the menu. Its row goes with
      it, or the grid would hand the space to the row below. */
@@ -594,7 +594,7 @@ table.venues tr.off td { color: var(--dim); }
 .strategy-card:hover { color: var(--text); border-color: color-mix(in oklab, var(--primary) 50%, var(--border)); }
 .strategy-card.on { color: var(--text); border-color: var(--primary); background: color-mix(in oklab, var(--primary) 10%, transparent); }
 /* A phone: a sheet from the bottom, inputs big enough to touch and not zoomed into, the cards a strip to swipe. */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .dsettings.wide { position: fixed; inset: auto 0 0 0 !important; width: auto; max-width: none; max-height: 88dvh; border-radius: 12px 12px 0 0; z-index: 60; }
   .dsettings.wide > header { cursor: default; }
   .dsettings.wide .dinput { height: 34px; font-size: 16px; }
@@ -767,7 +767,7 @@ table.venues tr.off td { color: var(--dim); }
 .ref-card .later { padding: 4px 6px; color: var(--dim); font-size: 11px; }
 .ref-card .later:hover { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .ref-card { animation: none; } }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .ref-card { left: 8px; right: 8px; bottom: 30px; width: auto; }
   .ref-row .who span { white-space: normal; }
   .dialog.ref > header .title { display: block; }
@@ -1059,7 +1059,7 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 .tr-curve .tr-zero { stroke: var(--border); stroke-dasharray: 3 3; }
 .tr-venue { padding: 0 6px; font-size: 10px; }
 .tr-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .tr-body { display: flex; flex-direction: column; overflow-y: auto; }
   .tr-chart { flex: none; height: 52dvh; }
   .tr-ticket { flex: none; border-left: 0; border-bottom: 1px solid var(--border); }

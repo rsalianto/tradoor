@@ -252,8 +252,8 @@ class Slot {
   constructor(
     readonly id: string,
     readonly gl: OffscreenCanvas,
-    text: OffscreenCanvas,
-    feed: OffscreenCanvas,
+    private readonly textCanvas: OffscreenCanvas,
+    private readonly feedCanvas: OffscreenCanvas,
     flat = false,
   ) {
     // iOS takes a page's WebGL contexts back when it is put away or short of
@@ -288,7 +288,7 @@ class Slot {
       }
       schedule();
     }, { signal });
-    this.engine = new ChartEngine(gl, text, feed, '1h', flat);
+    this.engine = new ChartEngine(gl, textCanvas, feedCanvas, '1h', flat);
     for (const [key, value] of theme) this.engine.set_theme_value(key, value);
     this.engine.set_utc_offset(utcOffset);
     // Every exchange's mark, once: a liquidation names the one it came from.
@@ -302,7 +302,15 @@ class Slot {
    */
   show(visible: boolean): void {
     this.hidden = !visible;
-    if (!visible) return;
+    if (!visible) {
+      // Out of sight it keeps its bars but not its pictures: three surfaces a
+      // screen in size each, past a few charts more than a phone lets a page
+      // hold, and iOS then takes graphics back. Drawn again whole when shown.
+      for (const c of [this.gl, this.textCanvas, this.feedCanvas]) c.width = c.height = 1;
+      return;
+    }
+    const { width, height, dpr } = this.shown;
+    this.engine.resize(width, height, dpr);
     this.legendKey = '';
     this.studiesKey = '';
     this.cursor = '';

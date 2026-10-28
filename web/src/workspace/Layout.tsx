@@ -36,8 +36,10 @@ export function panelTitle(p: Panel): string {
   return `${PANEL_TITLE[p.type]} · ${label}`;
 }
 
-/** Phones and narrow windows: one chart and a menu, not splits. */
-const MOBILE_QUERY = '(max-width: 760px)';
+/** Phones and narrow windows: one chart and a menu, not splits. A phone on its
+ *  side is wider than that but short, and touch: still one chart, not twenty
+ *  too small to read. The same query is in styles.css. */
+const MOBILE_QUERY = '(max-width: 760px), (max-height: 500px) and (pointer: coarse)';
 
 function useMedia(query: string): () => boolean {
   const media = matchMedia(query);
@@ -125,8 +127,11 @@ function MobileShell() {
 
   return (
     <>
+      {/* Keyed by id: a chart chosen from the menu is that chart, mounted afresh;
+          the one left keeps its bars and lets go of its pictures (engine/worker). */}
       <Show
-        when={chart()}
+        when={chart()?.id}
+        keyed
         fallback={
           <div class="mempty">
             <p>This workspace has no chart.</p>
@@ -134,9 +139,9 @@ function MobileShell() {
           </div>
         }
       >
-        {(panel) => (
-          <div class="panelbody" onPointerDown={() => focusPanel(panel().id)}>
-            <PanelView panel={panel()} />
+        {(id) => (
+          <div class="panelbody" onPointerDown={() => focusPanel(id)}>
+            <PanelView panel={doc.panels[id]!} />
           </div>
         )}
       </Show>
