@@ -264,12 +264,25 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 /* ------------------------------------------------------------ panels */
 .panelcol { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .toolbar { display: flex; align-items: center; gap: 1px; flex: 0 0 26px; height: 26px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--surface-2); overflow: hidden; white-space: nowrap; }
+/* A chart narrower than its toolbar keeps the symbol and timeframe in reach:
+   first the exchange shows its mark alone, then the timeframes fold into the
+   one shown, which opens them all. */
+.chartcol { container-type: inline-size; }
+.chartcol .tf-now { display: none; gap: 3px; }
+@container (max-width: 760px) {
+  .chartcol .toolbar .venue-name, .chartcol .toolbar .venue .kind { display: none; }
+}
+@container (max-width: 600px) {
+  .chartcol .toolbar .tf-fav, .chartcol .toolbar .tf-more { display: none; }
+  .chartcol .toolbar .tf-now { display: inline-flex; align-items: center; }
+}
 .tb { display: inline-flex; align-items: center; gap: 4px; padding: 2px 5px; font-size: 11px; color: var(--muted); }
 .tb:hover:not(:disabled) { color: var(--primary); background: var(--surface-3); }
 .tb.on { background: var(--primary); color: var(--bg); }
 /* The chart's watchlist button: a star, filled once the market is in it. */
-.tb.wl-toggle { border: 1px solid var(--border); margin-left: 2px; }
-.tb.wl-toggle.in, .tb.wl-toggle.in:hover:not(:disabled) { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, transparent); }
+/* The watchlist star: yellow and filled when the market is in it. */
+.tb.wl-toggle { margin-left: 2px; }
+.tb.wl-toggle.in, .tb.wl-toggle.in:hover:not(:disabled) { color: var(--warn); }
 .symbol { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px 0 2px; font-size: 13px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
 .symbol:hover { color: var(--primary); }
 .live { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px; font-size: 11px; }

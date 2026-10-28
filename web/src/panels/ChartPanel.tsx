@@ -833,10 +833,11 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     return true;
   };
 
-  let tfButton!: HTMLButtonElement;
+  /** The timeframe menu, under the button that asked for it. */
+  const openTfMenu = (b: HTMLElement) => setTfMenu((v) => (v === null ? b.offsetLeft - (b.parentElement?.scrollLeft ?? 0) : null));
 
   return (
-    <div class="panelcol" style={{ position: 'relative' }}>
+    <div class="panelcol chartcol" style={{ position: 'relative' }}>
       <div class="toolbar">
         {/* On a phone this row is the whole top of the app, so it carries the
             menu the rest of the workspace waits behind. */}
@@ -855,17 +856,22 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         <span class="sep" />
         <For each={doc.timeframes}>
           {(tf) => (
-            <button class="tb num" classList={{ on: timeframe() === tf }} data-tip={tfName(tf)} onClick={() => setPanelTimeframe(id, tf)}>
+            <button class="tb num tf-fav" classList={{ on: timeframe() === tf }} data-tip={tfName(tf)} onClick={() => setPanelTimeframe(id, tf)}>
               {tfLabel(tf)}
             </button>
           )}
         </For>
         <Show when={!doc.timeframes.includes(timeframe())}>
-          <button class="tb num on" data-tip={tfName(timeframe())}>
+          <button class="tb num on tf-fav" data-tip={tfName(timeframe())}>
             {tfLabel(timeframe())}
           </button>
         </Show>
-        <button ref={tfButton} class="tb" data-tip="Every timeframe — star one to keep it here" onPointerDown={(e) => e.stopPropagation()} onClick={() => setTfMenu((v) => (v === null ? tfButton.offsetLeft - (tfButton.parentElement?.scrollLeft ?? 0) : null))}>
+        {/* A narrow chart folds the buttons into the timeframe shown, which opens them all (styles.css). */}
+        <button class="tb num on tf-now" data-tip={`${tfName(timeframe())} — every timeframe`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => openTfMenu(e.currentTarget)}>
+          {tfLabel(timeframe())}
+          <Icon name="chevron" size={10} />
+        </button>
+        <button class="tb tf-more" data-tip="Every timeframe — star one to keep it here" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => openTfMenu(e.currentTarget)}>
           <Icon name="chevron" size={11} />
         </button>
         </Show>
