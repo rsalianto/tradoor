@@ -575,6 +575,9 @@ export const api = {
   flowMinutes: (market: string) => json<{ market: string; thresholdUsd: number; minutes: FlowMinute[] }>(`/api/flow/minutes?market=${encodeURIComponent(market)}`),
   flowWatch: (market: string, watch: { thresholdUsd: number; notify: boolean }) => json<FlowWatch>(`/api/flow/${encodeURIComponent(market)}`, { method: 'PUT', body: watch }),
   workspace: (id: string) => json<{ id: string; name: string; doc: unknown; version: number }>(`/api/workspaces/${id}`),
+  /** The layouts this reader saved by name, newest first, and how many they may keep. */
+  layouts: () => json<{ layouts: { id: string; name: string; version: number; updatedAt: number }[]; max: number }>('/api/workspaces'),
+  deleteLayout: (id: string) => send(`/api/workspaces/${id}`, { method: 'DELETE' }),
   /** What this server records volume by price for, and at what level. */
   async footprintMarkets(): Promise<{ markets: { market: string; tick: number }[]; keptDays: number }> {
     const { body } = await request<{ markets: { market: string; tick: number }[]; keptDays: number }>('/api/footprint/markets');

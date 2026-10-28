@@ -5,13 +5,15 @@
   --primary: #aafd35;
   --bg: #070907;
   --surface: #0d100e;
-  --surface-2: #141815;
-  --surface-3: #1c211d;
+  /* The shades between are mixed from the page and its text, so a theme that
+     sets those — light or dark — gets them to match. */
+  --surface-2: color-mix(in oklab, var(--surface), var(--text) 4%);
+  --surface-3: color-mix(in oklab, var(--surface), var(--text) 8%);
   --border: #232823;
-  --grid: #171b18;
+  --grid: color-mix(in oklab, var(--surface), var(--text) 5%);
   --text: #dfe6e0;
-  --muted: #7c847d;
-  --dim: #515851;
+  --muted: color-mix(in oklab, var(--text) 55%, var(--surface));
+  --dim: color-mix(in oklab, var(--text) 33%, var(--surface));
   --bull: #aafd35;
   --bear: #ff4d5f;
   --warn: #ffc247;
@@ -21,7 +23,7 @@
   --link-red: #ff5f6d;
   --link-yellow: #ffc247;
   --font: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
-  color-scheme: dark;
+  color-scheme: var(--scheme, dark);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -136,6 +138,35 @@ button:has(> svg) > span, .venue-name, .sig-score .div { text-box: trim-both cap
 .lm-count { flex: 0 0 22px; color: var(--dim); font-size: 11px; }
 .layout-menu .lm-tpl { width: auto; padding: 4px; color: var(--muted); }
 .layout-menu .lm-tpl:hover { color: var(--primary); }
+/* The charts-on-screen menu opens under its icon at the right of the bar. */
+.layout-at.end .layout-menu { left: auto; right: 0; }
+/* Layouts: recommended, saved, as a file — a menu in the top bar, a card in Settings. */
+.layouts-menu { top: 100%; left: 0; width: 340px; padding: 0 0 6px; }
+.layouts .cap { padding: 8px 10px 4px; color: var(--muted); font-size: 11px; }
+.layouts .cap ~ .cap { margin-top: 4px; border-top: 1px solid var(--border); }
+.layouts .lo-row { display: grid; gap: 2px; justify-items: start; width: 100%; padding: 6px 10px; text-align: left; white-space: normal; }
+.layouts .lo-row:hover { background: var(--surface-3); }
+.layouts .lo-name { color: var(--text); font-size: 12px; }
+.layouts .lo-note { color: var(--dim); font-size: 11px; line-height: 1.4; }
+.layouts .lo-saved { display: flex; align-items: center; }
+.layouts .lo-saved .x { width: auto; padding: 6px 10px; color: var(--dim); }
+.layouts .lo-saved .x:hover { color: var(--bear); }
+.layouts .lo-empty { padding: 4px 10px; color: var(--dim); font-size: 11px; }
+.layouts .lo-action { justify-content: flex-start; gap: 6px; width: auto; color: var(--primary); }
+.layouts .lo-files { display: flex; gap: 4px; }
+.set-card .layouts .lo-row, .set-card .layouts .lo-action { display: grid; }
+.set-card .layouts .lo-action { display: flex; }
+/* Themes in Settings: a card each, its chart drawn small. */
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.theme-card { display: grid; gap: 4px; padding: 6px; border: 1px solid var(--border); background: var(--surface-2); text-align: left; }
+.theme-card:hover { border-color: var(--muted); }
+.theme-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.theme-preview { position: relative; display: flex; align-items: flex-end; gap: 4px; height: 56px; padding: 6px 8px 10px; border: 1px solid; overflow: hidden; }
+.theme-preview i { flex: 1; min-height: 4px; }
+.theme-preview b { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
+.theme-name { color: var(--text); font-size: 12px; }
+.theme-note { color: var(--dim); font-size: 10.5px; line-height: 1.35; }
+.set-sub { margin: 4px 0 2px; }
 .layout-menu .lm-sync-cap { margin-top: 4px; border-top: 1px solid var(--border); }
 .layout-menu .lm-sync { padding: 5px 10px; }
 .switch { position: relative; flex: none; width: 26px; height: 14px; border-radius: 7px; background: var(--surface-3); transition: background 0.12s; }

@@ -245,7 +245,7 @@ export function bareChart(from?: Partial<Pick<PanelBase, 'link' | 'market' | 'ti
 }
 
 /** A group of tabs, the first of them showing. */
-const tabsFor = (first: Panel, ...rest: Panel[]): TabsNode => ({ kind: 'tabs', id: uid('tabs'), panels: [first, ...rest].map((p) => p.id), active: first.id });
+export const tabsFor = (first: Panel, ...rest: Panel[]): TabsNode => ({ kind: 'tabs', id: uid('tabs'), panels: [first, ...rest].map((p) => p.id), active: first.id });
 
 /** What a first visit opens: the chart over TPO and Values; the watchlist with flow, signals and alerts behind it; liquidations under them. */
 export function defaultWorkspace(): WorkspaceDoc {

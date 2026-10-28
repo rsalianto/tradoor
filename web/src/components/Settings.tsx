@@ -5,6 +5,8 @@ import { ALL_EXCHANGES, ExchangeLogo } from '../lib/exchanges';
 import { Icon, type IconName } from '../lib/icons';
 import { deviceZone, LOCAL_ZONE, offsetLabel, offsetMinutes, TIME_ZONE_KEY, timeZone } from '../lib/timezone';
 import { CHART_THEME, FONT_PX, UI_THEME } from '../lib/theme';
+import { THEMES, themeOf, withTheme, type ThemePreset } from '../lib/themes';
+import { LayoutsMenu } from './LayoutsMenu';
 import { formatDateTime } from '../lib/timezone';
 import { doc, resetWorkspace, setThemeValue, update } from '../workspace/store';
 import { AccountCard, clock } from './Account';
@@ -239,11 +241,38 @@ function GeneralSection() {
   );
 }
 
-function ColoursSection() {
+/** The chart a theme draws, small: its background, a few candles each way, and the page's accent under it. */
+function ThemePreview(props: { theme: ThemePreset }) {
+  const color = (name: string): string => props.theme.colors[name] ?? [...CHART_THEME, ...UI_THEME].find((t) => t.name === name)?.value ?? '#000000';
+  const candles = [6, 10, 7, 13, 9, 15, 12, 18];
+  return (
+    <span class="theme-preview" style={{ background: color('background'), 'border-color': color('ui.border') }}>
+      <For each={candles}>{(h, i) => <i style={{ height: `${h * 3}%`, background: color(i() % 3 === 2 ? 'bear' : 'bull') }} />}</For>
+      <b style={{ background: color('ui.primary') }} />
+    </span>
+  );
+}
+
+function ThemesSection() {
+  const current = () => themeOf(doc.theme);
+  const pick = (t: ThemePreset) => update((d) => void (d.theme = withTheme(d.theme, t)));
   return (
     <>
-      <h2>Colours</h2>
-      <p class="lead">Kept with the workspace, so they follow your account too. ↺ puts one back to the default.</p>
+      <h2>Themes</h2>
+      <p class="lead">A theme colours the chart and the page around it, and is kept with the workspace, so it follows your account too.</p>
+      <div class="themes">
+        <For each={THEMES}>
+          {(t) => (
+            <button class="theme-card" classList={{ on: current() === t.id }} aria-pressed={current() === t.id} onClick={() => pick(t)}>
+              <ThemePreview theme={t} />
+              <span class="theme-name">{t.name}</span>
+              <span class="theme-note">{t.note}</span>
+            </button>
+          )}
+        </For>
+      </div>
+      <h3 class="set-sub">{current() ? 'Fine-tune it' : 'Your own colours'}</h3>
+      <p class="lead">Any colour changed here makes the theme your own; ↺ puts one back to the default.</p>
       <div class="set-card">
         <h3>Chart</h3>
         <div class="swatches">
@@ -270,14 +299,21 @@ function ColoursSection() {
         </div>
       </div>
       <div class="set-actions">
-        <button
-          class="btn"
-          onClick={() => {
-            for (const name of Object.keys(doc.theme)) setThemeValue(name, null);
-          }}
-        >
-          Reset all colours
+        <button class="btn" onClick={() => pick(THEMES[0]!)}>
+          Back to tradoor dark
         </button>
+      </div>
+    </>
+  );
+}
+
+function LayoutsSection() {
+  return (
+    <>
+      <h2>Layouts</h2>
+      <p class="lead">Start from a recommended layout, keep your own by name, or carry one as a file. The same as Layouts in the top bar.</p>
+      <div class="set-card">
+        <LayoutsMenu inSettings />
       </div>
     </>
   );
@@ -370,7 +406,8 @@ const SECTIONS: { id: string; label: string; icon: IconName }[] = [
   { id: 'account', label: 'Account', icon: 'user' },
   { id: 'telegram', label: 'Telegram', icon: 'send' },
   { id: 'general', label: 'General', icon: 'settings' },
-  { id: 'colours', label: 'Colours', icon: 'droplet' },
+  { id: 'themes', label: 'Themes', icon: 'droplet' },
+  { id: 'layouts', label: 'Layouts', icon: 'layout' },
   { id: 'advanced', label: 'Advanced', icon: 'command' },
 ];
 /** The section open last, for the next time Settings opens. */
@@ -418,8 +455,11 @@ export function Settings(props: { onClose(): void }) {
             <Show when={section() === 'general'}>
               <GeneralSection />
             </Show>
-            <Show when={section() === 'colours'}>
-              <ColoursSection />
+            <Show when={section() === 'themes'}>
+              <ThemesSection />
+            </Show>
+            <Show when={section() === 'layouts'}>
+              <LayoutsSection />
             </Show>
             <Show when={section() === 'advanced'}>
               <AdvancedSection onClose={props.onClose} />

@@ -30,6 +30,9 @@ export const CHART_THEME: readonly ThemeKey[] = [
 
 export const FONT_PX = { name: 'fontPx', value: '11' };
 
+/** Whether the page is light or dark, for the browser's own controls and scrollbars: a theme's, not a swatch. */
+export const SCHEME = { name: 'ui.scheme', css: '--scheme' };
+
 export const UI_THEME: readonly (ThemeKey & { css: string })[] = [
   { name: 'ui.primary', css: '--primary', label: 'Accent', value: '#aafd35' },
   { name: 'ui.bg', css: '--bg', label: 'Page', value: '#070907' },

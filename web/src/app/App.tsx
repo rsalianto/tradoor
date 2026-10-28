@@ -12,7 +12,7 @@ import { MARK_ORDER, MARKS, markSpec } from '../lib/exchange-marks';
 import { useDismiss } from '../lib/dismiss';
 import { Icon } from '../lib/icons';
 import { tabTitle } from '../lib/tab-title';
-import { CHART_THEME, FONT_PX, UI_THEME } from '../lib/theme';
+import { CHART_THEME, FONT_PX, SCHEME, UI_THEME } from '../lib/theme';
 import { stepTimeframe, TIMEFRAMES } from '../lib/timeframes';
 import { showAlertsPanel, startAlerts, unread } from '../lib/alerts';
 import { Toasts } from '../components/Toasts';
@@ -22,7 +22,7 @@ import { insertMarket, isSection, visible } from '../lib/watchlist';
 import { referralCard, startReferral } from '../lib/referral';
 import { Layout, panelTitle } from '../workspace/Layout';
 import { ChartPanel } from '../panels/ChartPanel';
-import { addPanel, LINK_COLORS, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, tabsOf, TPO_SPLITS, type ChartPanelState, type DropZone, type Panel, type PanelType, type WatchlistPanelState } from '../workspace/model';
+import { addPanel, LINK_COLORS, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, tabsOf, TPO_SPLITS, type ChartPanelState, type DropZone, type LayoutNode, type Panel, type PanelType, type WatchlistPanelState } from '../workspace/model';
 import {
   detached,
   doc,
@@ -51,6 +51,7 @@ const CommandPalette = lazy(() => import('../components/CommandPalette').then((m
 const IndicatorPicker = lazy(() => import('../components/IndicatorPicker').then((m) => ({ default: m.IndicatorPicker })));
 const Settings = lazy(() => import('../components/Settings').then((m) => ({ default: m.Settings })));
 const LayoutPicker = lazy(() => import('../components/LayoutPicker').then((m) => ({ default: m.LayoutPicker })));
+const LayoutsMenu = lazy(() => import('../components/LayoutsMenu').then((m) => ({ default: m.LayoutsMenu })));
 const TpoSettings = lazy(() => import('../components/TpoSettings').then((m) => ({ default: m.TpoSettings })));
 const ReferralDialog = lazy(() => import('../components/Referrals').then((m) => ({ default: m.ReferralDialog })));
 const ReferralCard = lazy(() => import('../components/Referrals').then((m) => ({ default: m.ReferralCard })));
@@ -252,7 +253,7 @@ function applyTheme(): void {
     onCleanup(() => clearInterval(timer));
   });
   createEffect(() => send({ t: 'theme', key: FONT_PX.name, value: doc.theme[FONT_PX.name] ?? FONT_PX.value }));
-  for (const t of UI_THEME) {
+  for (const t of [...UI_THEME, SCHEME]) {
     createEffect(() => {
       const value = doc.theme[t.name];
       if (value) document.documentElement.style.setProperty(t.css, value);
@@ -301,6 +302,32 @@ function Clock() {
       <span class="dim">{zoneLabel()}</span>
       <span>{formatClock(now())}</span>
     </span>
+  );
+}
+
+/** The workspace's own shape, small: a cell for each tab group, the charts filled in. It changes as the layout does. */
+function LayoutIcon() {
+  const cells = () => {
+    const out: [number, number, number, number, boolean][] = [];
+    const walk = (n: LayoutNode, x: number, y: number, w: number, h: number) => {
+      if (n.kind === 'tabs') return void out.push([x, y, w, h, doc.panels[n.active]?.type === 'chart']);
+      let at = 0;
+      n.children.forEach((child, i) => {
+        const size = n.sizes[i] ?? 0;
+        if (n.dir === 'row') walk(child, x + at * w, y, size * w, h);
+        else walk(child, x, y + at * h, w, size * h);
+        at += size;
+      });
+    };
+    walk(doc.root, 0, 0, 1, 1);
+    return out;
+  };
+  return (
+    <svg viewBox="0 0 20 14" width="20" height="14" aria-hidden="true">
+      <For each={cells()}>
+        {([x, y, w, h, chart]) => <rect x={1 + x * 18} y={1 + y * 12} width={w * 18} height={h * 12} fill={chart ? 'currentColor' : 'none'} fill-opacity="0.3" stroke="currentColor" stroke-width="1" />}
+      </For>
+    </svg>
   );
 }
 
@@ -415,8 +442,10 @@ const IS_CRAWLER = /bot\b|crawler|spider|slurp|facebookexternalhit|bingpreview|e
 
 export function App() {
   const [engineError, setEngineError] = createSignal<string | null>(null);
-  const [layoutMenu, setLayoutMenu] = createSignal(false);
-  useDismiss(layoutMenu, () => setLayoutMenu(false));
+  /** The top bar's two layout menus: the saved and recommended layouts, and the charts on screen. */
+  const [topMenu, setTopMenu] = createSignal<'layouts' | 'grid' | null>(null);
+  useDismiss(topMenu, () => setTopMenu(null));
+  const toggle = (menu: 'layouts' | 'grid') => setTopMenu(topMenu() === menu ? null : menu);
   // The engine keeps the charts' crosshairs and time in step itself, as the layout's switches say.
   createEffect(() => send({ t: 'sync', crosshair: doc.sync.crosshair, time: doc.sync.time }));
   applyTheme();
@@ -483,14 +512,22 @@ export function App() {
           <Icon name="indicators" size={12} /> <span>Training</span>
         </button>
         <span class="layout-at">
-          <button class="item" classList={{ on: layoutMenu() }} data-tip="Charts on screen: a layout of one to twenty" onPointerDown={(e) => e.stopPropagation()} onClick={() => setLayoutMenu(!layoutMenu())}>
-            <Icon name="layout" size={12} /> <span>{doc.name}</span>
+          <button class="item" classList={{ on: topMenu() === 'layouts' }} data-tip={`Layouts: recommended, your own, and as a file — ${doc.name} in use`} onPointerDown={(e) => e.stopPropagation()} onClick={() => toggle('layouts')}>
+            <Icon name="layout" size={12} /> <span>Layouts</span>
           </button>
-          <Show when={layoutMenu()}>
-            <LayoutPicker onClose={() => setLayoutMenu(false)} />
+          <Show when={topMenu() === 'layouts'}>
+            <LayoutsMenu onClose={() => setTopMenu(null)} />
           </Show>
         </span>
         <span class="spacer" />
+        <span class="layout-at end">
+          <button class="item icon" classList={{ on: topMenu() === 'grid' }} data-tip="Charts on screen, and what they keep in step" aria-label="Charts on screen" onPointerDown={(e) => e.stopPropagation()} onClick={() => toggle('grid')}>
+            <LayoutIcon />
+          </button>
+          <Show when={topMenu() === 'grid'}>
+            <LayoutPicker onClose={() => setTopMenu(null)} />
+          </Show>
+        </span>
         <button class="item ref-btn" data-tip="Partner exchanges: Nado, Bybit and Binance" onClick={() => setOverlay({ kind: 'referrals' })}>
           <Icon name="gift" size={13} /> <span>Rewards</span>
         </button>

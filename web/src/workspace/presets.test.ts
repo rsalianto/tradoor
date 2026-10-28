@@ -1,0 +1,46 @@
+import { assert, assertEquals } from 'jsr:@std/assert';
+import { defaultWorkspace, validate, type LayoutNode, type WorkspaceDoc } from './model.ts';
+import { applyLayout, LAYOUTS } from './presets.ts';
+
+const placed = (node: LayoutNode): string[] => (node.kind === 'tabs' ? node.panels : node.children.flatMap(placed));
+const preset = (id: string) => LAYOUTS.find((l) => l.id === id)!;
+const charts = (doc: WorkspaceDoc) => placed(doc.root).map((id) => doc.panels[id]!).filter((p) => p.type === 'chart');
+
+Deno.test('every recommended layout is a workspace that reads back whole', () => {
+  for (const l of LAYOUTS) {
+    const doc = defaultWorkspace();
+    applyLayout(doc, l);
+    const back = validate(JSON.parse(JSON.stringify(doc)));
+    assert(back, `${l.id} reads back`);
+    assertEquals(placed(back.root).sort(), Object.keys(doc.panels).sort(), `${l.id}: every panel placed, none lost`);
+    assertEquals(back.sync, doc.sync, `${l.id}: its sync switches kept`);
+    assertEquals(back.name, l.name);
+  }
+});
+
+Deno.test('a layout keeps the theme and the favourite timeframes', () => {
+  const doc = defaultWorkspace();
+  doc.theme = { bull: '#123456' };
+  doc.timeframes = ['5m', '1h'];
+  applyLayout(doc, preset('order-flow'));
+  assertEquals(doc.theme, { bull: '#123456' });
+  assertEquals(doc.timeframes, ['5m', '1h']);
+});
+
+Deno.test('multi-timeframe is one ticker at four timeframes, kept on the same ticker', () => {
+  const doc = defaultWorkspace();
+  applyLayout(doc, preset('multi-timeframe'));
+  const shown = charts(doc);
+  const tf = (p: (typeof shown)[number]) => (p.link ? doc.links[p.link].timeframe : p.timeframe);
+  assertEquals(shown.map(tf), ['4h', '1h', '15m', '5m']);
+  assertEquals(doc.sync.symbol && !doc.sync.interval, true, 'the ticker in step, each its timeframe');
+});
+
+Deno.test('order flow leads with a footprint and its profile', () => {
+  const doc = defaultWorkspace();
+  applyLayout(doc, preset('order-flow'));
+  const [footprint, tpo] = charts(doc);
+  assert(footprint?.footprint, 'a footprint first');
+  assertEquals(tpo?.tpo, '1d', 'then TPO by day');
+  assert(Object.values(doc.panels).some((p) => p.type === 'flow') && Object.values(doc.panels).some((p) => p.type === 'liquidations'));
+});
