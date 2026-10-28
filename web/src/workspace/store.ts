@@ -9,7 +9,7 @@ import { createStore, reconcile, unwrap } from 'solid-js/store';
 import { api, ApiError } from '../lib/api';
 import { identity } from '../lib/owner';
 import { readJson, readPref, writePref } from '../lib/prefs';
-import { defaultWorkspace, tabsOf, validate, type ChartPanelState, type LinkColor, type Panel, type WorkspaceDoc } from './model';
+import { defaultWorkspace, tabsOf, validate, type ChartPanelState, type LinkColor, type Panel, type SyncState, type WorkspaceDoc } from './model';
 import { TIMEFRAMES } from '../lib/timeframes';
 
 const LOCAL_KEY = 'workspace';
@@ -122,6 +122,17 @@ export function patchPanel(id: string, patch: Partial<Omit<ChartPanelState, 'id'
   touched();
 }
 
+/** Every chart on one ticker or one timeframe: a linked chart moves its group, the rest themselves. */
+function stepCharts(key: 'market' | 'timeframe', value: string): void {
+  batch(() => {
+    for (const p of Object.values(doc.panels)) {
+      if (p.type !== 'chart') continue;
+      if (p.link) setDoc('links', p.link, key, value);
+      setDoc('panels', p.id, key, value);
+    }
+  });
+}
+
 export function setPanelMarket(id: string, market: string): void {
   const p = doc.panels[id];
   if (!p && detached[id]) {
@@ -129,6 +140,11 @@ export function setPanelMarket(id: string, market: string): void {
     return;
   }
   if (!p || marketOf(p) === market) return;
+  if (doc.sync.symbol && p.type === 'chart') {
+    stepCharts('market', market);
+    touched();
+    return;
+  }
   batch(() => {
     if (p.link) setDoc('links', p.link, 'market', market);
     setDoc('panels', id, 'market', market);
@@ -143,6 +159,11 @@ export function setPanelTimeframe(id: string, timeframe: string): void {
     return;
   }
   if (!p || timeframeOf(p) === timeframe) return;
+  if (doc.sync.interval && p.type === 'chart') {
+    stepCharts('timeframe', timeframe);
+    touched();
+    return;
+  }
   batch(() => {
     if (p.link) setDoc('links', p.link, 'timeframe', timeframe);
     setDoc('panels', id, 'timeframe', timeframe);
@@ -177,7 +198,20 @@ export function setPanelLink(id: string, color: LinkColor | null): void {
 
 export function setLinkMarket(color: LinkColor, market: string): void {
   if (doc.links[color].market === market) return;
-  setDoc('links', color, 'market', market);
+  batch(() => {
+    setDoc('links', color, 'market', market);
+    if (doc.sync.symbol) stepCharts('market', market);
+  });
+  touched();
+}
+
+/** A sync switch: turned on, every chart takes the one in use's ticker or timeframe at once. */
+export function setSync(key: keyof SyncState, on: boolean): void {
+  batch(() => {
+    setDoc('sync', key, on);
+    const chart = targetChart();
+    if (on && chart) stepCharts(key === 'symbol' ? 'market' : 'timeframe', key === 'symbol' ? marketOf(chart) : timeframeOf(chart));
+  });
   touched();
 }
 

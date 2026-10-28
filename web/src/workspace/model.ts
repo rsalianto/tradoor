@@ -157,6 +157,14 @@ export interface LinkState {
   timeframe: string;
 }
 
+/** What every chart keeps in step, whatever its link — TradingView's sync in layout. */
+export interface SyncState {
+  /** One ticker on every chart: change one and they all change. */
+  symbol: boolean;
+  /** One timeframe on every chart. */
+  interval: boolean;
+}
+
 export interface WorkspaceDoc {
   v: 1;
   name: string;
@@ -169,6 +177,7 @@ export interface WorkspaceDoc {
   theme: Record<string, string>;
   /** The timeframes a chart's bar shows as buttons, shortest first; the rest are in its menu. */
   timeframes: string[];
+  sync: SyncState;
 }
 
 export type DropZone = 'center' | 'left' | 'right' | 'top' | 'bottom';
@@ -262,6 +271,7 @@ export function defaultWorkspace(): WorkspaceDoc {
     links,
     theme: {},
     timeframes: [...FAVORITE_TIMEFRAMES],
+    sync: { symbol: false, interval: false },
   };
 }
 
@@ -377,7 +387,8 @@ export function validate(raw: unknown): WorkspaceDoc | null {
   const savedAt = Number(raw.savedAt);
   // Kept in the list's own order; a layout from before favourites has the usual ones.
   const timeframes = Array.isArray(raw.timeframes) ? TIMEFRAMES.map((t) => t.value).filter((tf) => (raw.timeframes as unknown[]).includes(tf)) : [...FAVORITE_TIMEFRAMES];
-  return { v: 1, name: str(raw.name, '').slice(0, 120) || 'Default', savedAt: Number.isFinite(savedAt) ? savedAt : 0, root, panels, links, theme, timeframes };
+  const sync = { symbol: isObj(raw.sync) && raw.sync.symbol === true, interval: isObj(raw.sync) && raw.sync.interval === true };
+  return { v: 1, name: str(raw.name, '').slice(0, 120) || 'Default', savedAt: Number.isFinite(savedAt) ? savedAt : 0, root, panels, links, theme, timeframes, sync };
 }
 
 // ---------------------------------------------------------------- the tree

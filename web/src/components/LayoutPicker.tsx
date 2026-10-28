@@ -1,10 +1,12 @@
 /**
  * The workspace's layout menu, opened from its name in the top bar: templates
- * of one chart to twenty, as TradingView has them. The side panels keep their
- * place at the right; see workspace/templates.
+ * of one chart to twenty, as TradingView has them, and what every chart keeps
+ * in step. The side panels keep their place at the right; see
+ * workspace/templates.
  */
 import { For } from 'solid-js';
-import { doc, update } from '../workspace/store';
+import type { SyncState } from '../workspace/model';
+import { doc, setSync, update } from '../workspace/store';
 import { applyTemplate, cellRects, surplus, TEMPLATES, type Template } from '../workspace/templates';
 
 /** The template's cells, drawn small. */
@@ -17,6 +19,11 @@ function TemplateIcon(props: { template: Template }) {
     </svg>
   );
 }
+
+const SYNCS: { key: keyof SyncState; label: string; tip: string }[] = [
+  { key: 'symbol', label: 'Symbol', tip: 'Every chart on one ticker: change it on one and they all change' },
+  { key: 'interval', label: 'Interval', tip: 'Every chart on one timeframe' },
+];
 
 export function LayoutPicker(props: { onClose(): void }) {
   const counts = [...new Set(TEMPLATES.map((t) => t.count))];
@@ -41,6 +48,15 @@ export function LayoutPicker(props: { onClose(): void }) {
               )}
             </For>
           </div>
+        )}
+      </For>
+      <div class="cap lm-sync-cap">Keep in step</div>
+      <For each={SYNCS}>
+        {(s) => (
+          <button class="lm-sync" role="switch" aria-checked={doc.sync[s.key]} data-tip={s.tip} onClick={() => setSync(s.key, !doc.sync[s.key])}>
+            <span>{s.label}</span>
+            <span class="switch" classList={{ on: doc.sync[s.key] }} />
+          </button>
         )}
       </For>
     </div>
