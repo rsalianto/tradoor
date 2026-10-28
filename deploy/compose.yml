@@ -48,12 +48,13 @@ services:
 
   # Copies the web app out of the image into ./web, where nginx serves it, and
   # exits. Assets from the last week stay, so a tab opened before a deploy can
-  # still load the files it names.
+  # still load the files it names; a file at the top that the build no longer
+  # makes (ga.js) goes.
   web:
     image: ${TRADOOR_IMAGE:-tradoor:latest}
     user: "0:0"
     restart: "no"
-    command: ["sh", "-c", "mkdir -p /out/assets && find /out/assets -type f -mtime +7 -delete && cp -r /app/web/. /out/"]
+    command: ["sh", "-c", "mkdir -p /out/assets && find /out/assets -type f -mtime +7 -delete && cp -r /app/web/. /out/ && for f in /out/*; do [ -f \"$$f\" ] && [ ! -e \"/app/web/$${f##*/}\" ] && rm -f \"$$f\"; done; true"]
     volumes:
       - ./web:/out
 
