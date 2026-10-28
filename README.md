@@ -382,12 +382,12 @@ sitemap or links in the messages.
 
 <br>
 
-Set the repository variable `GA_ID` to a Google Analytics 4 measurement id
-(`gh variable set GA_ID --body G-XXXXXXXXXX`) and the next build adds Google's
-tag, counting page views, with the Content Security Policy widened to Google's
-tag host (`web/site.ts`). Google sets its own cookie; the browser id tradoor
-keeps drawings and layouts under is not given to it. Without `GA_ID` the page
-loads nothing from Google.
+Set the repository variable `CF_BEACON` to a Cloudflare Web Analytics token
+(`gh variable set CF_BEACON --body <token>`) and the next build adds Cloudflare's
+beacon, counting page views, with the Content Security Policy widened to its
+host (`web/site.ts`; `deploy/nginx/security-headers.conf` sends the same). It
+sets no cookie, and the browser id tradoor keeps drawings and layouts under is
+not given to it. Without `CF_BEACON` the page loads no analytics at all.
 
 </details>
 
@@ -399,8 +399,8 @@ loads nothing from Google.
 Rewards in the top bar (Partner exchanges in a phone's menu) lists the Nado,
 Bybit and Binance referral links (`web/src/components/Referrals.tsx`). A card offers
 them once per browser, a minute into its first visit, and not again once
-closed or used; a click is counted in Analytics as `referral_click`. Open the
-site once with `?noreferral` on a device and the card is never offered there.
+closed or used. Open the site once with `?noreferral` on a device and the card
+is never offered there.
 
 </details>
 

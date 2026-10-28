@@ -304,8 +304,9 @@ function Clock() {
   );
 }
 
+/** Said only when the layout is not safely saved; saved, the corner keeps the link to the code. */
 const SAVE_TEXT = {
-  saved: 'layout saved',
+  saved: '',
   pending: 'layout changed',
   saving: 'saving layout…',
   local: 'layout saved in this browser only',
@@ -333,6 +334,9 @@ function StatusBar() {
       </For>
       <span class="spacer" />
       <span classList={{ warn: saveState() === 'local' || saveState() === 'conflict' }}>{SAVE_TEXT[saveState()]}</span>
+      <a class="gh" href="https://github.com/rsalianto/tradoor" target="_blank" rel="noopener" data-tip="tradoor on GitHub — open source, AGPL-3.0" aria-label="tradoor on GitHub">
+        <Icon name="github" size={13} fill stroke={0} />
+      </a>
     </footer>
   );
 }

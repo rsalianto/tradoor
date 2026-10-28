@@ -77,6 +77,8 @@ kbd { border: 1px solid var(--border); background: var(--surface-2); padding: 0 
 .topbar .item.icon { justify-content: center; min-width: 34px; padding: 0 8px; }
 .statusbar { display: flex; align-items: center; gap: 12px; padding: 0 8px; border-top: 1px solid var(--border); background: var(--surface); font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; }
 .statusbar .hint-key { display: flex; align-items: center; gap: 4px; }
+.statusbar .gh { display: flex; color: var(--dim); }
+.statusbar .gh:hover { color: var(--text); }
 /* Text in the bars of fixed height sits on its cap height, not on the font's
    whole line box: digits and capitals carry no descender, so a line box leaves
    the space under them empty and the text reads a pixel or two high — plain to

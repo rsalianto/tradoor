@@ -105,10 +105,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # The repository variable SITE_URL (https://your-domain), for SEO tags and the
-          # sitemap, and GA_ID (G-XXXXXXXXXX), for Google Analytics; unset is none.
+          # sitemap, and CF_BEACON (a Cloudflare Web Analytics token), for analytics;
+          # unset is none.
           build-args: |
             SITE_URL=${{ vars.SITE_URL }}
-            GA_ID=${{ vars.GA_ID }}
+            CF_BEACON=${{ vars.CF_BEACON }}
 
       - name: SSH key
         env:

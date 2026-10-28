@@ -48,10 +48,10 @@ COPY web web
 RUN cargo build --release --locked -p tradoor-server -p tradoor-recorder -p tradoor-backfill
 RUN ./scripts/build-wasm.sh
 # The site's public address, for its canonical URL, preview image and sitemap,
-# and a Google Analytics measurement id, empty for none (web/site.ts).
+# and a Cloudflare Web Analytics token, empty for none (web/site.ts).
 ARG SITE_URL=""
-ARG GA_ID=""
-RUN cd web && SITE_URL="${SITE_URL}" GA_ID="${GA_ID}" deno task build
+ARG CF_BEACON=""
+RUN cd web && SITE_URL="${SITE_URL}" CF_BEACON="${CF_BEACON}" deno task build
 
 FROM debian:trixie-slim
 RUN apt-get update \

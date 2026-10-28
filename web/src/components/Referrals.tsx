@@ -11,8 +11,6 @@ import { Icon } from '../lib/icons';
 import { dismissReferralCard } from '../lib/referral';
 
 interface Partner {
-  /** What a click is counted as. */
-  id: string;
   name: string;
   Logo: Component<{ size?: number }>;
   url: string;
@@ -43,7 +41,6 @@ const exchangeLogo =
 
 const PARTNERS: readonly Partner[] = [
   {
-    id: 'nado',
     name: 'Nado',
     Logo: NadoLogo,
     url: 'https://app.nado.xyz?join=tradoor',
@@ -51,15 +48,9 @@ const PARTNERS: readonly Partner[] = [
     more: 'Self-custody perps and spot on Ink · up to 20× · orders matched in 5–15 ms',
     lead: true,
   },
-  { id: 'bybit', name: 'Bybit', Logo: exchangeLogo('bybit'), url: 'https://www.bybitglobal.com/invite?ref=P5RO8W&medium=referral&utm_campaign=evergreen&share_to=post', offer: 'Perpetuals · spot · copy trading' },
-  { id: 'binance', name: 'Binance', Logo: exchangeLogo('binance'), url: 'https://www.bmwweb.biz/referral/earn-together/refer2earn-usdc/claim?hl=en&ref=GRO_28502_YJYU6&utm_source=referral_entrance', offer: 'Spot · futures · the deepest books' },
+  { name: 'Bybit', Logo: exchangeLogo('bybit'), url: 'https://www.bybitglobal.com/invite?ref=P5RO8W&medium=referral&utm_campaign=evergreen&share_to=post', offer: 'Perpetuals · spot · copy trading' },
+  { name: 'Binance', Logo: exchangeLogo('binance'), url: 'https://www.bmwweb.biz/referral/earn-together/refer2earn-usdc/claim?hl=en&ref=GRO_28502_YJYU6&utm_source=referral_entrance', offer: 'Spot · futures · the deepest books' },
 ];
-
-/** A link used: counted by the site's analytics, when it has them, and the card not offered again. */
-function used(partner: string, from: 'dialog' | 'card'): void {
-  (globalThis as { gtag?: (...args: unknown[]) => void }).gtag?.('event', 'referral_click', { exchange: partner, from });
-  dismissReferralCard();
-}
 
 export function ReferralDialog(props: { onClose(): void }) {
   return (
@@ -88,7 +79,7 @@ export function ReferralDialog(props: { onClose(): void }) {
         <div class="ref-list">
           <For each={PARTNERS}>
             {(p) => (
-              <a class="ref-row" classList={{ lead: p.lead }} href={p.url} target="_blank" rel="sponsored noopener" onClick={() => used(p.id, 'dialog')}>
+              <a class="ref-row" classList={{ lead: p.lead }} href={p.url} target="_blank" rel="sponsored noopener" onClick={dismissReferralCard}>
                 <Dynamic component={p.Logo} size={28} />
                 <span class="who">
                   <b>
@@ -127,7 +118,7 @@ export function ReferralCard() {
       <p>Sign up through tradoor's links — no extra cost, new-user rewards on Bybit and Binance, and it keeps the charts free.</p>
       <For each={PARTNERS.filter((p) => p.lead)}>
         {(p) => (
-          <a class="lead" href={p.url} target="_blank" rel="sponsored noopener" onClick={() => used(p.id, 'card')}>
+          <a class="lead" href={p.url} target="_blank" rel="sponsored noopener" onClick={dismissReferralCard}>
             <Dynamic component={p.Logo} size={24} />
             <span class="who">
               <b>
@@ -143,7 +134,7 @@ export function ReferralCard() {
       <div class="pair">
         <For each={PARTNERS.filter((p) => !p.lead)}>
           {(p) => (
-            <a href={p.url} target="_blank" rel="sponsored noopener" onClick={() => used(p.id, 'card')}>
+            <a href={p.url} target="_blank" rel="sponsored noopener" onClick={dismissReferralCard}>
               <Dynamic component={p.Logo} size={18} />
               {p.name}
               <Icon name="external" size={10} stroke={2} />
