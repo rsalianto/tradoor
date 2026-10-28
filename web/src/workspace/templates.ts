@@ -6,11 +6,12 @@
  *
  * The charts already open fill the cells in the order they stand, keeping all
  * they have; a cell left over gets a new chart on the next ticker of the
- * watchlist, so twenty charts are twenty tickers. Charts past the last cell are
- * closed — the caller asks first.
+ * watchlist, so twenty charts are twenty tickers. Among several, a new chart is
+ * bare and every legend folded (see `bareChart`). Charts past the last cell
+ * are closed — the caller asks first.
  */
 import { isSection } from '../lib/watchlist';
-import { DEFAULT_TIMEFRAME, DEFAULT_WATCHLIST, newPanel, normalize, uid, type ChartPanelState, type LayoutNode, type Panel, type TabsNode, type WorkspaceDoc } from './model';
+import { bareChart, DEFAULT_TIMEFRAME, DEFAULT_WATCHLIST, newPanel, normalize, uid, type ChartPanelState, type LayoutNode, type Panel, type TabsNode, type WorkspaceDoc } from './model';
 
 /** A template's shape: a cell, or a split of shapes. */
 export type Shape = 'cell' | { dir: 'row' | 'column'; sizes?: number[]; of: Shape[] };
@@ -118,10 +119,12 @@ export function applyTemplate(doc: WorkspaceDoc, template: Template): number {
   const next = [...new Set([...listed, ...DEFAULT_WATCHLIST, ...POPULAR])].filter((m) => !isSection(m) && !shown.has(m));
   while (kept.length < template.count) {
     const market = next.shift() ?? marketOf(doc.panels[kept[0] ?? ''] ?? newPanel('chart'));
-    const chart = newPanel('chart', { link: null, market, timeframe });
+    const chart = template.count > 1 ? bareChart({ link: null, market, timeframe }) : newPanel('chart', { link: null, market, timeframe });
     doc.panels[chart.id] = chart;
     kept.push(chart.id);
   }
+  // Among several, every chart's legend is folded: its indicators stay, out of the way.
+  if (template.count > 1) for (const id of kept) (doc.panels[id] as ChartPanelState).legendShut = true;
 
   let at = 0;
   const build = (shape: Shape): LayoutNode => {

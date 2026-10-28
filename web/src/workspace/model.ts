@@ -235,6 +235,15 @@ export function newPanel(type: PanelType, from?: Partial<Pick<PanelBase, 'link' 
   }
 }
 
+/**
+ * A chart among several: candles and volume alone, its legend folded. A screen
+ * of many charts has no room for a column of indicators down each, nor a
+ * pane of RSI under it; any of them is a click away in the legend.
+ */
+export function bareChart(from?: Partial<Pick<PanelBase, 'link' | 'market' | 'timeframe'>>): ChartPanelState {
+  return { ...(newPanel('chart', from) as ChartPanelState), studies: '', hidden: 'ribbon,ema200,liquidations', legendShut: true };
+}
+
 /** A group of tabs, the first of them showing. */
 const tabsFor = (first: Panel, ...rest: Panel[]): TabsNode => ({ kind: 'tabs', id: uid('tabs'), panels: [first, ...rest].map((p) => p.id), active: first.id });
 

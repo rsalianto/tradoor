@@ -45,6 +45,26 @@ Deno.test('new charts take the next tickers of the watchlist, unlinked', () => {
   assertEquals(new Set(fresh.map((p) => p.market)).size, fresh.length, 'no two alike');
 });
 
+Deno.test('among several, a new chart is bare and every legend folded', () => {
+  const doc = defaultWorkspace();
+  const first = charts(doc)[0]!;
+  assertEquals(first.studies !== '' && first.legendShut, false, 'the default chart starts with its indicators, legend open');
+  applyTemplate(doc, template('4g'));
+  const shown = charts(doc);
+  assert(shown.every((p) => p.legendShut), 'every legend folded');
+  assertEquals(shown[0]!.studies, first.studies, 'a chart that had indicators keeps them');
+  for (const fresh of shown.slice(2)) {
+    assertEquals(fresh.studies, '', 'no RSI pane under a new one');
+    assertEquals(fresh.hidden, 'ribbon,ema200,liquidations', 'candles and volume alone');
+  }
+});
+
+Deno.test('one chart alone keeps its legend as it was', () => {
+  const doc = defaultWorkspace();
+  applyTemplate(doc, template('1'));
+  assertEquals(charts(doc)[0]!.legendShut, false);
+});
+
 Deno.test('twenty charts are twenty tickers, past the end of the watchlist', () => {
   const doc = defaultWorkspace();
   applyTemplate(doc, template('20c'));

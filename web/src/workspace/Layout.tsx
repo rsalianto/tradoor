@@ -12,7 +12,7 @@ import { symbolOf } from '../lib/markets';
 import { tfLabel } from '../lib/timeframes';
 import { ChartPanel } from '../panels/ChartPanel';
 import { WatchlistPanel } from '../panels/WatchlistPanel';
-import { activate, addPanel, LINK_COLORS, movePanel, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, setSizes, tabsOf, type DropZone, type LayoutNode, type Panel, type PanelType, type SplitNode, type TabsNode } from './model';
+import { activate, addPanel, bareChart, LINK_COLORS, movePanel, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, setSizes, tabsOf, type DropZone, type LayoutNode, type Panel, type PanelType, type SplitNode, type TabsNode } from './model';
 import { doc, focusedPanelId, focusPanel, marketOf, setPanelLink, targetChart, timeframeOf, update } from './store';
 
 // Side panels, fetched when a layout shows one: the chart and watchlist come first.
@@ -328,9 +328,10 @@ function TabsView(props: { node: TabsNode }) {
     const from = active();
     // A new chart starts on its own, on the ticker it came from: many charts
     // are many tickers, and a link would turn them all with the first one
-    // changed. TPO and the side panels follow the chart they came from.
-    const link = type === 'chart' ? null : from?.link;
-    const panel = newPanel(type, from ? { link, market: marketOf(from), timeframe: timeframeOf(from) } : undefined);
+    // changed. Beside another it is bare. TPO and the side panels follow the
+    // chart they came from.
+    const at = from ? { link: type === 'chart' ? null : from.link, market: marketOf(from), timeframe: timeframeOf(from) } : undefined;
+    const panel = type === 'chart' && Object.values(doc.panels).some((p) => p.type === 'chart') ? bareChart(at) : newPanel(type, at);
     update((d) => addPanel(d, panel, props.node.id, where));
     focusPanel(panel.id);
   };
