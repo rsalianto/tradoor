@@ -61,3 +61,13 @@ Deno.test('the watchlists stay the reader\'s whatever layout is picked', () => {
     assertEquals([first.markets, first.collapsed, first.flags], [['#Mine', 'bybit-perp:XRPUSDT', 'okx-perp:DOGEUSDT'], ['Mine'], { 'bybit-perp:XRPUSDT': 'red' }], `${l.id} keeps the list`);
   }
 });
+
+Deno.test('dom & tape puts the book and every trade beside a one-minute chart, all on one ticker', () => {
+  const doc = defaultWorkspace();
+  applyLayout(doc, preset('dom-tape'));
+  const shown = placed(doc.root).map((id) => doc.panels[id]!);
+  const of = (type: string) => shown.filter((p) => p.type === type);
+  assertEquals([of('chart').length, of('dom').length, of('tape').length], [1, 1, 1]);
+  assert([...of('chart'), ...of('dom'), ...of('tape')].every((p) => p.link === 'green'), 'one link: a new ticker moves all three');
+  assertEquals(doc.links.green.timeframe, '1m');
+});

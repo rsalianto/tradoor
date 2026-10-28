@@ -445,6 +445,30 @@ table.tape tr.big td { font-weight: 700; background: color-mix(in oklab, current
 /* Each exchange behind the tape and whether its socket is up: logos in the
    toolbar, the table on hover. */
 .liq { position: relative; }
+/* DOM and tape: drawn on a canvas filling the panel; see panels/flow-canvas. */
+.flowpanel { position: relative; container-type: inline-size; }
+@container (max-width: 520px) {
+  .flowpanel .toolbar .venue-name, .flowpanel .toolbar .venue .kind { display: none; }
+  .flowpanel .toolbar .tb { padding: 2px 3px; }
+  .flowpanel .toolbar select { max-width: 74px; }
+}
+/* Narrower still: centering is a double-click, clearing and the columns a right-click. */
+@container (max-width: 380px) {
+  .flowpanel .toolbar .dom-opt, .dom-trade .dom-size .dim { display: none; }
+  .dom-size input { width: 60px; }
+}
+.flowcanvas { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.flowcanvas canvas { display: block; }
+.flowpanel .toolbar .conn { margin-right: 4px; }
+.dom-menu { top: 26px; right: 4px; min-width: 170px; }
+.dom-foot { flex: none; display: flex; gap: 14px; padding: 3px 8px; border-top: 1px solid var(--border); background: var(--surface-2); font-size: 11px; white-space: nowrap; overflow: hidden; }
+.dom-foot .caps { font-size: 9px; margin-right: 2px; }
+.dom-trade { flex: none; display: flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 6px; border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: 11px; white-space: nowrap; overflow: hidden; }
+.dom-trade > span { overflow: hidden; text-overflow: ellipsis; }
+.dom-size { display: inline-flex; align-items: center; gap: 4px; }
+.dom-size input { width: 72px; height: 18px; padding: 0 4px; }
+.dom-trade .tb.dom-buy { color: var(--bull); }
+.dom-trade .tb.dom-sell { color: var(--bear); }
 .liq-venues { gap: 3px; }
 .liq-venues > span { display: inline-flex; }
 .liq-venues > span.down { opacity: 0.35; filter: grayscale(1); }
@@ -1053,6 +1077,9 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 .training .tr-worth .dim { margin-right: 4px; font-size: 10px; }
 .tr-body { display: grid; flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) 280px; grid-template-rows: minmax(0, 1fr) minmax(150px, 32%); grid-template-areas: 'chart ticket' 'tabs ticket'; }
 .tr-chart { grid-area: chart; display: flex; min-width: 0; min-height: 0; border-bottom: 1px solid var(--border); }
+.tr-body.with-dom { grid-template-columns: minmax(0, 1fr) minmax(300px, 26%) 280px; grid-template-areas: 'chart dom ticket' 'tabs dom ticket'; }
+.tr-dom { grid-area: dom; display: flex; min-width: 0; min-height: 0; border-left: 1px solid var(--border); }
+.dom-coin { padding: 0 4px; font-weight: 700; }
 .tr-ticket { grid-area: ticket; display: flex; flex-direction: column; gap: 9px; min-height: 0; padding: 10px; overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); font-size: 11px; }
 .tr-price { display: flex; align-items: baseline; justify-content: space-between; font-size: 15px; font-weight: 600; }
 .tr-price .tr-coin { color: var(--muted); font-size: 11px; font-weight: 500; }
@@ -1095,6 +1122,8 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .tr-body { display: flex; flex-direction: column; overflow-y: auto; }
   .tr-chart { flex: none; height: 52dvh; }
+  /* A phone has no room beside the chart for the book. */
+  .tr-dom, .tr-dom-toggle { display: none; }
   .tr-ticket { flex: none; border-left: 0; border-bottom: 1px solid var(--border); }
   .tr-ticket .dinput { height: 34px; font-size: 16px; }
   .tr-sides button { padding: 10px 4px; }

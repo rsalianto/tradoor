@@ -17,7 +17,11 @@ export type StreamSpec =
   | { kind: 'trades'; symbol: string }
   | { kind: 'ticker'; symbol: string }
   /// Positions the exchange closed out — perpetuals only.
-  | { kind: 'liquidations'; symbol: string };
+  | { kind: 'liquidations'; symbol: string }
+  /// Every trade with the side that took it, and the order book: the DOM and
+  /// tape panels' own sockets (see orderflow-streams).
+  | { kind: 'prints'; symbol: string }
+  | { kind: 'book'; symbol: string };
 
 export interface KlineMsg {
   kind: 'kline';
@@ -56,7 +60,32 @@ export interface LiquidationMsg {
   long: boolean;
 }
 
-export type StreamMsg = KlineMsg | TradeMsg | TickerMsg | LiquidationMsg;
+/** A trade and its aggressor: `buy`, the taker bought. */
+export interface PrintMsg {
+  kind: 'print';
+  time: number;
+  price: number;
+  qty: number;
+  buy: boolean;
+}
+
+/**
+ * Order book levels as `[price, size]`, a size of 0 taken away. `reset`: the
+ * whole book rather than changes to it. `last` and `prev` number the changes
+ * where the exchange does, so a missed one shows: `prev` is the `last` the
+ * one before carried. `first` is Binance's, for matching changes to a snapshot.
+ */
+export interface BookMsg {
+  kind: 'book';
+  reset: boolean;
+  bids: [number, number][];
+  asks: [number, number][];
+  first?: number;
+  last?: number;
+  prev?: number;
+}
+
+export type StreamMsg = KlineMsg | TradeMsg | TickerMsg | LiquidationMsg | PrintMsg | BookMsg;
 
 export interface StreamListener {
   message(msg: StreamMsg): void;
@@ -299,7 +328,7 @@ const LINGER_MS = 10_000;
 
 type Timer = ReturnType<typeof setTimeout>;
 
-class Connection {
+export class Connection {
   private ws: WebSocket | null = null;
   private current: SocketState = 'connecting';
   private readonly topics = new Map<string, Set<StreamListener>>();

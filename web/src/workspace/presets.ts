@@ -1,7 +1,8 @@
 /**
  * Layouts to start from, in the Layouts menu: Classic, the first visit's;
- * Multi-timeframe, one ticker at four timeframes; and Order flow, the footprint
- * and its profile with the flow and liquidations under them. Picking one lays
+ * Multi-timeframe, one ticker at four timeframes; Order flow, the footprint
+ * and its profile with the flow and liquidations under them; and DOM & Tape,
+ * a one-minute chart beside the order book and every trade. Picking one lays
  * out the panels; the workspace keeps its theme, favourite timeframes and
  * watchlists.
  */
@@ -79,6 +80,35 @@ export const LAYOUTS: readonly LayoutPreset[] = [
         panels: byId(footprint, tpo, flow, liquidations, watchlist, values, signals, alerts),
         links: links(green),
         sync: { symbol: true, interval: false, crosshair: true, time: true },
+      };
+    },
+  },
+  {
+    id: 'dom-tape',
+    name: 'DOM & Tape',
+    note: 'A one-minute chart beside the order book and every trade as it prints, with liquidations and flow under the chart',
+    build: () => {
+      // All on the green link: a new ticker in the chart is a new book and tape.
+      const green = { market: DEFAULT_MARKET, timeframe: '1m' };
+      const at = { link: 'green' as const, ...green };
+      const chart: ChartPanelState = { ...bareChart(at), hidden: 'ribbon,ema200', legendShut: false };
+      const dom = newPanel('dom', at);
+      const tape = newPanel('tape', at);
+      const liquidations = newPanel('liquidations', at);
+      const flow = newPanel('flow', at);
+      const watchlist = newPanel('watchlist', at);
+      const values = newPanel('values', at);
+      const signals = newPanel('signals', at);
+      const alerts = newPanel('alerts', at);
+      return {
+        root: split('row', [0.47, 0.31, 0.22], [
+          split('column', [0.7, 0.3], [tabsFor(chart), split('row', [0.5, 0.5], [tabsFor(liquidations), tabsFor(flow)])]),
+          tabsFor(dom),
+          split('column', [0.62, 0.38], [tabsFor(tape), tabsFor(watchlist, values, signals, alerts)]),
+        ]),
+        panels: byId(chart, dom, tape, liquidations, flow, watchlist, values, signals, alerts),
+        links: links(green),
+        sync: { symbol: true, interval: false, crosshair: false, time: false },
       };
     },
   },

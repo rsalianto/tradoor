@@ -13,7 +13,7 @@ const isSectionItem = (v: unknown): v is string => typeof v === 'string' && isSe
 import { FAVORITE_TIMEFRAMES, isTimeframe, TIMEFRAMES } from '../lib/timeframes';
 
 /** What a new panel can be. `tpo` is a preset: a chart drawn as TPO profiles. */
-export type PanelType = 'chart' | 'watchlist' | 'tpo' | 'values' | 'liquidations' | 'flow' | 'signals' | 'alerts';
+export type PanelType = 'chart' | 'watchlist' | 'tpo' | 'values' | 'liquidations' | 'flow' | 'signals' | 'alerts' | 'dom' | 'tape';
 
 /**
  * How TPO profiles are split, as Exocharts names it: one profile per UTC day,
@@ -44,8 +44,8 @@ export const TPO_SPLITS: readonly { value: string; label: string }[] = [
 export type LinkColor = 'green' | 'blue' | 'red' | 'yellow';
 
 export const LINK_COLORS: readonly LinkColor[] = ['green', 'blue', 'red', 'yellow'];
-export const PANEL_TYPES: readonly PanelType[] = ['chart', 'watchlist', 'tpo', 'values', 'liquidations', 'flow', 'signals', 'alerts'];
-export const PANEL_TITLE: Record<PanelType, string> = { chart: 'Chart', watchlist: 'Watchlist', tpo: 'TPO', values: 'Values', liquidations: 'Liquidations', flow: 'Flow', signals: 'Signal', alerts: 'Alerts' };
+export const PANEL_TYPES: readonly PanelType[] = ['chart', 'watchlist', 'tpo', 'values', 'dom', 'tape', 'liquidations', 'flow', 'signals', 'alerts'];
+export const PANEL_TITLE: Record<PanelType, string> = { chart: 'Chart', watchlist: 'Watchlist', tpo: 'TPO', values: 'Values', liquidations: 'Liquidations', flow: 'Flow', signals: 'Signal', alerts: 'Alerts', dom: 'DOM', tape: 'Tape' };
 
 interface PanelBase {
   id: string;
@@ -107,6 +107,29 @@ export interface LiquidationsPanelState extends PanelBase {
   minUsd: number;
 }
 
+/** What the DOM and tape count trades in. */
+export type SizeUnit = 'usd' | 'coins';
+
+/** The order book by price, with what traded at each level; see panels/DomPanel. */
+export interface DomPanelState extends PanelBase {
+  type: 'dom';
+  /** Ticks a row spans; 0 picks a size from the price. */
+  ticks: number;
+  /** Orders smaller than this, in dollars, are left out of what traded. */
+  minUsd: number;
+  unit: SizeUnit;
+  /** Columns left out: `profile`, `pulls`. */
+  hidden: string;
+}
+
+/** Every trade as it prints; see panels/TapePanel. */
+export interface TapePanelState extends PanelBase {
+  type: 'tape';
+  /** Orders smaller than this, in dollars, are left out. */
+  minUsd: number;
+  unit: SizeUnit;
+}
+
 export interface FlowPanelState extends PanelBase {
   type: 'flow';
   /** The coin shown, of those the server follows. */
@@ -132,7 +155,7 @@ export interface AlertsPanelState extends PanelBase {
   sort: AlertSort;
 }
 
-export type Panel = ChartPanelState | WatchlistPanelState | ValuesPanelState | LiquidationsPanelState | FlowPanelState | SignalsPanelState | AlertsPanelState;
+export type Panel = ChartPanelState | WatchlistPanelState | ValuesPanelState | LiquidationsPanelState | FlowPanelState | SignalsPanelState | AlertsPanelState | DomPanelState | TapePanelState;
 
 export interface SplitNode {
   kind: 'split';
@@ -232,6 +255,10 @@ export function newPanel(type: PanelType, from?: Partial<Pick<PanelBase, 'link' 
       return { ...base, type, side: 'all', view: 'list' };
     case 'alerts':
       return { ...base, type, tab: 'alerts', sort: 'newest' };
+    case 'dom':
+      return { ...base, type, ticks: 0, minUsd: 0, unit: 'usd', hidden: '' };
+    case 'tape':
+      return { ...base, type, minUsd: 0, unit: 'usd' };
   }
 }
 
@@ -338,9 +365,15 @@ function readPanel(id: string, raw: unknown): Panel | null {
   } else if (p.type === 'alerts') {
     if (raw.tab === 'log') p.tab = 'log';
     if (raw.sort === 'symbol' || raw.sort === 'state') p.sort = raw.sort;
-  } else if (p.type === 'liquidations') {
+  } else if (p.type === 'liquidations' || p.type === 'dom' || p.type === 'tape') {
     const n = Number(raw.minUsd);
     if (Number.isFinite(n) && n >= 0) p.minUsd = n;
+    if (p.type !== 'liquidations' && raw.unit === 'coins') p.unit = 'coins';
+    if (p.type === 'dom') {
+      const ticks = Number(raw.ticks);
+      if (Number.isInteger(ticks) && ticks >= 0 && ticks <= 100_000) p.ticks = ticks;
+      p.hidden = str(raw.hidden, '').slice(0, 40);
+    }
   } else if (p.type === 'flow') {
     if (typeof raw.coin === 'string' && /^[A-Z0-9]{1,20}$/.test(raw.coin)) p.coin = raw.coin;
     if (Array.isArray(raw.order)) p.order = [...new Set(raw.order.filter((c: unknown): c is string => typeof c === 'string' && /^[A-Z0-9]{1,20}$/.test(c)))].slice(0, 20);

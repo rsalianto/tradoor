@@ -29,11 +29,13 @@ use crate::dns::Doh;
 /// in `/`, where the market is part of the path (Kraken Futures' charts).
 /// Hyperliquid's are POSTs and are not relayed.
 const REST: [(&str, &[&str]); 9] = [
-    ("api.binance.com", &["/api/v3/klines", "/api/v3/ping"]),
-    ("data-api.binance.vision", &["/api/v3/klines", "/api/v3/ping"]),
-    ("fapi.binance.com", &["/fapi/v1/klines", "/fapi/v1/ping"]),
+    // `depth`: the order book a DOM lays the stream's changes over.
+    ("api.binance.com", &["/api/v3/klines", "/api/v3/ping", "/api/v3/depth"]),
+    ("data-api.binance.vision", &["/api/v3/klines", "/api/v3/ping", "/api/v3/depth"]),
+    ("fapi.binance.com", &["/fapi/v1/klines", "/fapi/v1/ping", "/fapi/v1/depth"]),
     ("api.bybit.com", &["/v5/market/kline", "/v5/market/time"]),
-    ("www.okx.com", &["/api/v5/market/candles", "/api/v5/market/history-candles"]),
+    // `instruments`: the coins in a swap contract, which its sizes count.
+    ("www.okx.com", &["/api/v5/market/candles", "/api/v5/market/history-candles", "/api/v5/public/instruments"]),
     ("api.bitget.com", &["/api/v2/spot/market/candles", "/api/v2/spot/market/history-candles", "/api/v2/mix/market/candles", "/api/v2/mix/market/history-candles"]),
     ("api.kraken.com", &["/0/public/OHLC"]),
     ("futures.kraken.com", &["/api/charts/v1/trade/"]),
@@ -54,6 +56,8 @@ fn stream_url(venue: &str) -> Option<&'static str> {
     Some(match venue {
         "binance-spot" => "wss://stream.binance.com:9443/ws",
         "binance-perp" => "wss://fstream.binance.com/market/ws",
+        // The futures order book is on `public`, not `market`.
+        "binance-perp-book" => "wss://fstream.binance.com/public/ws",
         "bybit-spot" => "wss://stream.bybit.com/v5/public/spot",
         "bybit-perp" => "wss://stream.bybit.com/v5/public/linear",
         "okx-business" => "wss://ws.okx.com/ws/v5/business",
@@ -256,8 +260,11 @@ mod tests {
         assert!(!ok("https://futures.kraken.com/api/charts/v1/trade/../../derivatives/api/v3/sendorder"), "a prefix after `..` is resolved");
         assert!(ok("https://www.okx.com/api/v5/market/history-candles?instId=BTC-USDT&bar=1H"));
         assert!(!ok("https://www.okx.com/api/v5/trade/order"));
+        assert!(ok("https://fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=1000"));
+        assert!(ok("https://www.okx.com/api/v5/public/instruments?instType=SWAP&instId=BTC-USDT-SWAP"));
         assert_eq!(stream_url("okx-business"), Some("wss://ws.okx.com/ws/v5/business"));
         assert_eq!(stream_url("bybit-perp"), Some("wss://stream.bybit.com/v5/public/linear"));
+        assert_eq!(stream_url("binance-perp-book"), Some("wss://fstream.binance.com/public/ws"));
         assert_eq!(stream_url("wss://anything"), None);
     }
 }

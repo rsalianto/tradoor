@@ -5,20 +5,23 @@
  * account's trades drawn on it; the order ticket beside it — market or limit,
  * long or short, the coin's leverage, a take profit and stop loss — and under
  * it the positions with what they make now, the resting orders, the trades
- * closed, and the statistics of the run. Kept for an account: until the
- * browser signs in with Telegram, it shows how.
+ * closed, and the statistics of the run. Beside the chart, the DOM, which
+ * trades too: a click on a bid or an ask rests an order there (panels/DomTrade).
+ * Kept for an account: until the browser signs in with Telegram, it shows how.
  */
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, untrack } from 'solid-js';
+import { createStore } from 'solid-js/store';
 import { setTrainingOpen, TRAINING_CHART } from '../app/ui';
 import { AccountCard } from '../components/Account';
 import { lastPrice } from '../engine/client';
 import { api, errorText, type AccountStatus } from '../lib/api';
 import { Icon } from '../lib/icons';
-import { readJson, writePref } from '../lib/prefs';
+import { readJson, readPref, writePref } from '../lib/prefs';
 import { toast } from '../lib/toasts';
 import { equityCurve, groupBy, money, stamp, stats, type Group } from '../journal/model';
 import type { ChartPanel } from '../panels/ChartPanel';
-import { DEFAULT_STUDIES, type ChartPanelState } from '../workspace/model';
+import { domTrade } from '../panels/DomTrade';
+import { DEFAULT_STUDIES, type ChartPanelState, type DomPanelState } from '../workspace/model';
 import { detached, holdDetached, setPanelMarket } from '../workspace/store';
 import {
   asJournal,
@@ -47,6 +50,12 @@ import {
 
 /** The chart's own settings, kept in this browser: its coin, indicators and view. */
 const PANEL_KEY = 'trainingChart';
+/** The DOM's, and whether it is shown. */
+const DOM_KEY = 'trainingDom';
+const DOM_SHOWN_KEY = 'trainingDomShown';
+
+// Fetched when Training shows it, not with Training itself.
+const DomPanel = lazy(() => import('../panels/DomPanel').then((m) => ({ default: m.DomPanel })));
 /** How often the account is read while the view is in sight: fills and liquidations land within this. */
 const REFRESH_MS = 1_000;
 /** Price decimals per coin, as Binance quotes them. */
@@ -81,6 +90,23 @@ function startPanel(): ChartPanelState {
   };
 }
 
+function startDom(market: string): DomPanelState {
+  const saved = (readJson(DOM_KEY) ?? {}) as Partial<DomPanelState>;
+  const ticks = Number(saved.ticks);
+  const minUsd = Number(saved.minUsd);
+  return {
+    id: 'training-dom',
+    type: 'dom',
+    link: null,
+    market,
+    timeframe: '1m',
+    ticks: Number.isInteger(ticks) && ticks >= 0 ? ticks : 0,
+    minUsd: Number.isFinite(minUsd) && minUsd >= 0 ? minUsd : 0,
+    unit: saved.unit === 'coins' ? 'coins' : 'usd',
+    hidden: typeof saved.hidden === 'string' ? saved.hidden : '',
+  };
+}
+
 /**
  * `chart`: the chart panel, handed in by the page that has it already —
  * imported here, it would pull the whole chart into this lazily loaded view,
@@ -103,6 +129,13 @@ export function Training(props: { chart: typeof ChartPanel }) {
   });
   const symbol = () => symbolOfMarket(panel().market);
   const decimals = (s: string) => DECIMALS[s] ?? 2;
+
+  // The DOM follows the chart's coin; its own settings are kept here, not in the workspace.
+  const [dom, setDom] = createStore<DomPanelState>(startDom(panel().market));
+  createEffect(() => setDom('market', panel().market));
+  createEffect(() => writePref(DOM_KEY, JSON.stringify({ ticks: dom.ticks, minUsd: dom.minUsd, unit: dom.unit, hidden: dom.hidden })));
+  const [domShown, setDomShown] = createSignal(readPref(DOM_SHOWN_KEY) !== '0');
+  createEffect(() => writePref(DOM_SHOWN_KEY, domShown() ? '1' : '0'));
 
   /** The price a coin trades at now: the chart's own for its coin, the server's for the others. */
   const priceOf = (s: string): number | undefined => {
@@ -192,8 +225,13 @@ export function Training(props: { chart: typeof ChartPanel }) {
       <span class="dim tr-venue">Binance perp</span>
       <span class="sep" />
       <span class="tb num on">1m</span>
+      <span class="sep" />
+      <button class="tb tr-dom-toggle" classList={{ on: domShown() }} data-tip="The order book beside the chart: click a bid or an ask to rest an order there" onClick={() => setDomShown((v) => !v)}>
+        DOM
+      </button>
     </>
   );
+  const trade = domTrade({ symbol, state, busy, act });
   const runTrades = () => (history()?.run === history()?.current ? (history()?.trades ?? []) : []);
   // Drawn again only when it changes — a trade, the position, an order, or the
   // minute its right edge reaches — not with every second's read of the account,
@@ -329,10 +367,15 @@ export function Training(props: { chart: typeof ChartPanel }) {
             </div>
           }
         >
-          <div class="tr-body">
+          <div class="tr-body" classList={{ 'with-dom': domShown() }}>
             <div class="tr-chart">
               <props.chart panel={panel()} training={{ toolbar, overlay, hover }} />
             </div>
+            <Show when={domShown()}>
+              <div class="tr-dom">
+                <DomPanel panel={dom} trade={trade} patch={(p) => setDom(p)} />
+              </div>
+            </Show>
             <Ticket state={state()} symbol={symbol()} priceOf={priceOf} available={value()?.available ?? 0} decimals={decimals(symbol())} busy={busy()} act={act} error={error()} />
             <div class="tr-tabs">
               <nav class="chips jr-tabs">
