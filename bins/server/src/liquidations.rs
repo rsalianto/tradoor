@@ -477,6 +477,8 @@ pub struct Collector {
     http: Option<reqwest::Client>,
     /// Every hit as it arrives, for the live feed.
     pub live: broadcast::Sender<(String, Hit)>,
+    /// Each ticker's stats as last read (see `stats`).
+    answers: tokio::sync::Mutex<HashMap<String, Answer>>,
 }
 
 impl Collector {
@@ -486,7 +488,7 @@ impl Collector {
         let started = now_ms();
         let states = VENUES.iter().map(|v| VenueState { venue: v.id, state: "connecting", since: started, error: None }).collect();
         let http = reqwest::Client::builder().dns_resolver(doh.resolver()).timeout(Duration::from_secs(20)).build().ok();
-        let collector = Arc::new(Self { tickers, started, states: Mutex::new(states), doh: Some(doh), http, live: broadcast::channel(1024).0 });
+        let collector = Arc::new(Self { tickers, started, states: Mutex::new(states), doh: Some(doh), http, live: broadcast::channel(1024).0, answers: Default::default() });
         let (tx, rx) = mpsc::channel(8_192);
         tokio::spawn(write(pool, rx));
         for venue in VENUES {
@@ -730,24 +732,83 @@ async fn totals(client: &tokio_postgres::Client, ticker: &str, now: i64) -> Resu
     Ok(rows.iter().map(|r| WindowTotal { window: r.get(0), long_usd: r.get(1), short_usd: r.get(2), longs: r.get(3), shorts: r.get(4) }).collect())
 }
 
+/// How long one reading of a ticker's stats is handed out. Every Liquidations
+/// panel asks every five seconds and every one gets the same answer: read for
+/// each, a thousand readers kept the database on three cores; read once a
+/// window, it is a query a second.
+const STATS_FRESH: Duration = Duration::from_secs(2);
+
+/// One reading of a ticker's stats as sent: plain, and compressed once for
+/// everyone rather than by the compression layer for each.
+#[derive(Clone)]
+struct Answer {
+    at: Instant,
+    plain: axum::body::Bytes,
+    gzip: axum::body::Bytes,
+    brotli: axum::body::Bytes,
+}
+
+impl Answer {
+    fn new(plain: Vec<u8>) -> Self {
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
+        let gzip = gz.write_all(&plain).and_then(|()| gz.finish()).unwrap_or_default();
+        let mut brotli = Vec::new();
+        let params = brotli::enc::BrotliEncoderParams { quality: 6, lgwin: 22, ..Default::default() };
+        let _ = brotli::BrotliCompress(&mut std::io::Cursor::new(&plain), &mut brotli, &params);
+        Self { at: Instant::now(), plain: plain.into(), gzip: gzip.into(), brotli: brotli.into() }
+    }
+
+    /// The best the asker takes: brotli, gzip, or as it is.
+    fn send(self, headers: &axum::http::HeaderMap) -> axum::response::Response {
+        use axum::http::header;
+        use axum::response::IntoResponse;
+        let takes = |e: &str| headers.get(header::ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|x| x.trim().starts_with(e)));
+        let kept = [(header::CONTENT_TYPE, "application/json"), (header::VARY, "accept-encoding")];
+        if takes("br") && !self.brotli.is_empty() {
+            (kept, [(header::CONTENT_ENCODING, "br")], self.brotli).into_response()
+        } else if takes("gzip") && !self.gzip.is_empty() {
+            (kept, [(header::CONTENT_ENCODING, "gzip")], self.gzip).into_response()
+        } else {
+            (kept, self.plain).into_response()
+        }
+    }
+}
+
 /// `GET /api/liquidations/{ticker}`: the 1H, 4H, 12H and 24H totals across
-/// every exchange, how each exchange's connection is, and the latest hits.
-pub async fn stats(State(state): State<AppState>, Path(ticker): Path<String>) -> ApiResult<Json<Value>> {
+/// every exchange, how each exchange's connection is, and the latest hits —
+/// read from the database at most every `STATS_FRESH`, whoever asks.
+pub async fn stats(State(state): State<AppState>, headers: axum::http::HeaderMap, Path(ticker): Path<String>) -> ApiResult<axum::response::Response> {
+    use axum::response::IntoResponse;
     if !is_ticker(&ticker) {
         return Err(ApiError::bad_request("a ticker is letters and digits, like BTCUSDT"));
     }
     let Some(collector) = state.liquidations.as_ref().filter(|c| c.tickers.contains(&ticker)) else {
         let tickers = state.liquidations.as_ref().map(|c| c.tickers.clone()).unwrap_or_default();
-        return Ok(Json(json!({ "ticker": ticker, "tracked": false, "tickers": tickers })));
+        return Ok(Json(json!({ "ticker": ticker, "tracked": false, "tickers": tickers })).into_response());
     };
+    // Held while reading: those asking meanwhile wait for this answer rather than read it too.
+    let mut answers = collector.answers.lock().await;
+    let answer = match answers.get(&ticker) {
+        Some(answer) if answer.at.elapsed() < STATS_FRESH => answer.clone(),
+        _ => {
+            let answer = Answer::new(read_stats(&state, collector, &ticker).await?.to_string().into_bytes());
+            answers.insert(ticker, answer.clone());
+            answer
+        }
+    };
+    drop(answers);
+    Ok(answer.send(&headers))
+}
 
+async fn read_stats(state: &AppState, collector: &Collector, ticker: &str) -> ApiResult<Value> {
     let now = now_ms();
     let client = state.pool.get().await?;
-    let windows = totals(&client, &ticker, now).await?;
+    let windows = totals(&client, ticker, now).await?;
     let oldest: Option<i64> = client.query_one("SELECT MIN(time) FROM liquidation WHERE ticker = $1", &[&ticker]).await?.get(0);
     let recent = client.query("SELECT venue, time, price, qty, usd, long FROM liquidation WHERE ticker = $1 ORDER BY time DESC, id DESC LIMIT $2", &[&ticker, &RECENT_ROWS]).await?;
 
-    Ok(Json(json!({
+    Ok(json!({
         "ticker": ticker,
         "tracked": true,
         "now": now,
@@ -764,7 +825,7 @@ pub async fn stats(State(state): State<AppState>, Path(ticker): Path<String>) ->
             "usd": r.get::<_, f64>(4),
             "long": r.get::<_, bool>(5),
         })).collect::<Vec<_>>(),
-    })))
+    }))
 }
 
 /// `GET /api/liquidations/{ticker}/live`: every hit on every exchange as it
@@ -813,6 +874,25 @@ mod tests {
 
     // Captured from fstream.binance.com, 2026-09-16.
     const FORCE_ORDER: &str = r#"{"e":"forceOrder","E":1789531696996,"o":{"s":"BTCUSDT","S":"BUY","o":"LIMIT","f":"IOC","q":"0.706","p":"76781.0","ap":"75363.5","X":"FILLED","l":"0.193","z":"0.706","T":1789531695983}}"#;
+
+    #[test]
+    fn stats_are_sent_compressed_once_as_the_asker_takes_them() {
+        use axum::http::{header, HeaderMap, HeaderValue};
+        let plain = br#"{"ticker":"BTCUSDT","tracked":true,"recent":[]}"#.repeat(50);
+        let answer = Answer::new(plain.clone());
+        let ask = |enc: &str| {
+            let mut h = HeaderMap::new();
+            h.insert(header::ACCEPT_ENCODING, HeaderValue::from_str(enc).unwrap());
+            answer.clone().send(&h).headers().get(header::CONTENT_ENCODING).map(|v| v.to_str().unwrap().to_string())
+        };
+        assert_eq!(ask("gzip, deflate, br"), Some("br".into()));
+        assert_eq!(ask("gzip"), Some("gzip".into()));
+        assert_eq!(ask("identity"), None);
+        let mut back = Vec::new();
+        std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&answer.gzip[..]), &mut back).unwrap();
+        assert_eq!(back, plain, "the gzip is the answer");
+        assert!(answer.brotli.len() < plain.len() / 5);
+    }
 
     #[test]
     fn binance_keeps_the_fill_price_and_a_forced_sell_is_a_long() {
@@ -1004,6 +1084,7 @@ mod tests {
             doh: None,
             http: None,
             live: broadcast::channel(8).0,
+            answers: Default::default(),
         };
         let (tx, mut rx) = mpsc::channel(8);
         let reconnect = session(&VENUES[0], &url, &collector, &tx).await.unwrap();
