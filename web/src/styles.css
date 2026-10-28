@@ -449,7 +449,7 @@ table.tape tr.big td { font-weight: 700; background: color-mix(in oklab, current
 .flowpanel { position: relative; container-type: inline-size; }
 @container (max-width: 520px) {
   .flowpanel .toolbar .venue-name, .flowpanel .toolbar .venue .kind { display: none; }
-  .flowpanel .toolbar .tb { padding: 2px 3px; }
+  .flowpanel .toolbar .tb { padding-left: 3px; padding-right: 3px; }
   .flowpanel .toolbar select { max-width: 74px; }
 }
 /* Narrower still: centering is a double-click, clearing and the columns a right-click. */
@@ -460,6 +460,11 @@ table.tape tr.big td { font-weight: 700; background: color-mix(in oklab, current
 .flowcanvas { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .flowcanvas canvas { display: block; }
 .flowpanel .toolbar .conn { margin-right: 4px; }
+/* Words in these toolbars at the height the selects beside them put theirs, and
+   the chart's toolbar its own: the body's line height left them two pixels high. */
+.flowpanel .toolbar .tb, .dom-trade .tb { height: 18px; line-height: 1; padding-top: 3px; padding-bottom: 1px; }
+.flowpanel .toolbar select { padding-top: 2px; padding-bottom: 0; }
+.flowpanel .toolbar .symbol { padding-top: 1px; }
 .dom-menu { top: 26px; right: 4px; min-width: 190px; }
 .dom-menu .cap { padding: 6px 8px 2px; border-top: 1px solid var(--border); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
 .dom-menu .cap:first-child { border-top: 0; }
