@@ -6,11 +6,13 @@ import { createSignal, For, Match, Switch } from 'solid-js';
 import { TPO_SECTIONS, type TpoField } from '../lib/tpo-schema';
 import { tpoValue, withTpoValue } from '../lib/tpo-settings';
 import type { ChartPanelState } from '../workspace/model';
-import { patchPanel } from '../workspace/store';
+import { doc, patchPanel } from '../workspace/store';
 
 export function TpoSettings(props: { panel: ChartPanelState; onClose(): void }) {
   const [tab, setTab] = createSignal(0);
-  const value = (key: string) => tpoValue(props.panel.tpoSettings, key);
+  // Unset, the blocks and the point of control take the theme's colours (Settings, Themes).
+  const themed = (key: string) => (key === 'vaColor' ? doc.theme.tpo : key === 'pocColor' ? doc.theme.tpoPoc : undefined);
+  const value = (key: string) => props.panel.tpoSettings?.[key] ?? themed(key) ?? tpoValue(props.panel.tpoSettings, key);
   const set = (key: string, v: string) => patchPanel(props.panel.id, { tpoSettings: withTpoValue(props.panel.tpoSettings, key, v) });
 
   const Control = (p: { field: TpoField }) => (

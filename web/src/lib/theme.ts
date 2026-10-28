@@ -16,6 +16,8 @@ export const CHART_THEME: readonly ThemeKey[] = [
   { name: 'ribbonFast', label: 'Ribbon, bullish', value: '#aafd35' },
   { name: 'ribbonSlow', label: 'Ribbon, bearish', value: '#ff293a' },
   { name: 'ema200', label: 'EMA 200', value: '#ffb03a' },
+  { name: 'tpo', label: 'TPO blocks', value: '#d9dcd9' },
+  { name: 'tpoPoc', label: 'TPO point of control', value: '#f07a2a' },
   { name: 'crosshair', label: 'Crosshair', value: '#7c847d' },
   { name: 'labelBackground', label: 'Axis labels', value: '#2a2f2a' },
   { name: 'drawing', label: 'Drawings', value: '#ff5fd2' },
