@@ -120,6 +120,10 @@ export interface DomPanelState extends PanelBase {
   unit: SizeUnit;
   /** Columns left out: `profile`, `pulls`. */
   hidden: string;
+  /** Minutes after which Bought and Sold start again, on the clock; 0, never. */
+  resetTrades: number;
+  /** Minutes after which the volume profile starts again, on the clock — 1440, each UTC day; 0, never. */
+  resetProfile: number;
 }
 
 /** Every trade as it prints; see panels/TapePanel. */
@@ -256,7 +260,7 @@ export function newPanel(type: PanelType, from?: Partial<Pick<PanelBase, 'link' 
     case 'alerts':
       return { ...base, type, tab: 'alerts', sort: 'newest' };
     case 'dom':
-      return { ...base, type, ticks: 0, minUsd: 0, unit: 'usd', hidden: '' };
+      return { ...base, type, ticks: 0, minUsd: 0, unit: 'usd', hidden: '', resetTrades: 0, resetProfile: 0 };
     case 'tape':
       return { ...base, type, minUsd: 0, unit: 'usd' };
   }
@@ -373,6 +377,10 @@ function readPanel(id: string, raw: unknown): Panel | null {
       const ticks = Number(raw.ticks);
       if (Number.isInteger(ticks) && ticks >= 0 && ticks <= 100_000) p.ticks = ticks;
       p.hidden = str(raw.hidden, '').slice(0, 40);
+      for (const key of ['resetTrades', 'resetProfile'] as const) {
+        const m = Number(raw[key]);
+        if (Number.isInteger(m) && m > 0 && m <= 1440) p[key] = m;
+      }
     }
   } else if (p.type === 'flow') {
     if (typeof raw.coin === 'string' && /^[A-Z0-9]{1,20}$/.test(raw.coin)) p.coin = raw.coin;

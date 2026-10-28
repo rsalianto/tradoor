@@ -111,7 +111,6 @@ Deno.test('the ring keeps the newest', () => {
 
 Deno.test('a tally counts by price, filtered by order, and forgets what is cleared', () => {
   const prints = new Prints(64);
-  const book = new Book();
   const tally = new Tally(150, 0);
   prints.push(1, 100, 1, true);
   tally.read(prints);
@@ -126,11 +125,11 @@ Deno.test('a tally counts by price, filtered by order, and forgets what is clear
   tally.read(prints);
   assertEquals(tally.sold.get(98), 0.1, 'and the rest of it as it comes');
   assertEquals([tally.volume, tally.delta, tally.high, tally.low], [2.1, -2.1, 100, 98]);
-  tally.clear(book, 'above', 99, 5);
+  tally.clear('above', 99, 5);
   assertEquals([...tally.sold.keys()].sort(), [98, 99]);
   tally.restart(prints);
   assert(!tally.sold.has(100), 'cleared levels stay cleared when read again');
-  tally.clear(book, 'all', 0, 10);
+  tally.clear('all', 0, 10);
   assertEquals([tally.sold.size, tally.volume], [0, 0]);
 });
 
@@ -140,7 +139,7 @@ Deno.test('pulls show from the last clear', () => {
   book.apply({ bids: [[100, 2]], asks: [], last: undefined }, 0);
   const tally = new Tally(0, 0);
   assertEquals(tally.pull(book, 100, 0), -3);
-  tally.clear(book, 'all', 0, 0);
+  tally.clearPulls(book, 'all', 0, 0);
   assertEquals(tally.pull(book, 100, 0), 0);
   book.apply({ bids: [[100, 6]], asks: [], last: undefined }, 0);
   assertEquals(tally.pull(book, 100, 0), 4);

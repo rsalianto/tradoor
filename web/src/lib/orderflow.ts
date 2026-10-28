@@ -622,6 +622,10 @@ export function recentGroups(prints: Prints, minUsd: number, max: number, scanLi
   return out;
 }
 
+/** Everywhere, or the levels above or below a price. */
+export type Where = 'all' | 'above' | 'below';
+const reaches = (where: Where, price: number) => (p: number): boolean => where === 'all' || (where === 'above' ? p > price : p < price);
+
 /** What a DOM shows of trades since it was cleared: by price, bought and sold, and the totals. */
 export class Tally {
   readonly bought = new Map<number, number>();
@@ -685,12 +689,10 @@ export class Tally {
     if (price < this.low) this.low = price;
   }
 
-  /** Everything, or the levels above or below `price`: forgotten from `now` on. */
-  clear(book: Book, where: 'all' | 'above' | 'below' = 'all', price = 0, now = Date.now()): void {
-    const hit = (p: number) => where === 'all' || (where === 'above' ? p > price : p < price);
+  /** What traded — everywhere, or above or below `price` — forgotten from `now` on. */
+  clear(where: Where = 'all', price = 0, now = Date.now()): void {
+    const hit = reaches(where, price);
     for (const map of [this.bought, this.sold]) for (const p of map.keys()) if (hit(p)) map.delete(p);
-    for (const p of this.pullBase.keys()) if (!book.pulls.has(p)) this.pullBase.delete(p);
-    for (const p of book.pulls.keys()) if (hit(p)) this.pullBase.set(p, [book.pulled(p, now), now]);
     if (where !== 'all') this.clears.push({ at: now, above: where === 'above', price });
     else {
       this.since = now;
@@ -700,6 +702,13 @@ export class Tally {
       this.high = Number.NEGATIVE_INFINITY;
       this.low = Number.POSITIVE_INFINITY;
     }
+  }
+
+  /** The book's pulls and stacks so far, there: shown from `now` on only what comes after. */
+  clearPulls(book: Book, where: Where = 'all', price = 0, now = Date.now()): void {
+    const hit = reaches(where, price);
+    for (const p of this.pullBase.keys()) if (!book.pulls.has(p)) this.pullBase.delete(p);
+    for (const p of book.pulls.keys()) if (hit(p)) this.pullBase.set(p, [book.pulled(p, now), now]);
   }
 
   /** Read again from `since`, as with a new filter. */

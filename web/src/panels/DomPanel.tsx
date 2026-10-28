@@ -5,15 +5,18 @@
  * and what was pulled from a level (orange) or stacked onto it (green) beyond
  * what trades took. A row is a tick or a group of them. The last price stays
  * in the middle until the rows are scrolled; Center, or a double-click, brings
- * it back. A right-click clears the levels above or below a row. The size
- * filter judges orders — the trades of one time and side — not single fills.
+ * it back. Clear empties the volume profile, Bought and Sold, or Pull/Stack,
+ * and each of the first two can start again on the clock by itself; a
+ * right-click clears the levels above or below a row. The size filter judges
+ * orders — the trades of one time and side — not single fills.
  * In Training it also trades, on paper (see DomTrade); elsewhere it only reads.
  */
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { exchangeOfVenue } from '../lib/exchanges';
 import { useDismiss } from '../lib/dismiss';
 import { formatPrice } from '../lib/format';
-import { bestAsk, bestBid, holdFlow, releaseFlow, Tally, type Flow, type FlowState } from '../lib/orderflow';
+import { Icon } from '../lib/icons';
+import { bestAsk, bestBid, holdFlow, releaseFlow, Tally, type Flow, type FlowState, type Where } from '../lib/orderflow';
 import type { Order } from '../training/model';
 import { symbolOf } from '../lib/markets';
 import type { DomPanelState } from '../workspace/model';
@@ -40,8 +43,32 @@ const COLS: readonly { key: Col; title: string; weight: number }[] = [
 
 /** Columns that can be left out, and what they are. */
 const OPTIONAL: readonly { key: Col; label: string; tip: string }[] = [
-  { key: 'profile', label: 'Volume', tip: 'Volume traded at each level since the last clear, split by side' },
+  { key: 'profile', label: 'Volume', tip: 'Volume traded at each level since the profile was last cleared, split by side' },
   { key: 'pulls', label: 'Pull/Stack', tip: 'Size pulled from a level (orange) or stacked onto it (green) beyond what trades took, fading by half every 30 seconds' },
+];
+
+/** When Bought and Sold, and the volume profile, start again by themselves: minutes, on the clock. */
+const RESET_TRADES: readonly { value: number; label: string }[] = [
+  { value: 0, label: 'Off' },
+  { value: 1, label: '1m' },
+  { value: 5, label: '5m' },
+  { value: 15, label: '15m' },
+  { value: 60, label: '1h' },
+];
+const RESET_PROFILE: readonly { value: number; label: string }[] = [
+  { value: 0, label: 'Off' },
+  { value: 60, label: '1h' },
+  { value: 240, label: '4h' },
+  { value: 1440, label: 'Day' },
+];
+
+/** What Clear can empty. */
+type Part = 'trades' | 'profile' | 'pulls';
+const PARTS: readonly { part: Part | 'all'; label: string }[] = [
+  { part: 'all', label: 'Everything' },
+  { part: 'profile', label: 'Volume profile' },
+  { part: 'trades', label: 'Bought & sold' },
+  { part: 'pulls', label: 'Pull/Stack' },
 ];
 
 /** Ticks a row can span. */
@@ -83,9 +110,11 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
   const [stats, setStats] = createSignal<Stats | null>(null);
   const [menu, setMenu] = createSignal<{ x: number; y: number; price: number; decimals: number } | null>(null);
   const [columnsOpen, setColumnsOpen] = createSignal(false);
+  const [clearOpen, setClearOpen] = createSignal(false);
   const [tickNow, setTickNow] = createSignal(0);
   useDismiss(menu, () => setMenu(null));
   useDismiss(columnsOpen, () => setColumnsOpen(false));
+  useDismiss(clearOpen, () => setClearOpen(false));
 
   createEffect(() => {
     const held = holdFlow(market());
@@ -94,20 +123,39 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     onCleanup(() => releaseFlow(held));
   });
 
-  const tally = (): Tally | null => {
+  /** The interval each count was last read with, so turning one off brings back all that is held. */
+  const every = new WeakMap<Tally, number>();
+  /**
+   * What traded, counted twice: once for Bought and Sold, once for the volume
+   * profile and the totals under it, each cleared and started again on its own.
+   * Kept with the market's flow, so a tab away and back loses nothing, and they
+   * go when the flow does.
+   */
+  const tallies = (): { trades: Tally; profile: Tally } | null => {
     const f = flow();
     if (!f) return null;
-    // Kept with the market's flow, so a tab away and back loses nothing, and it goes when the flow does.
-    let t = f.tallies.get(id);
-    if (!t) {
-      t = new Tally(props.panel.minUsd, 0);
-      f.tallies.set(id, t);
-    }
-    if (t.minUsd !== props.panel.minUsd) {
-      t.minUsd = props.panel.minUsd;
-      t.restart(f.prints);
-    }
-    return t;
+    const get = (key: string, minutes: number) => {
+      let t = f.tallies.get(key);
+      if (!t) {
+        t = new Tally(props.panel.minUsd, 0);
+        f.tallies.set(key, t);
+      }
+      if (t.minUsd !== props.panel.minUsd) {
+        t.minUsd = props.panel.minUsd;
+        t.restart(f.prints);
+      }
+      if ((every.get(t) ?? 0) !== minutes) {
+        every.set(t, minutes);
+        if (minutes === 0) t.restart(f.prints, 0);
+      }
+      // On the clock: past an interval's turn, it counts from the turn.
+      if (minutes > 0) {
+        const turn = Math.floor(Date.now() / (minutes * 60_000)) * minutes * 60_000;
+        if (t.since < turn) t.restart(f.prints, turn);
+      }
+      return t;
+    };
+    return { trades: get(id, props.panel.resetTrades), profile: get(`${id}:profile`, props.panel.resetProfile) };
   };
 
   const hidden = () => new Set(props.panel.hidden.split(',').filter(Boolean));
@@ -125,6 +173,8 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
   let seen = -1;
   /** The row bucket at the top; null until the price is first known. */
   let top: number | null = null;
+  /** The market the rows were last drawn for: a new one is centered afresh. */
+  let drawn = '';
   let hover = -1;
   /** An order of yours being dragged to another row, and the row it left. */
   let drag: { order: Order; from: number } | null = null;
@@ -133,7 +183,7 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
 
   const draw = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
     const f = flow();
-    const t = tally();
+    const both = tallies();
     colors ??= palette(host);
     const c = colors;
     ctx.fillStyle = c.surface;
@@ -164,7 +214,8 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     ctx.fillStyle = c.border;
     ctx.fillRect(0, HEAD - 1, w, 1);
 
-    if (!f || !t) return;
+    if (!f || !both) return;
+    const { trades: t, profile } = both;
     setState(f.state.book);
     if (f.state.book === 'none') return message(ctx, c, w, h, 'An index has no order book.');
     const tick = f.tick();
@@ -174,6 +225,7 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     }
     setTickNow(tick);
     t.read(f.prints);
+    profile.read(f.prints);
 
     const book = f.book;
     const bb = bestBid(book.bids);
@@ -186,6 +238,13 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     const down = (p: number) => Math.floor(p / step + 1e-9);
     const up = (p: number) => Math.ceil(p / step - 1e-9);
     const refRow = down(ref);
+    if (f.market !== drawn) {
+      drawn = f.market;
+      top = null;
+    } else if (top !== null && layout.step > 0 && Math.abs(step - layout.step) > step * 1e-9) {
+      // Another row size: the same price stays in the middle — a row number means another price now.
+      top = Math.round(((top - Math.floor(layout.rows / 2)) * layout.step) / step) + Math.floor(rows / 2);
+    }
     if (top === null || (auto() && (top - refRow < rows * 0.25 || top - refRow > rows * 0.75))) top = refRow + Math.floor(rows / 2);
     layout = { step, decimals, rows, cols };
 
@@ -195,6 +254,8 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     const sold = new Float64Array(rows);
     const bought = new Float64Array(rows);
     const pulls = new Float64Array(rows);
+    const profSold = new Float64Array(rows);
+    const profBought = new Float64Array(rows);
     const into = (arr: Float64Array, bucket: number, v: number) => {
       const r = top! - bucket;
       if (r >= 0 && r < rows) arr[r] = arr[r]! + v;
@@ -203,12 +264,16 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     for (const [p, q] of book.asks) into(asks, up(p), sized(q, p, unit));
     for (const [p, q] of t.sold) into(sold, down(p), sized(q, p, unit));
     for (const [p, q] of t.bought) into(bought, up(p), sized(q, p, unit));
+    if (cols.some((col) => col.key === 'profile')) {
+      for (const [p, q] of profile.sold) into(profSold, down(p), sized(q, p, unit));
+      for (const [p, q] of profile.bought) into(profBought, up(p), sized(q, p, unit));
+    }
     const now = Date.now();
     if (cols.some((col) => col.key === 'pulls')) for (const p of book.pulls.keys()) into(pulls, p <= bb ? down(p) : up(p), sized(t.pull(book, p, now), p, unit));
     const most = (...arrs: Float64Array[]) => Math.max(1e-12, ...arrs.map((a) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0)));
     const bookMax = most(bids, asks);
     const tradeMax = most(sold, bought);
-    const profileMax = Math.max(1e-12, ...bought.map((v, i) => v + sold[i]!));
+    const profileMax = Math.max(1e-12, ...profBought.map((v, i) => v + profSold[i]!));
     const pullMax = most(pulls);
 
     const lastRow = Number.isFinite(last) ? top - down(last) : -1;
@@ -251,11 +316,11 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
       for (const col of cols) {
         switch (col.key) {
           case 'profile': {
-            const total = bought[r]! + sold[r]!;
+            const total = profBought[r]! + profSold[r]!;
             if (total <= 0) break;
             const share = total / profileMax;
-            bar(col, y, (share * sold[r]!) / total, c.bear, 0.45, false);
-            bar({ x: col.x + (share * sold[r]! * (col.w - 2)) / total, w: col.w }, y, (share * bought[r]!) / total, c.bull, 0.45, false);
+            bar(col, y, (share * profSold[r]!) / total, c.bear, 0.45, false);
+            bar({ x: col.x + (share * profSold[r]! * (col.w - 2)) / total, w: col.w }, y, (share * profBought[r]!) / total, c.bull, 0.45, false);
             if (share >= 0.999) text(compact(total), col, y, 'right', c.text, true);
             break;
           }
@@ -368,12 +433,13 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     ctx.fillStyle = c.bear;
     if (askRow >= 0 && askRow < rows) ctx.fillRect(0, HEAD + (askRow + 1) * ROW - 1, w, 1);
 
-    const delta = sized(t.delta, ref, unit);
+    // The totals go with the profile: what traded since it was last cleared.
+    const delta = sized(profile.delta, ref, unit);
     const next: Stats = {
-      volume: compact(sized(t.volume, ref, unit)),
+      volume: compact(sized(profile.volume, ref, unit)),
       delta,
       deltaText: `${delta > 0 ? '+' : delta < 0 ? '−' : ''}${compact(Math.abs(delta))}`,
-      range: Number.isFinite(t.high) ? `${formatPrice(t.low, stepDecimals(tick))} – ${formatPrice(t.high, stepDecimals(tick))} · ${Math.round((t.high - t.low) / tick)}t` : '—',
+      range: Number.isFinite(profile.high) ? `${formatPrice(profile.low, stepDecimals(tick))} – ${formatPrice(profile.high, stepDecimals(tick))} · ${Math.round((profile.high - profile.low) / tick)}t` : '—',
       spread: `${Math.max(0, Math.round((ba - bb) / tick))}t`,
     };
     const was = stats();
@@ -389,7 +455,7 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
       return true;
     });
     createEffect(() => {
-      void [props.panel.minUsd, props.panel.unit, props.panel.ticks, props.panel.hidden, flow(), auto(), Object.values(doc.theme)];
+      void [props.panel.minUsd, props.panel.unit, props.panel.ticks, props.panel.hidden, props.panel.resetTrades, props.panel.resetProfile, flow(), auto(), Object.values(doc.theme)];
       colors = null;
       view.redraw();
     });
@@ -421,11 +487,17 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
     setAuto(true);
     view.redraw();
   };
-  const clear = (where: 'all' | 'above' | 'below', price = 0) => {
+  /** Empties a part, or all of them — everywhere, or above or below a price. */
+  const clear = (part: Part | 'all', where: Where = 'all', price = 0) => {
     const f = flow();
-    const t = tally();
-    if (f && t) t.clear(f.book, where, price);
+    const both = tallies();
+    if (f && both) {
+      if (part === 'all' || part === 'trades') both.trades.clear(where, price);
+      if (part === 'all' || part === 'profile') both.profile.clear(where, price);
+      if (part === 'all' || part === 'pulls') both.trades.clearPulls(f.book, where, price);
+    }
     setMenu(null);
+    setClearOpen(false);
     view.redraw();
   };
 
@@ -467,30 +539,35 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
         <button class="tb" data-tip="Sizes in dollars or in coins" onClick={() => patch({ unit: props.panel.unit === 'usd' ? 'coins' : 'usd' })}>
           {props.panel.unit === 'usd' ? 'USD' : 'Coins'}
         </button>
-        <button class="tb dom-opt" classList={{ on: columnsOpen() }} data-tip="Columns" onClick={() => setColumnsOpen((v) => !v)}>
-          Cols
-        </button>
         <button class="tb dom-opt" classList={{ on: auto() }} data-tip="Keep the last price in the middle — or double-click the rows" onClick={center}>
           Center
         </button>
-        <button class="tb dom-opt" data-tip="Clear what traded and what was pulled or stacked — right-click a row to clear above or below it" onClick={() => clear('all')}>
+        <button class="tb dom-opt" classList={{ on: clearOpen() }} data-tip="Clear the volume profile, Bought and Sold, or Pull/Stack — right-click a row to clear above or below it" onClick={() => setClearOpen((v) => !v)}>
           Clear
         </button>
+        {/* Kept however narrow: the intervals are only here. */}
+        <button class="tb" classList={{ on: columnsOpen() }} aria-label="DOM options" data-tip="Columns, and when the volume profile and Bought and Sold start again" onClick={() => setColumnsOpen((v) => !v)}>
+          <Icon name="settings" size={12} />
+        </button>
       </div>
+      <Show when={clearOpen()}>
+        <div class="menu dom-menu" onPointerDown={(e) => e.stopPropagation()}>
+          <For each={PARTS}>{(p) => <button onClick={() => clear(p.part)}>{p.label}</button>}</For>
+        </div>
+      </Show>
       <Show when={columnsOpen()}>
         <div class="menu dom-menu" onPointerDown={(e) => e.stopPropagation()}>
+          <div class="cap">Columns</div>
           <For each={OPTIONAL}>
             {(o) => (
-              <button
-                data-tip={o.tip}
-                classList={{ cur: !hidden().has(o.key) }}
-                onClick={() => toggleColumn(o.key)}
-              >
+              <button data-tip={o.tip} classList={{ cur: !hidden().has(o.key) }} onClick={() => toggleColumn(o.key)}>
                 <span>{o.label}</span>
                 <span>{hidden().has(o.key) ? 'Off' : 'On'}</span>
               </button>
             )}
           </For>
+          <Resets label="Volume profile starts again" tip="On the clock: 1h at the top of each hour, 4h at 00:00, 04:00… UTC, Day at 00:00 UTC" choices={RESET_PROFILE} value={props.panel.resetProfile} pick={(v) => patch({ resetProfile: v })} />
+          <Resets label="Bought & sold start again" tip="On the clock: 5m at :00, :05, :10…" choices={RESET_TRADES} value={props.panel.resetTrades} pick={(v) => patch({ resetTrades: v })} />
         </div>
       </Show>
       {props.trade?.bar()}
@@ -561,9 +638,10 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
           {(m) => (
             <div class="menu" style={{ left: `${Math.max(0, m().x)}px`, top: `${m().y}px` }} onPointerDown={(e) => e.stopPropagation()}>
               <button onClick={center}>Center on the last price</button>
-              <button onClick={() => clear('above', m().price)}>Clear above {formatPrice(m().price, m().decimals)}</button>
-              <button onClick={() => clear('below', m().price)}>Clear below {formatPrice(m().price, m().decimals)}</button>
-              <button onClick={() => clear('all')}>Clear all</button>
+              <button onClick={() => clear('all', 'above', m().price)}>Clear above {formatPrice(m().price, m().decimals)}</button>
+              <button onClick={() => clear('all', 'below', m().price)}>Clear below {formatPrice(m().price, m().decimals)}</button>
+              {/* The toolbar's Clear, which a narrow DOM folds away. */}
+              <For each={PARTS}>{(p) => <button onClick={() => clear(p.part)}>Clear {p.label.toLowerCase()}</button>}</For>
               {/* The toolbar's column switches, which a narrow DOM folds away. */}
               <For each={OPTIONAL}>
                 {(o) => (
@@ -580,13 +658,13 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
       <Show when={stats()}>
         {(s) => (
           <div class="dom-foot num">
-            <span data-tip="Volume traded since the last clear, of orders the filter lets through">
+            <span data-tip="Volume traded since the profile was last cleared, of orders the filter lets through">
               <span class="caps">Vol</span> {s().volume}
             </span>
-            <span data-tip="Bought less sold since the last clear">
+            <span data-tip="Bought less sold since the profile was last cleared">
               <span class="caps">Δ</span> <span classList={{ bull: s().delta > 0, bear: s().delta < 0 }}>{s().deltaText}</span>
             </span>
-            <span data-tip="Lowest and highest trade since the last clear, and the ticks between">
+            <span data-tip="Lowest and highest trade since the profile was last cleared, and the ticks between">
               <span class="caps">Range</span> {s().range}
             </span>
             <span data-tip="Ticks between the best bid and the best ask">
@@ -596,5 +674,25 @@ export function DomPanel(props: { panel: DomPanelState; trade?: DomTrade; patch?
         )}
       </Show>
     </div>
+  );
+}
+
+/** One count's interval: a row of choices under its name. */
+function Resets(props: { label: string; tip: string; choices: readonly { value: number; label: string }[]; value: number; pick(v: number): void }) {
+  return (
+    <>
+      <div class="cap" data-tip={props.tip}>
+        {props.label}
+      </div>
+      <div class="group">
+        <For each={props.choices}>
+          {(c) => (
+            <button classList={{ cur: props.value === c.value }} onClick={() => props.pick(c.value)}>
+              {c.label}
+            </button>
+          )}
+        </For>
+      </div>
+    </>
   );
 }

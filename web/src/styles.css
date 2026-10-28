@@ -460,7 +460,10 @@ table.tape tr.big td { font-weight: 700; background: color-mix(in oklab, current
 .flowcanvas { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .flowcanvas canvas { display: block; }
 .flowpanel .toolbar .conn { margin-right: 4px; }
-.dom-menu { top: 26px; right: 4px; min-width: 170px; }
+.dom-menu { top: 26px; right: 4px; min-width: 190px; }
+.dom-menu .cap { padding: 6px 8px 2px; border-top: 1px solid var(--border); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.dom-menu .cap:first-child { border-top: 0; }
+.dom-menu .group { border-top: 0; padding-top: 2px; }
 .dom-foot { flex: none; display: flex; gap: 14px; padding: 3px 8px; border-top: 1px solid var(--border); background: var(--surface-2); font-size: 11px; white-space: nowrap; overflow: hidden; }
 .dom-foot .caps { font-size: 9px; margin-right: 2px; }
 .dom-trade { flex: none; display: flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 6px; border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: 11px; white-space: nowrap; overflow: hidden; }

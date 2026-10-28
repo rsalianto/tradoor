@@ -104,6 +104,8 @@ function startDom(market: string): DomPanelState {
     minUsd: Number.isFinite(minUsd) && minUsd >= 0 ? minUsd : 0,
     unit: saved.unit === 'coins' ? 'coins' : 'usd',
     hidden: typeof saved.hidden === 'string' ? saved.hidden : '',
+    resetTrades: Number.isInteger(saved.resetTrades) ? saved.resetTrades! : 0,
+    resetProfile: Number.isInteger(saved.resetProfile) ? saved.resetProfile! : 0,
   };
 }
 
@@ -133,7 +135,7 @@ export function Training(props: { chart: typeof ChartPanel }) {
   // The DOM follows the chart's coin; its own settings are kept here, not in the workspace.
   const [dom, setDom] = createStore<DomPanelState>(startDom(panel().market));
   createEffect(() => setDom('market', panel().market));
-  createEffect(() => writePref(DOM_KEY, JSON.stringify({ ticks: dom.ticks, minUsd: dom.minUsd, unit: dom.unit, hidden: dom.hidden })));
+  createEffect(() => writePref(DOM_KEY, JSON.stringify({ ticks: dom.ticks, minUsd: dom.minUsd, unit: dom.unit, hidden: dom.hidden, resetTrades: dom.resetTrades, resetProfile: dom.resetProfile })));
   const [domShown, setDomShown] = createSignal(readPref(DOM_SHOWN_KEY) !== '0');
   createEffect(() => writePref(DOM_SHOWN_KEY, domShown() ? '1' : '0'));
 
