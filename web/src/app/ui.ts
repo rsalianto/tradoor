@@ -28,9 +28,30 @@ export interface ChartController {
   redo(): boolean;
   /** Copy a picture of the chart, or save the file instead. */
   capture(save: boolean): void;
+  /** For the drawing rail: why drawing is off — the server out of reach — or null. */
+  offline(): string | null;
+  canUndo(): boolean;
+  canRedo(): boolean;
+  /** The drawing selected, to delete; and how many there are on this market, to clear. */
+  selected(): number | null;
+  deleteSelected(): void;
+  drawingCount(): number;
+  clearDrawings(): void;
 }
 
 export const chartControllers = new Map<string, ChartController>();
+/** Bumped as charts come and go, so a rail looking a chart up finds it. */
+export const [controllersChanged, setControllersChanged] = createSignal(0);
+
+/**
+ * The drawing tool armed, one for every chart: a tool picked on the rail draws
+ * on whichever chart is clicked next, and is put down once that drawing is done.
+ */
+export const [armedTool, setArmedTool] = createSignal('');
+/** One rail at the workspace's left for its charts, once it shows more than one; each chart then keeps none of its own. */
+export const [sharedRail, setSharedRail] = createSignal(false);
+
+export type { MagnetMode };
 
 /** Up and Down in a panel with a list of its own to walk, by the panel's id: true when it took the key. */
 export const panelSteps = new Map<string, (step: number) => boolean>();

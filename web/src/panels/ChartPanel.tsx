@@ -4,9 +4,10 @@
  * pointer input.
  */
 import { batch, createEffect, createMemo, createSignal, For, type JSX, lazy, on, onCleanup, onMount, Show, untrack } from 'solid-js';
-import { chartControllers, covered, cycleMagnet, magnet, mobile, setMobileMenu, setOverlay, setShownPattern, shownPattern, TOOL_KEYS, type ShownPattern } from '../app/ui';
+import { armedTool, chartControllers, controllersChanged, covered, magnet, mobile, setArmedTool, setControllersChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
+import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
-import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, MagnetMode, PointerKind, StudyMeta } from '../engine/protocol';
+import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, StudyMeta } from '../engine/protocol';
 import { api, catalog, errorText, type AlertStyle, type ChartKind, type Drawing, type Product } from '../lib/api';
 import type { DrawingPatch } from '../components/DrawingSettings';
 import { defaultStyle, visibleOn, type Style } from '../lib/drawing-style';
@@ -19,7 +20,7 @@ import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
 import type { LastPrice } from '../lib/last-price';
-import { Icon, type IconName } from '../lib/icons';
+import { Icon } from '../lib/icons';
 import { VenueTag } from '../lib/exchanges';
 import { WatchlistToggle } from '../components/WatchlistToggle';
 import { liquidationVenues } from '../lib/liquidation-venues';
@@ -38,35 +39,6 @@ const OpenInterestSettings = lazy(() => import('../components/OpenInterestSettin
 const AlertStyleSettings = lazy(() => import('../components/AlertStyleSettings').then((m) => ({ default: m.AlertStyleSettings })));
 const DrawingToolbar = lazy(() => import('../components/DrawingToolbar').then((m) => ({ default: m.DrawingToolbar })));
 
-const TOOLS: { kind: string; icon: IconName; title: string }[] = [
-  { kind: '', icon: 'pointer', title: 'Select and pan (Esc) — click a drawing to select it, then Delete to remove it' },
-  { kind: 'path', icon: 'path', title: 'Path — click each turn, then Enter or double-click to finish' },
-  { kind: 'trendline', icon: 'trendline', title: 'Trendline — click the two ends; anchored to time and price' },
-  { kind: 'horizontal', icon: 'horizontal', title: 'Horizontal level — one click, drawn edge to edge' },
-  { kind: 'ray', icon: 'ray', title: 'Ray — one click; the level starts where you put it' },
-  { kind: 'rect', icon: 'rect', title: 'Zone — click opposite corners' },
-  { kind: 'channel', icon: 'channel', title: 'Parallel channel — click the two ends of one line, then where the parallel line runs' },
-  { kind: 'fib', icon: 'fib', title: 'Fib retracement — click the 100% end first, then the 0% end' },
-  { kind: 'text', icon: 'text', title: 'Note — click where it goes, then type it' },
-  { kind: 'measure', icon: 'measure', title: 'Measure — click from and to; reports the move, percent and bars' },
-  { kind: 'long', icon: 'long', title: 'Long position — click the entry; drag its handles to set stop, target and width' },
-  { kind: 'short', icon: 'short', title: 'Short position — click the entry; drag its handles to set stop, target and width' },
-  { kind: 'brush', icon: 'brush', title: 'Brush — drag to draw freehand' },
-];
-
-/** The tool's name with its Alt shortcut: `Trendline (Alt+T) — click the two ends…`. */
-const toolTip = (t: { kind: string; title: string }): string => {
-  const key = Object.entries(TOOL_KEYS).find(([, kind]) => kind === t.kind)?.[0];
-  if (!key) return t.title;
-  const [name, ...rest] = t.title.split(' — ');
-  return [`${name} (Alt+${key.slice(3)})`, ...rest].join(' — ');
-};
-
-const MAGNET_TIP: Record<MagnetMode, string> = {
-  off: 'Magnet off (Alt+G) — click for a weak magnet, or hold Ctrl while drawing for one',
-  weak: 'Weak magnet (Alt+G) — anchors near a bar take its open, high, low or close; elsewhere a whole tick. Click for strong',
-  strong: 'Strong magnet (Alt+G) — anchors always take the nearest open, high, low or close. Click to turn it off',
-};
 
 /** What each click is for, in order — on a position tool the order is the meaning. */
 /** `?debug`: a line of what the engine holds, for a phone with no console to read. */
@@ -185,7 +157,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const [studies, setStudies] = createSignal<StudyMeta[]>([]);
   const [status, setStatus] = createSignal<ChartStatus>({ loading: true, error: null, bars: 0, source: null, live: 'off', relayed: false, exhausted: false });
   const [cursor, setCursor] = createSignal('crosshair');
-  const [tool, setTool] = createSignal('');
+  // The tool armed is every chart's: picked on a rail, it draws on whichever chart is clicked next.
+  const tool = armedTool;
+  const setTool = setArmedTool;
   const [autoScale, setAutoScale] = createSignal(true);
   const [selected, setSelected] = createSignal<number | null>(null);
   const [drawings, setDrawings] = createSignal<Drawing[]>([]);
@@ -441,11 +415,23 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       undo,
       redo,
       capture,
+      offline,
+      canUndo: () => (moved(), history.canUndo),
+      canRedo: () => (moved(), history.canRedo),
+      selected,
+      deleteSelected: () => {
+        const s = selected();
+        if (s !== null) void deleteDrawing(s);
+      },
+      drawingCount: () => drawings().length,
+      clearDrawings: () => void clearDrawings(),
     });
+    setControllersChanged((n) => n + 1);
     onCleanup(() => {
       observer.disconnect();
       box.removeEventListener('wheel', onWheel);
       chartControllers.delete(id);
+      setControllersChanged((n) => n + 1);
       // A tab switched away keeps its chart; a closed panel frees it.
       releaseChart(id, id in doc.panels);
     });
@@ -516,7 +502,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const tpoSet = (key: string, value: string) => patchPanel(id, { tpoSettings: withTpoValue(props.panel.tpoSettings, key, value) });
   const tpoOn = (key: string) => tpoValue(props.panel.tpoSettings, key) === '1';
   createEffect(() => send({ t: 'paneWeights', id: sid, value: props.panel.paneWeights }));
-  createEffect(() => send({ t: 'tool', id: sid, value: tool(), style: tool() ? defaultStyle(tool()) : {} }));
+  createEffect(() => send({ t: 'tool', id: sid, value: offline() === null ? tool() : '', style: tool() ? defaultStyle(tool()) : {} }));
   createEffect(() => send({ t: 'magnet', id: sid, value: magnet() }));
   createEffect(() => send({ t: 'selected', id: sid, value: selected() }));
   // Every timeframe shows the market's drawings, bar those hidden on this one,
@@ -1084,49 +1070,10 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       </Show>
 
       <div class="chartwrap">
-        <div class="rail">
-          <For each={TOOLS}>
-            {(t) => (
-              <button
-                classList={{ on: tool() === t.kind }}
-                disabled={t.kind !== '' && offline() !== null}
-                data-tip={t.kind !== '' && offline() ? `${t.title.split(' — ')[0]} — unavailable: drawings are saved on the tradoor server (${offline()})` : toolTip(t)}
-                onClick={() => setTool(tool() === t.kind ? '' : t.kind)}
-              >
-                <Icon name={t.icon} />
-              </button>
-            )}
-          </For>
-          <hr />
-          <button class="magnet" classList={{ on: magnet() !== 'off', strong: magnet() === 'strong' }} data-tip={MAGNET_TIP[magnet()]} onClick={cycleMagnet}>
-            <Icon name="magnet" />
-          </button>
-          <hr />
-          <button disabled={(moved(), !history.canUndo)} data-tip="Undo (Ctrl Z)" onClick={undo}>
-            <Icon name="undo" />
-          </button>
-          <button disabled={(moved(), !history.canRedo)} data-tip="Redo (Ctrl Y)" onClick={redo}>
-            <Icon name="redo" />
-          </button>
-          <hr />
-          <button
-            class="del"
-            disabled={selected() === null}
-            data-tip={selected() === null ? 'Select a drawing on the chart first' : 'Delete the selected drawing (Delete)'}
-            onClick={() => {
-              const s = selected();
-              if (s !== null) void deleteDrawing(s);
-            }}
-          >
-            <Icon name="trash" />
-          </button>
-          <button class="del" disabled={drawings().length === 0} data-tip={`Remove all ${drawings().length} drawings on this market, on every timeframe`} onClick={() => void clearDrawings()}>
-            <Icon name="eraser" />
-          </button>
-          <Show when={drawings().length > 0}>
-            <span class="count num">{drawings().length}</span>
-          </Show>
-        </div>
+        {/* Its own rail when it is the only chart; several share one at the workspace's left. */}
+        <Show when={props.training || !sharedRail()}>
+          <DrawingRail target={() => (controllersChanged(), chartControllers.get(id))} />
+        </Show>
 
         <div
           ref={box}

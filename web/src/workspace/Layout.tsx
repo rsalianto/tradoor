@@ -3,7 +3,8 @@
  * by dragging a tab onto another group's centre or edge.
  */
 import { createEffect, createSignal, For, lazy, Match, on, onCleanup, Show, Switch, type JSX } from 'solid-js';
-import { covered, dragging, mobileMenu, setDragging, setJournalOpen, setMobile, setMobileMenu, setOverlay, setTrainingOpen } from '../app/ui';
+import { chartControllers, controllersChanged, covered, dragging, mobileMenu, setDragging, setJournalOpen, setMobile, setMobileMenu, setOverlay, setSharedRail, setTrainingOpen } from '../app/ui';
+import { DrawingRail } from '../panels/DrawingRail';
 import { useDismiss } from '../lib/dismiss';
 import { unread } from '../lib/alerts';
 import { Icon } from '../lib/icons';
@@ -47,12 +48,23 @@ function useMedia(query: string): () => boolean {
   return matches;
 }
 
+/** Charts on screen: a tab group shows the one panel it has open. */
+const shownCharts = (node: LayoutNode): number =>
+  node.kind === 'tabs' ? (doc.panels[node.active]?.type === 'chart' ? 1 : 0) : node.children.reduce((n, child) => n + shownCharts(child), 0);
+
 export function Layout() {
   const narrow = useMedia(MOBILE_QUERY);
   createEffect(() => setMobile(narrow()));
   onCleanup(() => setMobile(false));
+  // Several charts share one rail at the left, acting on the chart in use.
+  const shared = () => !narrow() && shownCharts(doc.root) > 1;
+  createEffect(() => setSharedRail(shared()));
+  onCleanup(() => setSharedRail(false));
   return (
     <div class="workspace" classList={{ mobile: narrow(), covered: covered() }}>
+      <Show when={shared()}>
+        <DrawingRail target={() => (controllersChanged(), chartControllers.get(targetChart()?.id ?? ''))} />
+      </Show>
       <Show when={narrow()} fallback={<NodeView node={doc.root} />}>
         <MobileShell />
       </Show>
