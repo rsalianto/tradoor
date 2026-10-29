@@ -22,8 +22,8 @@ export type PanelType = 'chart' | 'watchlist' | 'tpo' | 'values' | 'liquidations
  */
 /** How a footprint level reads, named as every footprint chart names them. */
 export const FOOTPRINT_MODES: readonly { value: string; label: string }[] = [
-  { value: 'split', label: 'Split' },
   { value: 'delta', label: 'Delta' },
+  { value: 'split', label: 'Split' },
   { value: 'total', label: 'Total' },
   { value: 'cluster', label: 'Cluster' },
   { value: 'ladder', label: 'Ladder' },
@@ -32,7 +32,7 @@ export const FOOTPRINT_MODES: readonly { value: string; label: string }[] = [
 /** What a footprint column carries besides its cells. */
 export const FOOTPRINT_EXTRAS: readonly { key: 'footprintValueArea' | 'footprintStats' | 'footprintProfile'; label: string; tip: string }[] = [
   { key: 'footprintValueArea', label: 'Value area', tip: 'Outline the rows holding 70% of a bar’s volume' },
-  { key: 'footprintStats', label: 'Stats', tip: 'The bar’s volume and delta, written under it' },
+  { key: 'footprintStats', label: 'Stats', tip: 'A table under the bars: each one’s volume, delta, delta %, and the most and least its delta reached, read at each minute’s close' },
   { key: 'footprintProfile', label: 'Profile', tip: 'Every visible bar summed by price, against the right edge' },
 ];
 
@@ -243,12 +243,12 @@ export function newPanel(type: PanelType, from?: Partial<Pick<PanelBase, 'link' 
   const base = { id: uid(type), link: from?.link ?? null, market: from?.market ?? DEFAULT_MARKET, timeframe: from?.timeframe ?? DEFAULT_TIMEFRAME };
   switch (type) {
     case 'chart':
-      return { ...base, type, studies: DEFAULT_STUDIES, hidden: '', log: false, paneWeights: '', tpo: '', footprint: false, footprintMode: 'split', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, legendShut: false };
+      return { ...base, type, studies: DEFAULT_STUDIES, hidden: '', log: false, paneWeights: '', tpo: '', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, legendShut: false };
     case 'watchlist':
       return { ...base, type, markets: [...DEFAULT_WATCHLIST], collapsed: [], flags: {} };
     case 'tpo':
       // Profiles read cleanest bare, as Exocharts draws them: no studies under them.
-      return { ...base, id: uid('chart'), type: 'chart', studies: '', hidden: '', log: false, paneWeights: '', tpo: '1d', footprint: false, footprintMode: 'split', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, legendShut: false };
+      return { ...base, id: uid('chart'), type: 'chart', studies: '', hidden: '', log: false, paneWeights: '', tpo: '1d', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, legendShut: false };
     case 'values':
       return { ...base, type, basis: 'volume' };
     case 'liquidations':

@@ -1207,7 +1207,7 @@ function handle(msg: ToWorker): void {
       slot.engine.set_alerts(Float64Array.from(msg.list.flatMap((a) => [a.id, a.price, rgba(a.style?.color), DASHES[a.style?.dash ?? ''] ?? 0, a.style?.width ?? 0])));
       break;
     case 'footprint':
-      slot.engine.set_footprint(msg.flat, msg.grid);
+      slot.engine.set_footprint(msg.flat, msg.grid, msg.fitted);
       break;
     case 'footprintShown':
       slot.engine.set_footprint_shown(msg.value);

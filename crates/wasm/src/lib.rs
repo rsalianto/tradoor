@@ -474,12 +474,15 @@ impl ChartEngine {
             None => set(&o, "flow", JsValue::NULL),
         }
         match l.footprint {
-            Some((bar, level, x, y)) => {
+            Some(cell) => {
                 let c = obj();
-                set(&c, "bar", bar as f64);
-                set(&c, "level", level as f64);
-                set(&c, "x", f64::from(x));
-                set(&c, "y", f64::from(y));
+                set(&c, "time", cell.time as f64);
+                set(&c, "price", cell.price);
+                set(&c, "step", cell.step);
+                set(&c, "buy", cell.buy);
+                set(&c, "sell", cell.sell);
+                set(&c, "x", f64::from(cell.x));
+                set(&c, "y", f64::from(cell.y));
                 set(&o, "footprint", c);
             }
             None => set(&o, "footprint", JsValue::NULL),
@@ -504,15 +507,18 @@ impl ChartEngine {
     }
 
     /// Volume by price, flat: for each bar, its time, how many levels follow,
-    /// then each level as price, coins bought, coins sold. One array rather
-    /// than a tree of objects, because a busy screen is fifty thousand numbers.
-    pub fn set_footprint(&mut self, flat: &[f64], grid: f64) {
+    /// the most and least its delta reached, then each level as price, coins
+    /// bought, coins sold. One array rather than a tree of objects, because a
+    /// busy screen is fifty thousand numbers. `fitted`: the rows join as the
+    /// chart zooms out, rather than each covering `grid` as the reader set it.
+    pub fn set_footprint(&mut self, flat: &[f64], grid: f64, fitted: bool) {
         let mut bars = Vec::new();
         let mut i = 0usize;
-        while i + 1 < flat.len() {
+        while i + 3 < flat.len() {
             let time = flat[i] as i64;
             let count = flat[i + 1].max(0.0) as usize;
-            i += 2;
+            let (max_delta, min_delta) = (finite_or_zero(flat[i + 2]), finite_or_zero(flat[i + 3]));
+            i += 4;
             let end = (i + count * 3).min(flat.len());
             let levels = flat[i..end]
                 .chunks_exact(3)
@@ -521,10 +527,10 @@ impl ChartEngine {
                 .collect::<Vec<_>>();
             i = end;
             if !levels.is_empty() {
-                bars.push(tradoor_render::footprint::Bar { time, levels });
+                bars.push(tradoor_render::footprint::Bar { time, levels, max_delta, min_delta });
             }
         }
-        self.chart.set_footprint(bars, grid);
+        self.chart.set_footprint(bars, grid, fitted);
     }
 
     pub fn set_footprint_shown(&mut self, shown: bool) {
@@ -780,6 +786,11 @@ pub fn indicator_values(
 /// Alert levels off the flat array the page sends: `[id, price, rgba, dash,
 /// width, …]` — `rgba` as `0xrrggbbaa`, 0 for the theme's colour; `dash` 1
 /// solid, 2 dashed, 3 dotted, 0 for dashed; `width` 0 for a pixel.
+/// A figure off the wire, or nothing where it is not a number.
+fn finite_or_zero(v: f64) -> f64 {
+    if v.is_finite() { v } else { 0.0 }
+}
+
 fn alert_lines(flat: &[f64]) -> Vec<tradoor_render::chart::AlertLine> {
     flat.chunks_exact(5)
         .filter(|c| c[1].is_finite() && c[1] > 0.0)

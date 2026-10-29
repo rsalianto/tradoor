@@ -15,7 +15,7 @@ import { before, DrawingHistory, type DrawingChange, type DrawingRef, type Step 
 import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
-import { fetchFootprint, flatten, recordedMarkets, type Levels } from '../lib/footprint';
+import { fetchFootprint, flatten, recordedMarkets } from '../lib/footprint';
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
@@ -218,13 +218,10 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     const list = flowOn() ? flowMarks(market()) : [];
     send({ t: 'flow', id: sid, marks: list.map((m) => ({ at: m.at, price: m.price, usd: m.deltaUsd })) });
   });
-  /** The cell under the pointer, with the numbers that made it. */
+  /** The row under the pointer, with the numbers that made it. */
   const hoveredCell = () => {
-    const at = legend()?.footprint;
-    if (!at) return null;
-    const bar = footprintBars()[at.bar];
-    const level = bar?.levels[at.level];
-    return bar && level ? { at: bar.time, price: level[0], buy: level[1], sell: level[2], x: at.x, y: at.y } : null;
+    const c = legend()?.footprint;
+    return c ? { at: c.time, price: c.price, buy: c.buy, sell: c.sell, x: c.x, y: c.y } : null;
   };
 
   const hoveredFlow = () => {
@@ -237,8 +234,6 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   // Volume by price, in place of the candles. The server records eight markets
   // at a minute apiece; a chart of longer bars adds those minutes together.
   const [recorded, setRecorded] = createSignal<Map<string, number>>(new Map());
-  /** The columns as sent, so the pointer can be told what made a cell. */
-  const [footprintBars, setFootprintBars] = createSignal<Levels[]>([]);
   void recordedMarkets().then(setRecorded);
   /** Whether this market's footprint can be asked for at all. */
   const footprintable = () => recorded().has(market());
@@ -256,8 +251,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   );
   createEffect(() => {
     if (!footprintOn()) {
-      setFootprintBars([]);
-      send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0 });
+      send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
       return;
     }
     const market_ = market();
@@ -271,10 +265,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     let dropped = false;
     const load = () =>
       fetchFootprint(market_, barMs, from, to, settings).then(
-        ({ bars, grid }) => {
+        ({ bars, grid, fitted }) => {
           if (dropped) return;
-          setFootprintBars(bars);
-          send({ t: 'footprint', id: sid, flat: flatten(bars), grid });
+          send({ t: 'footprint', id: sid, flat: flatten(bars), grid, fitted });
         },
         () => {},
       );
@@ -964,7 +957,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           <input
             class="box num"
             style={{ width: '58px' }}
-            data-tip={`Ticks a row covers — 0 fits the rows to the bar. One tick is ${recorded().get(market()) ?? 1}`}
+            data-tip={`Ticks a row covers — empty fits the rows to the zoom, so every row carries its number. One tick is ${recorded().get(market()) ?? 1}`}
             value={props.panel.footprintTicks || ''}
             placeholder="auto"
             onChange={(e) => {

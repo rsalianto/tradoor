@@ -21,8 +21,9 @@ export interface Legend {
   alert: { id: number; y: number } | null;
   /** The flow mark under the pointer: which one, and where it sits. */
   flow: { index: number; x: number; y: number } | null;
-  /** The footprint cell under the pointer: which bar, which level, and where. */
-  footprint: { bar: number; level: number; x: number; y: number } | null;
+  /** The footprint row under the pointer, as the screen groups it: its bar, the
+   *  prices it covers, what was bought and sold there, and where it sits. */
+  footprint: { time: number; price: number; step: number; buy: number; sell: number; x: number; y: number } | null;
 }
 
 export interface StudyLine {
@@ -185,7 +186,7 @@ export type ToWorker =
   | { t: 'flow'; id: string; marks: { at: number; price: number; usd: number }[] }
   /** Volume by price: per bar, its time, how many levels follow, then each
    *  level as price, coins bought, coins sold. */
-  | { t: 'footprint'; id: string; flat: Float64Array; grid: number }
+  | { t: 'footprint'; id: string; flat: Float64Array; grid: number; fitted: boolean }
   | { t: 'footprintShown'; id: string; value: boolean }
   | { t: 'footprintOptions'; id: string; value: string }
   | { t: 'selected'; id: string; value: number | null }

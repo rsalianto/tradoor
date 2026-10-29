@@ -170,9 +170,22 @@ pub struct Legend {
     pub alert: Option<(i64, f32)>,
     /// The flow mark under the pointer: which one, and where it sits.
     pub flow: Option<(usize, f32, f32)>,
-    /// The footprint cell under the pointer: which bar, which level, and the
-    /// middle of the row, for the page to hang its reading on.
-    pub footprint: Option<(usize, usize, f32, f32)>,
+    /// The footprint cell under the pointer, as the screen groups it, for the
+    /// page to hang its reading on.
+    pub footprint: Option<FootprintCell>,
+}
+
+/// One footprint row under the pointer: its bar, the prices it covers, what
+/// was bought and sold there, and where it sits.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FootprintCell {
+    pub time: i64,
+    pub price: f64,
+    pub step: f64,
+    pub buy: f64,
+    pub sell: f64,
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -292,8 +305,11 @@ pub struct Chart {
     tpo_profiles: Option<tpo::Profiles>,
     /// Volume by price inside each bar, as the page fetched it, oldest first.
     footprint: Vec<footprint::Bar>,
-    /// The price one footprint row covers, the same for every bar on screen.
+    /// The finest price a footprint row covers, the same for every bar on screen.
     footprint_grid: f64,
+    /// Whether the rows are fitted to the zoom, grouping the grid as it needs;
+    /// otherwise each covers the grid as the reader set it.
+    footprint_fitted: bool,
     /// Whether those columns stand in for the candles.
     footprint_shown: bool,
     /// How a level reads, and what else a column carries.
@@ -375,6 +391,7 @@ impl Chart {
             tpo_profiles: None,
             footprint: Vec::new(),
             footprint_grid: 0.0,
+            footprint_fitted: true,
             footprint_shown: false,
             footprint_options: footprint::Options::default(),
             precision: 2,
@@ -724,18 +741,37 @@ impl Chart {
 
     /// Volume by price inside each bar: what the page fetched of what the
     /// server recorded, its minutes folded into the bars on screen.
-    pub fn set_footprint(&mut self, bars: Vec<footprint::Bar>, grid: f64) {
-        if self.footprint != bars || self.footprint_grid != grid {
+    pub fn set_footprint(&mut self, bars: Vec<footprint::Bar>, grid: f64, fitted: bool) {
+        if self.footprint != bars || self.footprint_grid != grid || self.footprint_fitted != fitted {
             self.footprint = bars;
             self.footprint_grid = grid;
+            self.footprint_fitted = fitted;
             self.touch();
         }
     }
 
-    /// Whether those columns are drawn at all: a chart style, as TPO is.
+    /// Whether footprint columns stand in for the candles now.
+    fn footprint_drawn(&self) -> bool {
+        self.tpo().is_none() && self.footprint_shown && !self.footprint.is_empty()
+    }
+
+    /// The price one footprint row covers on this pane as it is zoomed: read at
+    /// the middle of the plot, so every bar and the pointer agree on it.
+    fn footprint_step(&self, pane: &PaneView) -> f64 {
+        let y = |p: f64| pane.scale.y(p) as f32;
+        let middle = pane.scale.price(f64::from(pane.plot.y + pane.plot.h / 2.0));
+        footprint::row_step(&y, middle, self.footprint_grid, self.footprint_fitted)
+    }
+
+    /// Whether those columns are drawn at all: a chart style, as TPO is. Turned
+    /// on, the bars widen to where a cell can carry its number, the newest held
+    /// where it is: a footprint zoomed out is stripes nobody can read.
     pub fn set_footprint_shown(&mut self, shown: bool) {
         if self.footprint_shown != shown {
             self.footprint_shown = shown;
+            if shown && self.view_ready && self.time.width > 0.0 && self.time.bar_spacing < footprint::READABLE_SPACING {
+                self.time.zoom_at(self.time.width, footprint::READABLE_SPACING / self.time.bar_spacing);
+            }
             self.touch();
         }
     }
@@ -768,26 +804,28 @@ impl Chart {
     /// The footprint cell under (x, y): its bar, its level, and where the row
     /// sits — so a reader can put the pointer on a cell and be told what made
     /// it, which is the whole use of the numbers being too small to print.
-    pub fn footprint_at(&self, x: f32, y: f32) -> Option<(usize, usize, f32, f32)> {
-        if !self.footprint_shown || self.footprint.is_empty() {
+    pub fn footprint_at(&self, x: f32, y: f32) -> Option<FootprintCell> {
+        if !self.footprint_drawn() {
             return None;
         }
         let pane = self.panes.first()?;
         if x < 0.0 || x >= pane.plot.w || y < pane.plot.y || y > pane.plot.bottom() {
             return None;
         }
-        let half = (self.time.bar_spacing as f32 * 0.86).max(2.0) / 2.0;
+        if self.footprint_options.stats && y >= pane.plot.bottom() - footprint::table_height() {
+            return None;
+        }
+        let step = self.footprint_step(pane);
         let price = pane.scale.price(f64::from(y));
-        for (index, bar) in self.footprint.iter().enumerate() {
+        for bar in &self.footprint {
             let Some(logical) = time_to_logical(&self.times, bar.time as f64) else { continue };
-            let bx = self.time.x(logical) as f32;
-            if (x - bx).abs() > half {
+            let s = footprint::slot(self.time.x(logical) as f32, self.time.bar_spacing as f32);
+            if x < s.left || x > s.left + s.width {
                 continue;
             }
-            let step = footprint::level_step(bar);
-            let level = bar.levels.iter().position(|(p, _, _)| price >= *p && price < *p + step)?;
-            let row_y = pane.scale.y(bar.levels[level].0 + step / 2.0) as f32;
-            return Some((index, level, bx, row_y));
+            let rows = footprint::grouped(bar, step);
+            let &(at, buy, sell) = rows.levels.iter().find(|(p, _, _)| price >= *p && price < *p + step)?;
+            return Some(FootprintCell { time: bar.time, price: at, step, buy, sell, x: s.cells + s.cells_width, y: pane.scale.y(at + step / 2.0) as f32 });
         }
         None
     }
@@ -1116,7 +1154,16 @@ impl Chart {
             let h = if i + 1 == groups.len() { avail - y } else { ((f64::from(avail) * self.weight(*g) / total) as f32).max(MIN_PANE_HEIGHT) };
             let state = self.pane_state[g];
             let mode = if *g == Group::Price && self.log_scale { ScaleMode::Log } else { ScaleMode::Normal };
-            panes.push(PaneView { group: *g, plot: Rect { x: 0.0, y, w: plot_w, h: h.max(1.0) }, scale: PriceScale::new(mode, f64::from(y), f64::from(h.max(1.0)), state.margins) });
+            let mut margins = state.margins;
+            if *g == Group::Price && self.footprint_drawn() {
+                // Every pixel of height is another row a bar can be read in.
+                margins.0 = margins.0.min(0.1);
+                // The footprint's table stands along the price pane's foot: the bars keep above it.
+                if self.footprint_options.stats {
+                    margins.1 = margins.1.max(f64::from(footprint::table_height() + 8.0) / f64::from(h.max(1.0)));
+                }
+            }
+            panes.push(PaneView { group: *g, plot: Rect { x: 0.0, y, w: plot_w, h: h.max(1.0) }, scale: PriceScale::new(mode, f64::from(y), f64::from(h.max(1.0)), margins) });
             y += h;
         }
 
@@ -1199,10 +1246,13 @@ impl Chart {
                     take(b.low);
                 }
             }
-            if !self.hidden.contains("ema200") {
+            // As TPO profiles and footprint columns do not draw the averages, the range
+            // does not hold them either: an EMA 200 far off squeezed every row there was.
+            let averages = self.tpo().is_none() && !self.footprint_drawn();
+            if averages && !self.hidden.contains("ema200") {
                 series(&self.engine.ema200, &mut take);
             }
-            if !self.hidden.contains("ribbon") {
+            if averages && !self.hidden.contains("ribbon") {
                 series(&self.engine.ema12, &mut take);
                 series(&self.engine.ema25, &mut take);
             }
@@ -1312,6 +1362,9 @@ impl Chart {
     /// Bars the chart opens on, and the room right of the last: a screenful of
     /// candles, or the last few TPO sessions with space for the current one to grow.
     fn opening_bars(&self) -> (f64, f64) {
+        if self.footprint_shown && self.tpo().is_none() && self.time.width > 0.0 {
+            return ((self.time.width / footprint::READABLE_SPACING).max(3.0), RIGHT_MARGIN_BARS);
+        }
         let n = self.total_bars();
         let (Some(session), Some(last)) = (self.tpo(), n.checked_sub(1).and_then(|i| self.bar(i))) else { return (DEFAULT_VISIBLE_BARS, RIGHT_MARGIN_BARS) };
         let current = session.align(last.time);
@@ -1398,7 +1451,7 @@ impl Chart {
         // the mark over the volume — the bars sit where it does and would bury it
         f.clip(Some(price.plot));
         let tpo = self.tpo().is_some() && self.tpo_profiles.is_some();
-        let foot = !tpo && self.footprint_shown && !self.footprint.is_empty();
+        let foot = !tpo && self.footprint_drawn();
         if let (true, Some(profiles)) = (tpo, self.tpo_profiles.as_ref()) {
             let bars: Vec<Candle> = (0..n).filter_map(|i| self.bar(i)).map(|b| Candle { open_time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, quote_volume: None }).collect();
             let x = |l: f64| self.time.x(l) as f32;
@@ -1459,6 +1512,21 @@ impl Chart {
             }
         }
         if foot {
+            // A thin candle at the left of every slot, the cells beside it: a
+            // bar the server never recorded still says where it went.
+            for i in i0..=i1 {
+                let Some(b) = self.bar(i) else { continue };
+                let s = footprint::slot(self.time.x(i as f64) as f32, self.time.bar_spacing as f32);
+                if s.candle_width <= 0.0 {
+                    continue;
+                }
+                let sc = &price.scale;
+                let color = if b.close >= b.open { t.bull } else { t.bear };
+                let (yh, yl, yo, yc) = (sc.y(b.high) as f32, sc.y(b.low) as f32, sc.y(b.open) as f32, sc.y(b.close) as f32);
+                let x = f.snap(s.candle);
+                f.vline(x, yh, yl, 1.0, color);
+                f.crisp_rect(x - s.candle_width / 2.0, yo.min(yc), s.candle_width, (yo - yc).abs().max(1.0), color);
+            }
             let x = |l: f64| self.time.x(l) as f32;
             let y = |p: f64| price.scale.y(p) as f32;
             let view = footprint::View { plot: price.plot, bar_spacing: self.time.bar_spacing as f32, char_width: self.char_width, theme: t, x: &x, y: &y };
@@ -1466,7 +1534,7 @@ impl Chart {
             // server never recorded leaves a gap rather than shifting the rest.
             let placed: Vec<(f64, &footprint::Bar)> =
                 self.footprint.iter().filter_map(|bar| time_to_logical(&self.times, bar.time as f64).map(|l| (l, bar))).collect();
-            footprint::paint(f, &view, &placed, self.footprint_options, self.footprint_grid);
+            footprint::paint(f, &view, &placed, self.footprint_options, self.footprint_step(&price));
         }
         if !tpo && !foot && !self.hidden.contains("ema200") {
             self.paint_series(f, &price.scale, &self.engine.ema200, i0, i1, t.ema200, 1.0, LineStyle::Solid);
@@ -3626,22 +3694,46 @@ mod tests {
     #[test]
     fn the_footprint_cell_under_the_pointer_is_the_one_the_price_falls_in() {
         let mut c = chart();
-        let bar = c.candles()[400];
-        let levels = vec![(bar.low, 1.0, 2.0), (bar.low + 0.5, 3.0, 0.5), (bar.low + 1.0, 0.25, 4.0)];
-        c.set_footprint(vec![footprint::Bar { time: bar.open_time, levels }], 0.5);
+        // A recent bar: turned on, the footprint widens the bars and keeps the newest in view.
+        let i = c.candles().len() - 3;
+        let bar = c.candles()[i];
+        // Levels on the grid, as the server records them: whole multiples of a row.
+        let base = (bar.low / 0.5).floor() * 0.5;
+        let levels = vec![(base, 1.0, 2.0), (base + 0.5, 3.0, 0.5), (base + 1.0, 0.25, 4.0)];
+        // Rows as the reader set them, half a dollar each, so the test knows where they are.
+        c.set_footprint(vec![footprint::Bar { time: bar.open_time, levels, ..Default::default() }], 0.5, false);
+        c.set_footprint_options("delta;1;0;1");
         c.render(1_800_000_000_000);
         assert_eq!(c.footprint_at(10.0, 10.0), None, "nothing is drawn until the style is chosen");
 
         c.set_footprint_shown(true);
         c.render(1_800_000_000_000);
+        assert!(c.time.bar_spacing >= footprint::READABLE_SPACING - 0.01, "the bars widened to where a cell can be read: {}", c.time.bar_spacing);
         let pane = c.panes[0];
-        let x = c.time.x(400.0) as f32;
+        let x = c.time.x(i as f64) as f32;
         // The middle of the lowest row, and the middle of the one above it.
-        let low = pane.scale.y(c.candles()[400].low + 0.25) as f32;
-        let up = pane.scale.y(c.candles()[400].low + 0.75) as f32;
-        assert_eq!(c.footprint_at(x, low).map(|(b, l, _, _)| (b, l)), Some((0, 0)));
-        assert_eq!(c.footprint_at(x, up).map(|(b, l, _, _)| (b, l)), Some((0, 1)));
-        assert_eq!(c.footprint_at(x + 400.0, low), None, "and a bar away from it is not it");
+        let low = pane.scale.y(base + 0.25) as f32;
+        let up = pane.scale.y(base + 0.75) as f32;
+        assert_eq!(c.footprint_at(x, low).map(|cell| (cell.buy, cell.sell)), Some((1.0, 2.0)));
+        assert_eq!(c.footprint_at(x, up).map(|cell| (cell.buy, cell.sell)), Some((3.0, 0.5)));
+        assert_eq!(c.footprint_at(x - 400.0, low), None, "and a bar away from it is not it");
+    }
+
+    #[test]
+    fn fitted_footprint_rows_join_as_the_chart_zooms_out() {
+        let mut c = chart();
+        let bar = c.candles()[400];
+        let levels: Vec<(f64, f64, f64)> = (0..40).map(|i| (bar.low + f64::from(i) * 0.01, 1.0, 1.0)).collect();
+        c.set_footprint(vec![footprint::Bar { time: bar.open_time, levels, ..Default::default() }], 0.01, true);
+        c.set_footprint_shown(true);
+        c.render(1_800_000_000_000);
+        let pane = c.panes[0];
+        let step = c.footprint_step(&pane);
+        let middle = pane.scale.price(f64::from(pane.plot.y + pane.plot.h / 2.0));
+        let tall = (pane.scale.y(middle) - pane.scale.y(middle + step)).abs();
+        assert!(tall >= 16.0, "a row stands tall enough for its number: {tall}px for {step}");
+        let finer = step / 2.0;
+        assert!(step <= 0.01 || (pane.scale.y(middle) - pane.scale.y(middle + finer)).abs() < 16.0 * 1.01, "and is the finest round grouping that does");
     }
 
     #[test]

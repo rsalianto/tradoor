@@ -79,7 +79,7 @@ function startPanel(): ChartPanelState {
     paneWeights: typeof saved.paneWeights === 'string' ? saved.paneWeights : '',
     tpo: '',
     footprint: false,
-    footprintMode: 'split',
+    footprintMode: 'delta',
     footprintUnit: 'coins',
     footprintTicks: 0,
     footprintValueArea: true,
