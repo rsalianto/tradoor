@@ -24,6 +24,7 @@ tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal",
 tokio-postgres = { version = "0.7.18", features = ["with-serde_json-1"] }
 tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 tower-http = { version = "0.7.1", features = ["compression-gzip", "fs", "trace"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 brotli = "9.0.0"

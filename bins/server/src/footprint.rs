@@ -71,18 +71,19 @@ pub fn tick_of(market: &str) -> Option<f64> {
     MARKETS.iter().find(|(m, _)| *m == market).map(|(_, tick)| *tick)
 }
 
-/// One minute of one market: the levels it traded at, and how many prints.
+/// One minute of one market — or an hour of it, kept as history: the levels it
+/// traded at, and how many prints.
 #[derive(Default)]
-struct Bar {
+pub(crate) struct Bar {
     /// Level (price in ticks, rounded down) to the coins taken at it, each way.
-    levels: BTreeMap<i64, (f64, f64)>,
-    trades: i64,
+    pub(crate) levels: BTreeMap<i64, (f64, f64)>,
+    pub(crate) trades: i64,
 }
 
 impl Bar {
     /// The blob a row carries: the lowest level, then each level as the gap
     /// from the one before it and the two volumes.
-    fn pack(&self) -> (i64, Vec<u8>) {
+    pub(crate) fn pack(&self) -> (i64, Vec<u8>) {
         let mut bytes = Vec::with_capacity(self.levels.len() * 4);
         let base = self.levels.keys().next().copied().unwrap_or(0);
         let mut last = base;

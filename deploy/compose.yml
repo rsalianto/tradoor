@@ -16,6 +16,10 @@ x-app: &app
     # file. Empty is the same as unset: no bot, and Settings says so.
     TRADOOR_TELEGRAM_TOKEN: ${TRADOOR_TELEGRAM_TOKEN:-}
     TRADOOR_SITE_URL: ${TRADOOR_SITE_URL:-}
+    # Footprint history read from Binance's archive, market@first-day: about half
+    # a gigabyte downloaded a month of it, a file at a time, and some 2 MB a month
+    # kept. Set it empty in .env to read none.
+    TRADOOR_FOOTPRINT_HISTORY: ${TRADOOR_FOOTPRINT_HISTORY-binance-perp:BTCUSDT@2026-01-01}
   volumes:
     - data:/data
 

@@ -15,7 +15,7 @@ import { before, DrawingHistory, type DrawingChange, type DrawingRef, type Step 
 import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
-import { fetchFootprint, flatten, recordedMarkets } from '../lib/footprint';
+import { fetchFootprint, flatten, fromHours, recordedMarkets } from '../lib/footprint';
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
@@ -261,7 +261,10 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     // a chart of fifteen-minute bars covers a day in one screen and a chart of
     // minutes an afternoon.
     const to = Date.now();
-    const from = to - Math.min(7, Math.max(1, Math.round((barMs * 400) / 86_400_000))) * 86_400_000;
+    // Hours and days come from the history the server keeps: four hundred bars of
+    // it. Shorter bars are minutes, which it keeps a month, and a week is plenty.
+    const hours = fromHours(barMs);
+    const from = hours ? to - 400 * barMs : to - Math.min(7, Math.max(1, Math.round((barMs * 400) / 86_400_000))) * 86_400_000;
     let dropped = false;
     const load = () =>
       fetchFootprint(market_, barMs, from, to, settings).then(
@@ -272,7 +275,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         () => {},
       );
     void load();
-    const timer = setInterval(() => void load(), 20_000);
+    const timer = setInterval(() => void load(), hours ? 60_000 : 20_000);
     onCleanup(() => {
       dropped = true;
       clearInterval(timer);

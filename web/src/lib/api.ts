@@ -593,6 +593,23 @@ export const api = {
     return body;
   },
 
+  /** Hours of history added up into bars of `bar` ms by the server, on one grid
+   *  of rows — `ticks` of them a row, or 0 to fit — with each bar's delta extremes. */
+  async footprintHistory(
+    market: string,
+    from: number,
+    to: number,
+    bar: number,
+    unit: 'coins' | 'usd',
+    ticks: number,
+  ): Promise<{ grid: number; fitted: boolean; bars: { time: number; levels: [number, number, number][]; maxDelta: number; minDelta: number }[] }> {
+    const { status, body } = await request<{ grid: number; fitted: boolean; bars: { time: number; levels: [number, number, number][]; maxDelta: number; minDelta: number }[] }>(
+      `/api/footprint/history?market=${encodeURIComponent(market)}&from=${Math.round(from)}&to=${Math.round(to)}&bar=${Math.round(bar)}&unit=${unit}&ticks=${Math.max(0, Math.round(ticks))}`,
+    );
+    if (status >= 400 || !body) throw new ApiError(status, `no footprint history for ${market}`);
+    return body;
+  },
+
   async saveWorkspace(id: string, body: { name: string; doc: unknown; version: number }): Promise<{ version: number; conflict: boolean; doc?: unknown }> {
     const res = await request<{ version: number; doc?: unknown; error?: string }>(`/api/workspaces/${id}`, { method: 'PUT', body });
     if (res.status === 409 && res.body) return { version: res.body.version, conflict: true, doc: res.body.doc };

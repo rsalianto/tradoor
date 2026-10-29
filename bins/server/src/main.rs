@@ -17,6 +17,7 @@ mod drives;
 mod drawings;
 mod flow;
 mod footprint;
+mod footprint_history;
 mod import;
 mod indices;
 mod journal;
@@ -73,6 +74,11 @@ struct Cli {
     /// message that opens its chart. Without it the messages carry none.
     #[arg(long, env = "TRADOOR_SITE_URL", default_value = "")]
     site_url: String,
+    /// Footprint history to read from Binance's archive of every trade, as
+    /// market@first-day — binance-perp:BTCUSDT@2026-01-01 — a month at a time.
+    /// Empty reads none: the history is then what the server recorded itself.
+    #[arg(long, env = "TRADOOR_FOOTPRINT_HISTORY", default_value = "", value_delimiter = ',')]
+    footprint_history: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -160,6 +166,8 @@ async fn main() -> anyhow::Result<()> {
             alert_watch::start(pool.clone(), doh.clone(), catalog.clone(), telegram.clone());
             let flow = Some(flow::Flow::start(pool.clone(), doh.clone(), catalog.clone(), telegram.clone()));
             footprint::Footprint::start(pool.clone(), doh.clone(), catalog.clone());
+            let history: Vec<String> = cli.footprint_history.iter().map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect();
+            footprint_history::start(pool.clone(), &doh, cli.data_dir.join("footprint-archive"), history)?;
             journal::start(pool.clone(), &doh, catalog.clone());
             let site = Some(cli.site_url.trim().to_string()).filter(|s| !s.is_empty());
             signals::start(pool.clone(), &doh, catalog.clone(), telegram.clone(), site);

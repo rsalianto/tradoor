@@ -103,7 +103,7 @@ Any chart can be read as TPO profiles — by day, week or month — each session
   <sub>Fifteen-minute bars as footprints: the delta at every price, and what each bar came to underneath.</sub>
 </p>
 
-Volume bought and sold at each price inside every bar, beside a thin candle — as the delta, the two sides apart, their sum, a cluster or a ladder. The rows follow the zoom, so every cell keeps a number you can read, and a table under the bars gives each one's volume, delta, delta %, and the most and least its delta reached. The value area, imbalances and the profile of everything on screen come with it.
+Volume bought and sold at each price inside every bar, beside a thin candle — as the delta, the two sides apart, their sum, a cluster or a ladder. The rows follow the zoom, so every cell keeps a number you can read, and a table under the bars gives each one's volume, delta, delta %, and the most and least its delta reached. The value area, imbalances and the profile of everything on screen come with it. Hourly and daily charts read the footprint's history, kept for good: Binance's BTC perpetual from January 2026, read from Binance's archive of every trade, and every recorded market from the day the server began recording it.
 
 ### Liquidations
 

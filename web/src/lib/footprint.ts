@@ -50,6 +50,10 @@ export function recordedMarkets(): Promise<Map<string, number>> {
   return recorded;
 }
 
+/** Bars of an hour or more that divide a day are added up by the server from
+ *  the hours it keeps for good — months of them, where minutes go after one. */
+export const fromHours = (barMs: number): boolean => barMs >= 3_600_000 && barMs % 3_600_000 === 0 && 86_400_000 % barMs === 0;
+
 /** Minutes one request may carry; a longer range is asked for in pages. */
 const PAGE_MINUTES = 1_440;
 /** Pages one fetch will ask for: a week of minutes, which is plenty of screen. */
@@ -64,6 +68,8 @@ const MAX_PAGES = 7;
  * for in pages: a chart of fifteen-minute bars covers a day in a screenful.
  */
 export async function fetchFootprint(market: string, barMs: number, from: number, to: number, settings: Settings = { ticks: 0, unit: 'coins' }): Promise<Footprint> {
+  // The server's answer is the footprint as the chart takes it.
+  if (fromHours(barMs)) return api.footprintHistory(market, from, to, barMs, settings.unit, settings.ticks);
   const pages: Promise<{ tick: number; bars: { at: number; levels: [number, number, number][] }[] }>[] = [];
   const page = PAGE_MINUTES * 60_000;
   for (let start = Math.max(from, to - MAX_PAGES * page); start < to; start += page) {
