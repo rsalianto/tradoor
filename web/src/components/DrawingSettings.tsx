@@ -122,7 +122,11 @@ export function DrawingSettings(props: {
     const onKey = (e: KeyboardEvent) => {
       e.stopPropagation();
       if (e.key === 'Escape') cancel();
-      else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) ok();
+      else if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) {
+        // A field's change lands as it loses focus: first, or Enter saves what was there before the typing.
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) e.target.blur();
+        ok();
+      }
     };
     panel.addEventListener('keydown', onKey);
     onCleanup(() => panel.removeEventListener('keydown', onKey));
