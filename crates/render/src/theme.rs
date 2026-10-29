@@ -34,8 +34,10 @@ pub struct Theme {
     pub risk_fill: Color,
     pub reward: Color,
     pub reward_fill: Color,
-    /// TPO blocks: early brackets faint, late ones strong.
+    /// TPO blocks inside the value area, outside it, and the point of control's
+    /// row and line; every other TPO colour is worked out from these and the candles'.
     pub tpo: Color,
+    pub tpo_outside: Color,
     pub tpo_poc: Color,
     pub font_px: f32,
 }
@@ -68,8 +70,9 @@ impl Default for Theme {
             risk_fill: Color::hex(0xd97161).with_alpha(36),
             reward: Color::hex(0xa4c588),
             reward_fill: Color::hex(0xa4c588).with_alpha(36),
-            tpo: Color::hex(0xd9dcd9),
-            tpo_poc: Color::hex(0xf07a2a),
+            tpo: Color::hex(0x5f9f3a),
+            tpo_outside: Color::hex(0x858c86),
+            tpo_poc: Color::hex(0xe6f5d3),
             font_px: 11.0,
         }
     }
@@ -107,6 +110,7 @@ impl Theme {
             "drawingSelected" => &mut self.drawing_selected,
             "alert" => &mut self.alert,
             "tpo" => &mut self.tpo,
+            "tpoOutside" => &mut self.tpo_outside,
             "tpoPoc" => &mut self.tpo_poc,
             _ => return false,
         };

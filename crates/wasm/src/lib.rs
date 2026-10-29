@@ -170,9 +170,14 @@ impl ChartEngine {
         self.chart.set_hidden(raw);
     }
 
-    /// TPO options as `key=value;key=value`, named as Exocharts names them.
+    /// TPO options as `key=value;key=value`, named as MMT names them.
     pub fn set_tpo_settings(&mut self, raw: &str) {
         self.chart.set_tpo_settings(raw);
+    }
+
+    /// Profiles expanded, merged and split by hand, as `e=t,t;m=t;s=t`.
+    pub fn set_tpo_edits(&mut self, raw: &str) {
+        self.chart.set_tpo_edits(raw);
     }
 
     /// The reader's time zone, as minutes east of UTC.
@@ -180,7 +185,8 @@ impl ChartEngine {
         self.chart.set_utc_offset(minutes);
     }
 
-    /// `1d`, `1w` or `1M` draws that session as TPO profiles; empty, candles.
+    /// `1d`, `1w`, `1M`, `asia`, `london`, `ny`, `intraday` or `custom` draws
+    /// TPO profiles of that period; empty, candles.
     pub fn set_tpo(&mut self, raw: &str) {
         self.chart.set_tpo(raw);
     }
@@ -486,6 +492,28 @@ impl ChartEngine {
                 set(&o, "footprint", c);
             }
             None => set(&o, "footprint", JsValue::NULL),
+        }
+        match l.tpo {
+            Some(h) => {
+                let t = obj();
+                set(&t, "start", h.start as f64);
+                set(&t, "end", h.end as f64);
+                set(&t, "prev", opt(h.prev.map(|v| v as f64)));
+                set(&t, "next", opt(h.next.map(|v| v as f64)));
+                set(&t, "expanded", h.expanded);
+                set(&t, "merged", h.merged);
+                set(&t, "splitAt", opt(h.split_at.map(|v| v as f64)));
+                let prices = Array::new();
+                for (name, price) in h.prices {
+                    let pair = Array::new();
+                    pair.push(&JsValue::from(name));
+                    pair.push(&JsValue::from(price));
+                    prices.push(&pair);
+                }
+                set(&t, "prices", prices);
+                set(&o, "tpo", t);
+            }
+            None => set(&o, "tpo", JsValue::NULL),
         }
         o.into()
     }

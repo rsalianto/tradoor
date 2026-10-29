@@ -95,7 +95,7 @@ function commands(): Command[] {
       { group: 'Chart', label: 'Show all loaded history', run: () => chartControllers.get(chart.id)?.showRange(null) },
       { group: 'Chart style', label: 'Candles', run: () => patchPanel(chart.id, { tpo: '' }) },
       { group: 'Chart style', label: 'TPO settings…', run: () => setOverlay({ kind: 'tpoSettings', panelId: chart.id }) },
-      ...TPO_SPLITS.map((split) => ({ group: 'Chart style', label: `TPO — split by ${split.label.toLowerCase()}`, run: () => patchPanel(chart.id, { tpo: split.value }) })),
+      ...TPO_SPLITS.map((split) => ({ group: 'Chart style', label: `TPO — ${split.label}`, run: () => patchPanel(chart.id, { tpo: split.value }) })),
     );
   }
   const zones: [DropZone, string][] = [

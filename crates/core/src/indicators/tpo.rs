@@ -102,12 +102,10 @@ pub fn tpo_session(period_candles: &[Candle], session_start: i64, session_end: i
     for row in &rows {
         counts[(row.index - first) as usize] = row.periods.len() as f64;
     }
-    let mut poc_offset = 0;
-    for i in 1..counts.len() {
-        if counts[i] > counts[poc_offset] {
-            poc_offset = i;
-        }
-    }
+    // The most-traded row; of several, the one nearest the range's middle.
+    let most = counts.iter().copied().fold(0.0, f64::max);
+    let middle = (counts.len() - 1) as f64 / 2.0;
+    let poc_offset = (0..counts.len()).filter(|i| counts[*i] == most).min_by(|a, b| (*a as f64 - middle).abs().total_cmp(&(*b as f64 - middle).abs()).then(b.cmp(a))).unwrap_or(0);
     let (low_index, high_index) = value_area(&counts, poc_offset, opts.value_area_pct);
 
     let initial_balance = (opts.initial_balance_periods > 0 && period_candles.len() >= opts.initial_balance_periods).then(|| {

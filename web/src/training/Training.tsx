@@ -86,6 +86,7 @@ function startPanel(): ChartPanelState {
     footprintStats: true,
     footprintProfile: true,
     tpoSettings: {},
+    tpoEdits: '',
     legendShut: saved.legendShut === true,
   };
 }

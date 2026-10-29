@@ -10,16 +10,11 @@ import { DEFAULT_MARKET, isChartMarket, isMarket } from '../lib/markets';
 import { FLAGS, isSection, SECTION_NAME_MAX, sectionName } from '../lib/watchlist';
 
 const isSectionItem = (v: unknown): v is string => typeof v === 'string' && isSection(v) && v.length > 1 && v.length <= SECTION_NAME_MAX + 1;
-import { FAVORITE_TIMEFRAMES, isTimeframe, TIMEFRAMES } from '../lib/timeframes';
+import { FAVORITE_TIMEFRAMES, isTimeframe, TIMEFRAMES, tfLonger, tfMs } from '../lib/timeframes';
 
 /** What a new panel can be. `tpo` is a preset: a chart drawn as TPO profiles. */
 export type PanelType = 'chart' | 'watchlist' | 'tpo' | 'values' | 'liquidations' | 'flow' | 'signals' | 'alerts' | 'dom' | 'tape';
 
-/**
- * How TPO profiles are split, as Exocharts names it: one profile per UTC day,
- * Monday-to-Sunday week, or calendar month. The chart's own candles are the
- * brackets, so the timeframe sets how fine a profile is, not how long.
- */
 /** How a footprint level reads, named as every footprint chart names them. */
 export const FOOTPRINT_MODES: readonly { value: string; label: string }[] = [
   { value: 'delta', label: 'Delta' },
@@ -36,11 +31,28 @@ export const FOOTPRINT_EXTRAS: readonly { key: 'footprintValueArea' | 'footprint
   { key: 'footprintProfile', label: 'Profile', tip: 'Every visible bar summed by price, against the right edge' },
 ];
 
-export const TPO_SPLITS: readonly { value: string; label: string }[] = [
-  { value: '1d', label: 'Day' },
-  { value: '1w', label: 'Week' },
-  { value: '1M', label: 'Month' },
+/**
+ * How long a TPO profile runs, as MMT's Session Period names them: a UTC day,
+ * Monday-to-Sunday week or calendar month, or a session of each day. The
+ * chart's own candles are the brackets, so the timeframe sets how fine a
+ * profile is, not how long. A session is hours long: hourly bars at most.
+ */
+export const TPO_SPLITS: readonly { value: string; label: string; session?: true }[] = [
+  { value: '1d', label: 'Daily' },
+  { value: '1w', label: 'Weekly' },
+  { value: '1M', label: 'Monthly' },
+  { value: 'asia', label: 'Asia', session: true },
+  { value: 'london', label: 'London', session: true },
+  { value: 'ny', label: 'New York', session: true },
+  { value: 'intraday', label: 'Intraday', session: true },
+  { value: 'custom', label: 'Custom', session: true },
 ];
+
+/** Whether a chart of `timeframe` bars can stack them into `period` profiles. */
+export function tpoFits(period: string, timeframe: string): boolean {
+  const split = TPO_SPLITS.find((t) => t.value === period);
+  return split ? (split.session ? tfMs(timeframe) <= 3_600_000 : tfLonger(period, timeframe)) : false;
+}
 export type LinkColor = 'green' | 'blue' | 'red' | 'yellow';
 
 export const LINK_COLORS: readonly LinkColor[] = ['green', 'blue', 'red', 'yellow'];
@@ -64,7 +76,7 @@ export interface ChartPanelState extends PanelBase {
   log: boolean;
   /** `price:3,pct:1`. */
   paneWeights: string;
-  /** TPO split — `1d`, `1w` or `1M` — drawn in place of candles; empty, candles. */
+  /** TPO period — see TPO_SPLITS — drawn in place of candles; empty, candles. */
   tpo: string;
   /** Volume by price in place of the candles, where the server records it. */
   footprint: boolean;
@@ -80,8 +92,10 @@ export interface ChartPanelState extends PanelBase {
   footprintStats: boolean;
   /** Every visible bar summed by price, against the right edge. */
   footprintProfile: boolean;
-  /** TPO options changed from Exocharts' defaults; see lib/tpo-settings. */
+  /** TPO options changed from MMT's defaults; see lib/tpo-settings. */
   tpoSettings: Record<string, string>;
+  /** Profiles expanded, merged and split by hand, `e=t,t;m=t;s=t`; see lib/tpo-edits. */
+  tpoEdits: string;
   /** The layers under the symbol are folded away. */
   legendShut: boolean;
 }
@@ -243,12 +257,13 @@ export function newPanel(type: PanelType, from?: Partial<Pick<PanelBase, 'link' 
   const base = { id: uid(type), link: from?.link ?? null, market: from?.market ?? DEFAULT_MARKET, timeframe: from?.timeframe ?? DEFAULT_TIMEFRAME };
   switch (type) {
     case 'chart':
-      return { ...base, type, studies: DEFAULT_STUDIES, hidden: '', log: false, paneWeights: '', tpo: '', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, legendShut: false };
+      return { ...base, type, studies: DEFAULT_STUDIES, hidden: '', log: false, paneWeights: '', tpo: '', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, tpoEdits: '', legendShut: false };
     case 'watchlist':
       return { ...base, type, markets: [...DEFAULT_WATCHLIST], collapsed: [], flags: {} };
     case 'tpo':
-      // Profiles read cleanest bare, as Exocharts draws them: no studies under them.
-      return { ...base, id: uid('chart'), type: 'chart', studies: '', hidden: '', log: false, paneWeights: '', tpo: '1d', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, legendShut: false };
+      // Profiles read cleanest bare, as MMT draws them: no studies under them,
+      // and daily profiles of 30-minute brackets, the usual daily TPO.
+      return { ...base, timeframe: from?.timeframe ?? '30m', id: uid('chart'), type: 'chart', studies: '', hidden: '', log: false, paneWeights: '', tpo: '1d', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, tpoEdits: '', legendShut: false };
     case 'values':
       return { ...base, type, basis: 'volume' };
     case 'liquidations':
@@ -356,9 +371,11 @@ function readPanel(id: string, raw: unknown): Panel | null {
     else p.tpo = '1w';
     if (isObj(raw.tpoSettings)) {
       for (const [k, v] of Object.entries(raw.tpoSettings).slice(0, 80)) {
-        if (k.length <= 40 && typeof v === 'string' && v.length <= 40) p.tpoSettings[k] = v;
+        // The custom sessions are a list; every other value is short.
+        if (k.length <= 40 && typeof v === 'string' && v.length <= (k === 'sessions' ? 200 : 40)) p.tpoSettings[k] = v;
       }
     }
+    if (typeof raw.tpoEdits === 'string' && raw.tpoEdits.length <= 4_000 && /^[0-9es=m;,-]*$/.test(raw.tpoEdits)) p.tpoEdits = raw.tpoEdits;
   } else if (p.type === 'watchlist') {
     if (Array.isArray(raw.markets)) p.markets = [...new Set(raw.markets.filter((m: unknown) => isMarket(m) || isSectionItem(m)))].slice(0, 200);
     const names = new Set(p.markets.filter(isSection).map(sectionName));

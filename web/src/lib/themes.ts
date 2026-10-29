@@ -31,7 +31,7 @@ export const THEMES: readonly ThemePreset[] = [
     colors: {
       background: '#131722', border: '#20242F', text: '#B2B5BE', crosshair: '#9598A1', labelBackground: '#2A2E39',
       bull: '#089981', bear: '#F23645', ribbonFast: '#089981', ribbonSlow: '#F23645', ema200: '#F7A21B',
-      tpo: '#B2B5BE', tpoPoc: '#F7A21B',
+      tpo: '#2962FF', tpoOutside: '#787B86', tpoPoc: '#D1D4DC',
       drawing: '#2962FF', drawingSelected: '#7FA1FF', ...TV_STUDIES,
       'ui.primary': '#2962FF', 'ui.bg': '#0F121A', 'ui.surface': '#131722', 'ui.border': '#2A2E39', 'ui.text': '#D1D4DC', 'ui.bull': '#089981', 'ui.bear': '#F23645',
     },
@@ -43,7 +43,7 @@ export const THEMES: readonly ThemePreset[] = [
     colors: {
       background: '#0F0F0F', border: '#1E1E1E', text: '#B2B5BE', crosshair: '#9698A1', labelBackground: '#242424',
       bull: '#F7F7F7', bear: '#8396B1', ribbonFast: '#F7F7F7', ribbonSlow: '#8396B1', ema200: '#E0A458',
-      tpo: '#C9CFD8', tpoPoc: '#E0A458',
+      tpo: '#8396B1', tpoOutside: '#55585F', tpoPoc: '#F7F7F7',
       drawing: '#A9BCD9', drawingSelected: '#D6E0EE', ...PASTEL_STUDIES,
       'ui.primary': '#F7F7F7', 'ui.bg': '#080808', 'ui.surface': '#0F0F0F', 'ui.border': '#242424', 'ui.text': '#E6E6E6', 'ui.bull': '#F7F7F7', 'ui.bear': '#8396B1',
     },
@@ -55,7 +55,7 @@ export const THEMES: readonly ThemePreset[] = [
     colors: {
       background: '#FFFFFF', border: '#E1E1E1', text: '#8B8BA7', crosshair: '#8B8BA7', labelBackground: '#E6E8EE',
       bull: '#079981', bear: '#F23645', ribbonFast: '#079981', ribbonSlow: '#F23645', ema200: '#F7A21B',
-      tpo: '#4A5068', tpoPoc: '#F7A21B',
+      tpo: '#079981', tpoOutside: '#B2B5BE', tpoPoc: '#131722',
       drawing: '#2962FF', drawingSelected: '#7FA1FF', ...TV_STUDIES,
       'ui.primary': '#079981', 'ui.bg': '#F1F2F5', 'ui.surface': '#FFFFFF', 'ui.border': '#E1E1E1', 'ui.text': '#131722', 'ui.bull': '#079981', 'ui.bear': '#F23645',
       'ui.scheme': 'light',
@@ -68,7 +68,7 @@ export const THEMES: readonly ThemePreset[] = [
     colors: {
       background: '#F7F7F7', border: '#ECEEF2', text: '#9EA2AB', crosshair: '#9698A1', labelBackground: '#E6E8EC',
       bull: '#0F0F0F', bear: '#8396B1', ribbonFast: '#3A3A3A', ribbonSlow: '#8396B1', ema200: '#E0A458',
-      tpo: '#55657F', tpoPoc: '#E0A458',
+      tpo: '#8396B1', tpoOutside: '#C4C7CF', tpoPoc: '#0F0F0F',
       drawing: '#5B7DB1', drawingSelected: '#93A9CC', ...PASTEL_STUDIES,
       'ui.primary': '#0F0F0F', 'ui.bg': '#EFEFEF', 'ui.surface': '#F7F7F7', 'ui.border': '#E2E4E8', 'ui.text': '#0F0F0F', 'ui.bull': '#0F0F0F', 'ui.bear': '#8396B1',
       'ui.scheme': 'light',
@@ -81,7 +81,7 @@ export const THEMES: readonly ThemePreset[] = [
     colors: {
       background: '#FFFFFF', border: '#E0FBF7', text: '#40514E', crosshair: '#9598A1', labelBackground: '#E8F6F3',
       bull: '#2FB417', bear: '#000000', ribbonFast: '#2FB417', ribbonSlow: '#000000', ema200: '#30C5B1',
-      tpo: '#40514E', tpoPoc: '#FF9800',
+      tpo: '#2FB417', tpoOutside: '#B9C4C2', tpoPoc: '#1C2826',
       drawing: '#14A38F', drawingSelected: '#7FD9CB', ...TV_STUDIES,
       'ui.primary': '#2FB417', 'ui.bg': '#F4F7F6', 'ui.surface': '#FFFFFF', 'ui.border': '#D9E8E5', 'ui.text': '#1C2826', 'ui.bull': '#2FB417', 'ui.bear': '#E53935',
       'ui.scheme': 'light',

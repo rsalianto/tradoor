@@ -24,6 +24,21 @@ export interface Legend {
   /** The footprint row under the pointer, as the screen groups it: its bar, the
    *  prices it covers, what was bought and sold there, and where it sits. */
   footprint: { time: number; price: number; step: number; buy: number; sell: number; x: number; y: number } | null;
+  /** The TPO profile under the pointer, for the menu on it. */
+  tpo: TpoHover | null;
+}
+
+/** A TPO profile under the pointer: when it runs, its neighbours' starts, how it
+ *  was edited, where a split would fall, and its levels by name. */
+export interface TpoHover {
+  start: number;
+  end: number;
+  prev: number | null;
+  next: number | null;
+  expanded: boolean;
+  merged: boolean;
+  splitAt: number | null;
+  prices: [string, number][];
 }
 
 export interface StudyLine {
@@ -171,10 +186,12 @@ export type ToWorker =
   | { t: 'studies'; id: string; value: string }
   | { t: 'hidden'; id: string; value: string }
   | { t: 'log'; id: string; value: boolean }
-  /** A timeframe: each of its candles as a TPO profile of the loaded bars. Empty: candles. */
+  /** A TPO period — `1d`, `london`, `custom`… — drawn as profiles of the loaded bars. Empty: candles. */
   | { t: 'tpo'; id: string; value: string }
   /** TPO options, `key=value;key=value`. */
   | { t: 'tpoSettings'; id: string; value: string }
+  /** Profiles expanded, merged and split by hand, `e=t,t;m=t;s=t`. */
+  | { t: 'tpoEdits'; id: string; value: string }
   | { t: 'paneWeights'; id: string; value: string }
   /** `style`: what the new drawing will look like, so its draft matches. */
   | { t: 'tool'; id: string; value: string; style: Record<string, string | number | boolean> }

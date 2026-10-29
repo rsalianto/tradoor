@@ -67,12 +67,12 @@ const MAX_PAGES = 7;
  * The server hands out a day of minutes at a time, so a longer range is asked
  * for in pages: a chart of fifteen-minute bars covers a day in a screenful.
  */
-export async function fetchFootprint(market: string, barMs: number, from: number, to: number, settings: Settings = { ticks: 0, unit: 'coins' }): Promise<Footprint> {
+export async function fetchFootprint(market: string, barMs: number, from: number, to: number, settings: Settings = { ticks: 0, unit: 'coins' }, maxPages = MAX_PAGES): Promise<Footprint> {
   // The server's answer is the footprint as the chart takes it.
   if (fromHours(barMs)) return api.footprintHistory(market, from, to, barMs, settings.unit, settings.ticks);
   const pages: Promise<{ tick: number; bars: { at: number; levels: [number, number, number][] }[] }>[] = [];
   const page = PAGE_MINUTES * 60_000;
-  for (let start = Math.max(from, to - MAX_PAGES * page); start < to; start += page) {
+  for (let start = Math.max(from, to - maxPages * page); start < to; start += page) {
     pages.push(api.footprint(market, start, Math.min(start + page - 1, to)));
   }
   const answers = await Promise.all(pages);

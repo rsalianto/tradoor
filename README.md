@@ -93,7 +93,7 @@ The DOM is the order book by price on Binance, Bybit, OKX, Bitget, Kraken, Hyper
   <sub>An hourly chart split into a TPO profile per day.</sub>
 </p>
 
-Any chart can be read as TPO profiles — by day, week or month — each session with its value area, point of control and single prints, and the price axis, drawings and indicators still in place.
+Any chart can be read as TPO profiles laid out as MMT lays them out — square blocks side by side, by day, week or month, Asia, London or New York, or sessions of your own — each with its value area, point of control, single prints, poor highs and lows and, beside it, its volume, in your theme's colours. Expand, merge or split a profile from its menu; drawings and indicators stay in place.
 
 ### Footprint
 

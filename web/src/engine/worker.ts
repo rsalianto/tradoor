@@ -1191,6 +1191,9 @@ function handle(msg: ToWorker): void {
     case 'tpoSettings':
       slot.engine.set_tpo_settings(msg.value);
       break;
+    case 'tpoEdits':
+      slot.engine.set_tpo_edits(msg.value);
+      break;
     case 'paneWeights':
       slot.engine.set_pane_weights(msg.value);
       break;

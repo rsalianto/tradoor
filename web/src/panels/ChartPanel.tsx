@@ -7,7 +7,7 @@ import { batch, createEffect, createMemo, createSignal, For, type JSX, lazy, on,
 import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
-import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, StudyMeta } from '../engine/protocol';
+import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, StudyMeta, TpoHover } from '../engine/protocol';
 import { api, catalog, errorText, type AlertStyle, type ChartKind, type Drawing, type Product } from '../lib/api';
 import type { DrawingPatch } from '../components/DrawingSettings';
 import { defaultStyle, visibleOn, type Style } from '../lib/drawing-style';
@@ -15,7 +15,7 @@ import { before, DrawingHistory, type DrawingChange, type DrawingRef, type Step 
 import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
-import { fetchFootprint, flatten, fromHours, recordedMarkets } from '../lib/footprint';
+import { fetchFootprint, flatten, fromHours, recordedMarkets, type Levels } from '../lib/footprint';
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
@@ -29,8 +29,9 @@ import { serializeTpo, tpoValue, withTpoValue } from '../lib/tpo-settings';
 import { isRatio, symbolOf, venueLabel } from '../lib/markets';
 import { alertState, createAlert, deleteAlert, digitsFor, editAlert, styleAlert, titleOf } from '../lib/alerts';
 import { toast } from '../lib/toasts';
-import { TIMEFRAMES, tfLabel, tfLonger, tfMs, tfName } from '../lib/timeframes';
-import { TPO_SPLITS, type ChartPanelState } from '../workspace/model';
+import { TIMEFRAMES, tfLabel, tfMs, tfName } from '../lib/timeframes';
+import { TPO_SPLITS, tpoFits, type ChartPanelState } from '../workspace/model';
+import { canSplit, mergeLeft, mergeRight, splitProfile, toggleExpanded } from '../lib/tpo-edits';
 import { doc, marketOf, patchPanel, setPanelTimeframe, timeframeOf, toggleFavoriteTimeframe } from '../workspace/store';
 
 // Drawing settings load when a drawing is first selected: nobody needs them to see a chart.
@@ -146,9 +147,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const id = props.panel.id;
   const market = () => marketOf(props.panel);
   const timeframe = () => timeframeOf(props.panel);
-  /** Profiles in place of candles: chosen, and a session longer than these bars. */
-  /** The TPO split drawn now: chosen, and longer than the candles it stacks. */
-  const split = () => (!props.training && props.panel.tpo && tfLonger(props.panel.tpo, timeframe()) ? props.panel.tpo : null);
+  /** The TPO period drawn now: chosen, and longer than the candles it stacks. */
+  const split = () => (!props.training && props.panel.tpo && tpoFits(props.panel.tpo, timeframe()) ? props.panel.tpo : null);
   const tpoShown = () => split() !== null;
   /** Candles and TPO profiles keep separate drawings, and the training chart its own. */
   const chartKind = (): ChartKind => (props.training ? 'training' : tpoShown() ? 'tpo' : 'candles');
@@ -169,7 +169,10 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const [studyEditing, setStudyEditing] = createSignal<string | null>(null);
   /** The drawing whose settings dialog is open. */
   const [editing, setEditing] = createSignal<number | null>(null);
-  const [menu, setMenu] = createSignal<{ x: number; y: number } | null>(null);
+  /** The chart's menu, and the TPO profile it was opened on, if any. */
+  const [menu, setMenu] = createSignal<{ x: number; y: number; tpo?: TpoHover } | null>(null);
+  /** The profile menu's prices, folded out. */
+  const [tpoPrices, setTpoPrices] = createSignal(false);
   /** The alert a right-click landed on, and where its menu opens. */
   const [alertMenu, setAlertMenu] = createSignal<{ id: number; x: number; y: number } | null>(null);
   /** The alert whose line is being restyled, and the style shown meanwhile. */
@@ -249,33 +252,45 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         .join(';'),
     }),
   );
+  /** A TPO chart's volume profiles split by who took the volume: the footprint's trades, where they are recorded. */
+  const tpoFlow = () => tpoShown() && footprintable() && tpoValue(props.panel.tpoSettings, 'vp') === '1' && tpoValue(props.panel.tpoSettings, 'vpMode') !== 'total';
   createEffect(() => {
-    if (!footprintOn()) {
+    const flow = tpoFlow();
+    if (!footprintOn() && !flow) {
       send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
       return;
     }
     const market_ = market();
     const barMs = tfMs(timeframe());
-    const settings = { ticks: props.panel.footprintTicks, unit: props.panel.footprintUnit === 'usd' ? ('usd' as const) : ('coins' as const) };
+    const settings = flow ? { ticks: 0, unit: 'coins' as const } : { ticks: props.panel.footprintTicks, unit: props.panel.footprintUnit === 'usd' ? ('usd' as const) : ('coins' as const) };
     // What the chart can show of it: a screenful of bars back from now, since
     // a chart of fifteen-minute bars covers a day in one screen and a chart of
     // minutes an afternoon.
     const to = Date.now();
     // Hours and days come from the history the server keeps: four hundred bars of
-    // it. Shorter bars are minutes, which it keeps a month, and a week is plenty.
+    // it. Shorter bars are minutes, which it keeps a month, and a week is plenty —
+    // for a footprint; TPO profiles reach back further, as far as the month goes.
     const hours = fromHours(barMs);
-    const from = hours ? to - 400 * barMs : to - Math.min(7, Math.max(1, Math.round((barMs * 400) / 86_400_000))) * 86_400_000;
+    const days = flow ? 30 : Math.min(7, Math.max(1, Math.round((barMs * 400) / 86_400_000)));
+    const from = hours ? to - (flow ? 1_000 : 400) * barMs : to - days * 86_400_000;
     let dropped = false;
-    const load = () =>
-      fetchFootprint(market_, barMs, from, to, settings).then(
+    // The month a TPO chart reads is asked for once; after that only its last
+    // day, folded into what is held.
+    let held = new Map<number, Levels>();
+    const load = (span: number) =>
+      fetchFootprint(market_, barMs, span === days ? from : Date.now() - span * 86_400_000, Date.now(), settings, span).then(
         ({ bars, grid, fitted }) => {
           if (dropped) return;
+          if (flow) {
+            held = new Map([...held, ...bars.map((b) => [b.time, b] as const)]);
+            bars = [...held.values()].sort((a, b) => a.time - b.time);
+          }
           send({ t: 'footprint', id: sid, flat: flatten(bars), grid, fitted });
         },
         () => {},
       );
-    void load();
-    const timer = setInterval(() => void load(), hours ? 60_000 : 20_000);
+    void load(days);
+    const timer = setInterval(() => void load(flow && !hours ? 1 : days), flow || hours ? 60_000 : 20_000);
     onCleanup(() => {
       dropped = true;
       clearInterval(timer);
@@ -495,6 +510,11 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   createEffect(() => send({ t: 'log', id: sid, value: props.panel.log }));
   createEffect(() => send({ t: 'tpo', id: sid, value: split() ?? '' }));
   createEffect(() => send({ t: 'tpoSettings', id: sid, value: serializeTpo(props.panel.tpoSettings) }));
+  createEffect(() => send({ t: 'tpoEdits', id: sid, value: props.panel.tpoEdits ?? '' }));
+  const tpoEdit = (change: (raw: string, h: TpoHover) => string, h: TpoHover) => {
+    patchPanel(id, { tpoEdits: change(props.panel.tpoEdits ?? '', h) });
+    setMenu(null);
+  };
   const tpoSet = (key: string, value: string) => patchPanel(id, { tpoSettings: withTpoValue(props.panel.tpoSettings, key, value) });
   const tpoOn = (key: string) => tpoValue(props.panel.tpoSettings, key) === '1';
   createEffect(() => send({ t: 'paneWeights', id: sid, value: props.panel.paneWeights }));
@@ -912,7 +932,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               Footprint
             </option>
           </Show>
-          <For each={TPO_SPLITS.filter((s) => tfLonger(s.value, timeframe()))}>
+          <For each={TPO_SPLITS.filter((s) => tpoFits(s.value, timeframe()))}>
             {(s) => (
               <option value={s.value} selected={split() === s.value}>
                 TPO · {s.label}
@@ -987,16 +1007,17 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       <Show when={tpoMenu()} keyed>
         {(left) => (
           <div class="menu" style={{ left: `${Math.max(0, Math.min(left - 170, box.clientWidth - 200))}px`, top: '25px', 'min-width': '220px' }} onPointerDown={(e) => e.stopPropagation()}>
-            {/* Exocharts' quick access menu, in its order; kept inside the panel. */}
+            {/* The options read most often, a click away; kept inside the panel. */}
             <For
               each={[
-                { value: 'mono', label: 'TPO Mono Color' },
-                { value: 'heatmap', label: 'TPO HeatMap' },
-                { value: 'candle', label: 'TPO Candle Up/Down' },
+                { value: 'brightness', label: 'Brightness' },
+                { value: 'solid', label: 'Solid colour' },
+                { value: 'heatmap', label: 'Heat map' },
+                { value: 'candle', label: 'Candle up/down' },
               ]}
             >
               {(mode) => (
-                <button classList={{ cur: tpoValue(props.panel.tpoSettings, 'colorMode') === mode.value }} onClick={() => tpoSet('colorMode', mode.value)}>
+                <button classList={{ cur: tpoValue(props.panel.tpoSettings, 'blockMode') === mode.value }} onClick={() => tpoSet('blockMode', mode.value)}>
                   {mode.label}
                 </button>
               )}
@@ -1004,13 +1025,15 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
             <hr />
             <For
               each={[
-                { key: 'expand', label: 'Expand clusters' },
-                { key: 'letters', label: 'Show TPO letters' },
-                { key: 'ib', label: 'Initial balance' },
-                { key: 'sellTail', label: 'Sell tail' },
-                { key: 'buyTail', label: 'Buy tail' },
+                { key: 'poc', label: 'Point of control' },
+                { key: 'vaRays', label: 'Value area rays' },
                 { key: 'singlePrints', label: 'Single prints' },
-                { key: 'pocRay', label: 'POC ray' },
+                { key: 'poor', label: 'Poor high low' },
+                { key: 'ib', label: 'Initial balance' },
+                { key: 'vp', label: 'Volume profile' },
+                { key: 'nakedPoc', label: 'Naked POC' },
+                { key: 'highlight', label: 'Highlight start end' },
+                { key: 'sessionHeader', label: 'Session header' },
               ]}
             >
               {(item) => (
@@ -1020,10 +1043,6 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
                 </button>
               )}
             </For>
-            <button onClick={() => tpoSet('fading', tpoValue(props.panel.tpoSettings, 'fading') === 'off' ? 'time' : 'off')}>
-              Add cluster fading
-              <span class={tpoValue(props.panel.tpoSettings, 'fading') !== 'off' ? 'bull' : 'dim'}>{tpoValue(props.panel.tpoSettings, 'fading') !== 'off' ? 'on' : 'off'}</span>
-            </button>
             <hr />
             <button
               onClick={() => {
@@ -1182,7 +1201,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               setAlertMenu({ id: over.alert.id, x: Math.max(0, Math.min(p.x, box.clientWidth - 200)), y: Math.max(0, Math.min(p.y, box.clientHeight - 80)) });
               return;
             }
-            setMenu({ x: Math.max(0, Math.min(p.x, box.clientWidth - 220)), y: Math.max(0, Math.min(p.y, box.clientHeight - 120)) });
+            // On a TPO profile: MMT's menu for that profile, over the chart's own.
+            const profile = tpoShown() ? (legend()?.tpo ?? undefined) : undefined;
+            setMenu({ x: Math.max(0, Math.min(p.x, box.clientWidth - 220)), y: Math.max(0, Math.min(p.y, box.clientHeight - (profile ? 300 : 120))), tpo: profile });
           }}
         >
           <Show when={DEBUG}>
@@ -1308,7 +1329,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               <span class="title">{symbolOf(market())}</span>
               <span class="dim">
                 {tfLabel(timeframe())}
-                {split() ? ` · TPO split by ${TPO_SPLITS.find((t) => t.value === split())?.label.toLowerCase()}` : ''} · {venueLabel(market())}
+                {split() ? ` · TPO ${TPO_SPLITS.find((t) => t.value === split())?.label}` : ''} · {venueLabel(market())}
               </span>
               <Show when={legend()}>
                 {(l) => (
@@ -1383,6 +1404,56 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           <Show when={menu()}>
             {(m) => (
               <div class="menu" style={{ left: `${m().x}px`, top: `${m().y}px` }} onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+                <Show when={m().tpo}>
+                  {(h) => (
+                    <>
+                      <button onClick={() => tpoEdit(toggleExpanded, h())}>
+                        {h().expanded ? 'Collapse' : 'Expand'}
+                        <span class="dim">{h().expanded ? 'back to its shape' : 'a column a bracket'}</span>
+                      </button>
+                      <button disabled={h().next === null} onClick={() => tpoEdit(mergeRight, h())}>
+                        Merge right<span class="dim">→|</span>
+                      </button>
+                      <button disabled={h().prev === null} onClick={() => tpoEdit(mergeLeft, h())}>
+                        Merge left<span class="dim">|←</span>
+                      </button>
+                      <button disabled={!canSplit(h())} onClick={() => tpoEdit(splitProfile, h())}>
+                        Split profile<span class="dim">{h().merged ? 'into its sessions' : h().splitAt !== null ? 'at the pointer' : 'expand it first'}</span>
+                      </button>
+                      <button classList={{ cur: tpoPrices() }} onClick={() => setTpoPrices((v) => !v)}>
+                        Prices<span class="dim">{tpoPrices() ? '▾' : '▸'}</span>
+                      </button>
+                      <Show when={tpoPrices()}>
+                        <For each={h().prices}>
+                          {([name, value]) => (
+                            <button
+                              class="sub"
+                              data-tip="Copy it"
+                              onClick={() => {
+                                const text = formatPrice(value, digitsFor(market(), value));
+                                void navigator.clipboard?.writeText(text).then(() => toast({ tone: 'info', title: `${name} copied`, body: text }, 2_500));
+                                setMenu(null);
+                              }}
+                            >
+                              {name}
+                              <span class="num">{formatPrice(value, digitsFor(market(), value))}</span>
+                            </button>
+                          )}
+                        </For>
+                      </Show>
+                      <button
+                        onClick={() => {
+                          patchPanel(id, { tpoEdits: '' });
+                          send({ t: 'resetView', id: sid });
+                          setMenu(null);
+                        }}
+                      >
+                        Reset chart<span class="dim">every profile as it was</span>
+                      </button>
+                      <hr />
+                    </>
+                  )}
+                </Show>
                 <button
                   onClick={() => {
                     send({ t: 'resetView', id: sid });
