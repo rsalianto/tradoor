@@ -144,9 +144,9 @@ impl Scope {
     }
 }
 
-const COLUMNS: &str = "id, market, timeframe, kind, points, style, label, (extract(epoch FROM created_at) * 1000)::int8";
+pub(crate) const COLUMNS: &str = "id, market, timeframe, kind, points, style, label, (extract(epoch FROM created_at) * 1000)::int8";
 
-fn row_json(r: &tokio_postgres::Row) -> Value {
+pub(crate) fn row_json(r: &tokio_postgres::Row) -> Value {
     json!({
         "id": r.get::<_, i64>(0), "market": r.get::<_, String>(1), "timeframe": r.get::<_, String>(2), "kind": r.get::<_, String>(3),
         "points": r.get::<_, Value>(4), "style": r.get::<_, Value>(5), "label": r.get::<_, Option<String>>(6), "createdAt": r.get::<_, i64>(7),

@@ -40,6 +40,8 @@ export interface ChartController {
 }
 
 export const chartControllers = new Map<string, ChartController>();
+/** A market whose drawings changed somewhere else — a position moved from the journal — for its charts to read again. */
+export const [drawingsChanged, setDrawingsChanged] = createSignal<{ market: string } | null>(null, { equals: false });
 /** Bumped as charts come and go, so a rail looking a chart up finds it. */
 export const [controllersChanged, setControllersChanged] = createSignal(0);
 

@@ -198,6 +198,37 @@ impl Book {
     }
 }
 
+/// What a trade has done so far, while the plan under it changes and price
+/// does not weigh it again.
+struct Kept {
+    status: String,
+    qty: f64,
+    exit: Option<f64>,
+    opened_at: Option<i64>,
+    closed_at: Option<i64>,
+    fills: Vec<Fill>,
+}
+
+impl Kept {
+    /// The fills and exit that go with a plan at `entry` buying `qty`, or None
+    /// where they stand. Closed or evened by hand, a moved trade is in at the
+    /// new entry and out where the hand said — evened, at the entry; any other
+    /// is the same trade at its new size.
+    fn follow(&self, moved: bool, entry: f64, qty: f64, start_at: i64, now: i64) -> (Option<Value>, Option<f64>) {
+        if moved && matches!(self.status.as_str(), "closed" | "breakeven") {
+            let out = if self.status == "breakeven" { entry } else { self.exit.unwrap_or(entry) };
+            let fills = [Fill::new("entry", entry, qty, self.opened_at.unwrap_or(start_at), None), Fill::new("hand", out, qty, self.closed_at.unwrap_or(now), None)];
+            return (serde_json::to_value(fills).ok(), Some(out));
+        }
+        if self.qty > 0.0 && qty != self.qty && !self.fills.is_empty() {
+            let by = qty / self.qty;
+            let fills: Vec<Fill> = self.fills.iter().map(|f| Fill { qty: f.qty * by, ..f.clone() }).collect();
+            return (serde_json::to_value(fills).ok(), None);
+        }
+        (None, None)
+    }
+}
+
 /// The legs a position's settings list (`legs`: `t,price,percent|c,…|a,…`,
 /// the percent of the entry's size) that its prices allow: a take between the
 /// entry and the target, a cut between the entry and the stop, an add anywhere
@@ -429,7 +460,10 @@ pub async fn sync_drawing(client: &tokio_postgres::Client, owner: &str, drawing:
     }
     let now = now_ms();
     let held = client
-        .query_opt("SELECT id, start_at, entry, stop, target, auto, legs FROM journal_trade WHERE drawing_id = $1 AND owner = $2", &[&id, &owner])
+        .query_opt(
+            "SELECT id, start_at, entry, stop, target, auto, legs, qty, status, exit, opened_at, closed_at, fills FROM journal_trade WHERE drawing_id = $1 AND owner = $2",
+            &[&id, &owner],
+        )
         .await?;
     let legs = serde_json::to_value(&plan.legs).unwrap_or_default();
     if let Some(row) = held {
@@ -440,14 +474,17 @@ pub async fn sync_drawing(client: &tokio_postgres::Client, owner: &str, drawing:
             || row.get::<_, Value>(6) != legs;
         // A moved plan, still price's to decide, is weighed again from its start.
         let again = moved && row.get::<_, bool>(5);
+        // Otherwise what was filled keeps up with the plan, so its P&L does too.
+        let kept = Kept { status: row.get(8), qty: row.get(7), exit: row.get(9), opened_at: row.get(10), closed_at: row.get(11), fills: serde_json::from_value(row.get(12)).unwrap_or_default() };
+        let (fills, exit) = if again { (None, None) } else { kept.follow(moved, plan.entry, plan.qty, plan.start_at, now) };
         client
             .execute(
                 "UPDATE journal_trade SET start_at = $2, entry = $3, stop = $4, target = $5, risk = $6, qty = $7, timeframe = $8, updated_at = $9, legs = $11,
                      status = CASE WHEN $10 THEN 'planned' ELSE status END, opened_at = CASE WHEN $10 THEN NULL ELSE opened_at END,
-                     closed_at = CASE WHEN $10 THEN NULL ELSE closed_at END, exit = CASE WHEN $10 THEN NULL ELSE exit END,
-                     checked_until = CASE WHEN $10 THEN $2 ELSE checked_until END, fills = CASE WHEN $10 THEN '[]'::jsonb ELSE fills END
+                     closed_at = CASE WHEN $10 THEN NULL ELSE closed_at END, exit = CASE WHEN $10 THEN NULL ELSE COALESCE($13, exit) END,
+                     checked_until = CASE WHEN $10 THEN $2 ELSE checked_until END, fills = CASE WHEN $10 THEN '[]'::jsonb ELSE COALESCE($12, fills) END
                  WHERE id = $1",
-                &[&row.get::<_, i64>(0), &plan.start_at, &plan.entry, &plan.stop, &plan.target, &plan.risk, &plan.qty, &timeframe, &now, &again, &legs],
+                &[&row.get::<_, i64>(0), &plan.start_at, &plan.entry, &plan.stop, &plan.target, &plan.risk, &plan.qty, &timeframe, &now, &again, &legs, &fills, &exit],
             )
             .await?;
         return Ok(());
@@ -819,20 +856,20 @@ pub async fn create(State(state): State<AppState>, headers: HeaderMap, Json(body
     Ok((StatusCode::CREATED, Json(json!({ "trade": row_json(&row) }))))
 }
 
-/// `PATCH /api/journal/{id}`: its strategy, notes, fees or risk; or its
-/// status by hand — `closed` at `exit` (and `closedAt`), `breakeven`,
-/// `cancelled` — which takes it out of price's hands; or `auto: true`, which
-/// gives it back, weighed again from its start.
+/// `PATCH /api/journal/{id}`: its strategy, notes, fees or risk; its entry,
+/// stop or target; or its status by hand — `closed` at `exit` (and
+/// `closedAt`), `breakeven`, `cancelled` — which takes it out of price's
+/// hands; or `auto: true`, which gives it back, weighed again from its start.
 pub async fn update(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<i64>, Json(body): Json<Value>) -> ApiResult<Json<Value>> {
     let owner = owner(&headers)?;
     let b = body.as_object().ok_or_else(|| ApiError::bad_request("body must be a JSON object"))?;
     let client = state.pool.get().await?;
     account_only(&client, &owner).await?;
-    let row = client
-        .query_opt("SELECT entry, start_at, qty, opened_at, fills FROM journal_trade WHERE id = $1 AND owner = $2", &[&id, &owner])
+    let drawing_id: Option<i64> = client
+        .query_opt("SELECT drawing_id FROM journal_trade WHERE id = $1 AND owner = $2", &[&id, &owner])
         .await?
-        .ok_or_else(|| ApiError::not_found(format!("trade {id} not found")))?;
-    let (entry, start_at, qty, opened_at): (f64, i64, f64, Option<i64>) = (row.get(0), row.get(1), row.get(2), row.get(3));
+        .ok_or_else(|| ApiError::not_found(format!("trade {id} not found")))?
+        .get(0);
     let now = now_ms();
     if let Some(strategy) = short_text(b, "strategy")? {
         client.execute("UPDATE journal_trade SET strategy = $2 WHERE id = $1", &[&id, &strategy]).await?;
@@ -843,15 +880,16 @@ pub async fn update(State(state): State<AppState>, headers: HeaderMap, Path(id):
     if let Some(fees) = finite(b, "fees")? {
         client.execute("UPDATE journal_trade SET fees = $2 WHERE id = $1", &[&id, &fees]).await?;
     }
-    if let Some(risk) = finite(b, "risk")? {
-        if risk <= 0.0 {
-            return Err(ApiError::bad_request("risk must be positive"));
-        }
-        // The size scales with it, and every leg with the size.
-        client
-            .execute("UPDATE journal_trade SET qty = CASE WHEN risk > 0 THEN qty * $2 / risk ELSE $2 / abs(entry - stop) END, risk = $2 WHERE id = $1", &[&id, &risk])
-            .await?;
+    let prices = [finite(b, "entry")?, finite(b, "stop")?, finite(b, "target")?];
+    if prices.iter().any(Option::is_some) {
+        replan(&client, &owner, id, drawing_id, prices, now).await?;
     }
+    if let Some(risk) = finite(b, "risk")? {
+        resize(&client, &owner, id, drawing_id, risk, now).await?;
+    }
+    // Read after the plan and the size, so a close by hand weighs the trade as it now is.
+    let row = client.query_one("SELECT entry, start_at, qty, opened_at, fills FROM journal_trade WHERE id = $1", &[&id]).await?;
+    let (entry, start_at, qty, opened_at): (f64, i64, f64, Option<i64>) = (row.get(0), row.get(1), row.get(2), row.get(3));
     if b.get("auto").and_then(Value::as_bool) == Some(true) {
         client
             .execute(
@@ -902,6 +940,94 @@ pub async fn update(State(state): State<AppState>, headers: HeaderMap, Path(id):
         .query_one(&format!("UPDATE journal_trade SET updated_at = $2 WHERE id = $1 RETURNING {COLUMNS}"), &[&id, &now])
         .await?;
     Ok(Json(json!({ "trade": row_json(&row) })))
+}
+
+/// New prices for a trade, typed in the journal. One that follows a drawing
+/// moves the drawing, and follows it as it would a drag on the chart; one
+/// added by hand, or whose drawing is gone, takes them itself — weighed again
+/// from its start while price decides it, else still closed where it was.
+async fn replan(client: &tokio_postgres::Client, owner: &str, id: i64, drawing_id: Option<i64>, prices: [Option<f64>; 3], now: i64) -> ApiResult<()> {
+    let row = client
+        .query_one("SELECT side, entry, stop, target, risk, auto, status, qty, exit, opened_at, closed_at, fills, start_at FROM journal_trade WHERE id = $1", &[&id])
+        .await?;
+    let side = Side::of(row.get(0)).ok_or_else(|| ApiError::bad_request("the trade has no side"))?;
+    let [entry, stop, target] = [prices[0].unwrap_or(row.get(1)), prices[1].unwrap_or(row.get(2)), prices[2].unwrap_or(row.get(3))];
+    if [entry, stop, target] == [row.get::<_, f64>(1), row.get(2), row.get(3)] {
+        return Ok(());
+    }
+    let sound = match side {
+        Side::Long => stop < entry && entry < target,
+        Side::Short => target < entry && entry < stop,
+    };
+    if !sound || entry <= 0.0 {
+        return Err(ApiError::bad_request("a long's stop goes below its entry and its target above; a short's the other way round"));
+    }
+    if let Some(drawing_id) = drawing_id {
+        let held = client
+            .query_opt(&format!("SELECT {} FROM drawing WHERE id = $1 AND owner = $2", crate::drawings::COLUMNS), &[&drawing_id, &owner])
+            .await?;
+        if let Some(d) = held {
+            let mut drawing = crate::drawings::row_json(&d);
+            if let Some(points) = drawing["points"].as_array_mut() {
+                for (point, price) in points.iter_mut().zip([entry, stop, target]) {
+                    point["price"] = json!(price);
+                }
+            }
+            client.execute("UPDATE drawing SET points = $2 WHERE id = $1", &[&drawing_id, &drawing["points"]]).await?;
+            sync_drawing(client, owner, &drawing).await?;
+            return Ok(());
+        }
+    }
+    let qty = row.get::<_, f64>(4) / (entry - stop).abs();
+    if row.get::<_, bool>(5) {
+        client
+            .execute(
+                "UPDATE journal_trade SET entry = $2, stop = $3, target = $4, qty = $5, status = 'planned', opened_at = NULL, closed_at = NULL, exit = NULL,
+                     checked_until = start_at, fills = '[]'::jsonb WHERE id = $1",
+                &[&id, &entry, &stop, &target, &qty],
+            )
+            .await?;
+    } else {
+        let kept = Kept { status: row.get(6), qty: row.get(7), exit: row.get(8), opened_at: row.get(9), closed_at: row.get(10), fills: serde_json::from_value(row.get(11)).unwrap_or_default() };
+        let (fills, exit) = kept.follow(true, entry, qty, row.get(12), now);
+        client
+            .execute(
+                "UPDATE journal_trade SET entry = $2, stop = $3, target = $4, qty = $5, fills = COALESCE($6, fills), exit = COALESCE($7, exit) WHERE id = $1",
+                &[&id, &entry, &stop, &target, &qty, &fills, &exit],
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+/// A new risk for a trade, typed in the journal: the size scales with it, and
+/// what was filled with the size. A drawing it follows is set to risk the same,
+/// in the unit it keeps, so the chart shows it and moving the drawing keeps it.
+async fn resize(client: &tokio_postgres::Client, owner: &str, id: i64, drawing_id: Option<i64>, risk: f64, now: i64) -> ApiResult<()> {
+    if risk <= 0.0 {
+        return Err(ApiError::bad_request("risk must be positive"));
+    }
+    let row = client
+        .query_one("SELECT risk, qty, entry, stop, status, exit, opened_at, closed_at, fills, start_at FROM journal_trade WHERE id = $1", &[&id])
+        .await?;
+    let (old, qty, entry, stop): (f64, f64, f64, f64) = (row.get(0), row.get(1), row.get(2), row.get(3));
+    let by = if old > 0.0 { risk / old } else { 1.0 };
+    let sized = if old > 0.0 { qty * by } else { risk / (entry - stop).abs() };
+    let kept = Kept { status: row.get(4), qty, exit: row.get(5), opened_at: row.get(6), closed_at: row.get(7), fills: serde_json::from_value(row.get(8)).unwrap_or_default() };
+    let (fills, _) = kept.follow(false, entry, sized, row.get(9), now);
+    client
+        .execute("UPDATE journal_trade SET risk = $2, qty = $3, fills = COALESCE($4, fills) WHERE id = $1", &[&id, &risk, &sized, &fills])
+        .await?;
+    let Some(drawing_id) = drawing_id else { return Ok(()) };
+    let Some(d) = client.query_opt("SELECT style FROM drawing WHERE id = $1 AND owner = $2", &[&drawing_id, &owner]).await? else { return Ok(()) };
+    let mut style = d.get::<_, Value>(0).as_object().cloned().unwrap_or_default();
+    // The drawing's own risk scales as the trade's did: with adds drawn, the trade's is the larger.
+    let base = risk_of(&style) * by;
+    let cash = style.get("riskUnit").and_then(Value::as_str).is_some_and(|u| u != "%");
+    let value = if cash { base } else { base / style_num(&style, "account").unwrap_or(DEFAULT_ACCOUNT) * 100.0 };
+    style.insert("risk".into(), json!((value * 1e8).round() / 1e8));
+    client.execute("UPDATE drawing SET style = $2 WHERE id = $1", &[&drawing_id, &Value::Object(style)]).await?;
+    Ok(())
 }
 
 /// `DELETE /api/journal/{id}`: gone from the journal; its drawing, if it has one, stays on the chart.
@@ -1111,5 +1237,30 @@ mod tests {
     fn only_markets_whose_minutes_are_read_are_followed() {
         assert!(tracked("binance-perp:BTCUSDT") && tracked("hyperliquid-perp:SP500USD") && tracked("okx-spot:BTCUSDT"));
         assert!(!tracked("index:TOTAL") && !tracked("kraken-spot:BTCUSD") && !tracked("lighter-perp:ETHUSD"));
+    }
+
+    fn kept(status: &str, qty: f64, exit: Option<f64>, fills: Vec<Fill>) -> Kept {
+        Kept { status: status.into(), qty, exit, opened_at: Some(10), closed_at: Some(20), fills }
+    }
+
+    #[test]
+    fn a_trade_closed_by_hand_follows_its_moved_plan_to_the_same_exit() {
+        let k = kept("closed", 2.0, Some(110.0), vec![Fill::new("entry", 100.0, 2.0, 10, None), Fill::new("hand", 110.0, 2.0, 20, None)]);
+        let (fills, exit) = k.follow(true, 104.0, 4.0, 0, 99);
+        let fills: Vec<Fill> = serde_json::from_value(fills.unwrap()).unwrap();
+        assert_eq!(fills, vec![Fill::new("entry", 104.0, 4.0, 10, None), Fill::new("hand", 110.0, 4.0, 20, None)], "in at the new entry, the new size, out where the hand said");
+        assert_eq!(exit, Some(110.0));
+        let even = kept("breakeven", 2.0, Some(100.0), vec![]);
+        assert_eq!(even.follow(true, 104.0, 4.0, 0, 99).1, Some(104.0), "evened is out at the entry, wherever it is now");
+    }
+
+    #[test]
+    fn a_new_size_scales_what_was_filled_and_nothing_else_moves() {
+        let k = kept("win", 2.0, Some(120.0), vec![Fill::new("entry", 100.0, 2.0, 10, None), Fill::new("take", 110.0, 1.0, 15, Some(0)), Fill::new("target", 120.0, 1.0, 20, None)]);
+        let fills: Vec<Fill> = serde_json::from_value(k.follow(false, 100.0, 5.0, 0, 99).0.unwrap()).unwrap();
+        assert_eq!(fills.iter().map(|f| f.qty).collect::<Vec<_>>(), vec![5.0, 2.5, 2.5], "the same trade at two and a half times the size");
+        assert_eq!(Book::of(&fills).made(1.0), 75.0);
+        assert_eq!(k.follow(false, 100.0, 2.0, 0, 99), (None, None), "the same size: nothing to write");
+        assert_eq!(kept("planned", 2.0, None, vec![]).follow(true, 104.0, 4.0, 0, 99), (None, None), "nothing filled yet");
     }
 }

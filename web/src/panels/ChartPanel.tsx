@@ -4,7 +4,7 @@
  * pointer input.
  */
 import { batch, createEffect, createMemo, createSignal, For, type JSX, lazy, on, onCleanup, onMount, Show, untrack } from 'solid-js';
-import { armedTool, chartControllers, controllersChanged, covered, magnet, mobile, setArmedTool, setControllersChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
+import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
 import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, StudyMeta } from '../engine/protocol';
@@ -594,6 +594,16 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         void loadDrawings();
       }
     }),
+  );
+  // A position moved from the journal: read this market's drawings again.
+  createEffect(
+    on(
+      drawingsChanged,
+      (c) => {
+        if (c && c.market === market() && chartKind() !== 'training') void loadDrawings();
+      },
+      { defer: true },
+    ),
   );
 
   /* Every change is applied here first and sent afterwards, so a drawing appears
