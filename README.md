@@ -98,12 +98,12 @@ Any chart can be read as TPO profiles — by day, week or month — each session
 ### Footprint
 
 <p align="center">
-  <img src="docs/screenshots/footprint.webp" alt="A 15-minute BTCUSDT footprint chart: each bar split into the volume sold and bought at every price" width="440">
+  <img src="docs/screenshots/footprint.webp" alt="A 15-minute BTCUSDT footprint chart: beside each bar's thin candle, a column of cells with the delta at every price, and under the bars a table of each one's volume, delta, delta %, and the most and least its delta reached" width="100%">
   <br>
-  <sub>Fifteen-minute bars as footprints, sold against bought at every price.</sub>
+  <sub>Fifteen-minute bars as footprints: the delta at every price, and what each bar came to underneath.</sub>
 </p>
 
-Volume bought and sold at each price inside every bar — split, delta, total, cluster or ladder — with each bar's value area, stats and profile.
+Volume bought and sold at each price inside every bar, beside a thin candle — as the delta, the two sides apart, their sum, a cluster or a ladder. The rows follow the zoom, so every cell keeps a number you can read, and a table under the bars gives each one's volume, delta, delta %, and the most and least its delta reached. The value area, imbalances and the profile of everything on screen come with it.
 
 ### Liquidations
 
