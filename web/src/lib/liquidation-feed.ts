@@ -41,8 +41,55 @@ export function parseEvent(block: string): { event: string; data: string } | nul
   return data.length > 0 ? { event, data: data.join('\n') } : null;
 }
 
-/** Follow `ticker` until the returned function is called. */
+interface Shared {
+  followers: Set<FeedHandlers>;
+  stop: () => void;
+  venues: ServerVenue[] | null;
+  unavailable: boolean;
+}
+
+/** One stream a ticker, however many follow it here: four charts on BTC are one stream, not four. */
+const shared = new Map<string, Shared>();
+
+/**
+ * Follow `ticker` until the returned function is called. Followers of one
+ * ticker in this page (or this worker) share a stream: each held a connection,
+ * and a browser keeps six to an address — a few charts on one ticker left the
+ * page none to load with — while the server allows an address eight.
+ */
 export function followLiquidations(ticker: string, on: FeedHandlers): () => void {
+  let feed = shared.get(ticker);
+  if (!feed) {
+    const f: Shared = { followers: new Set(), stop: () => {}, venues: null, unavailable: false };
+    f.stop = openFeed(ticker, {
+      hit: (h) => {
+        for (const l of f.followers) l.hit(h);
+      },
+      venues: (v) => {
+        f.venues = v;
+        for (const l of f.followers) l.venues(v);
+      },
+      unavailable: () => {
+        f.unavailable = true;
+        for (const l of f.followers) l.unavailable();
+      },
+    });
+    shared.set(ticker, f);
+    feed = f;
+  }
+  const f = feed;
+  f.followers.add(on);
+  // One joining late hears what the rest already know.
+  if (f.unavailable) queueMicrotask(() => f.followers.has(on) && on.unavailable());
+  else if (f.venues) on.venues(f.venues);
+  return () => {
+    if (!f.followers.delete(on) || f.followers.size > 0) return;
+    f.stop();
+    if (shared.get(ticker) === f) shared.delete(ticker);
+  };
+}
+
+function openFeed(ticker: string, on: FeedHandlers): () => void {
   let stopped = false;
   let controller: AbortController | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
