@@ -84,7 +84,7 @@ export interface NewTrade {
   notes?: string;
 }
 
-export type TradePatch = Partial<Pick<Trade, 'strategy' | 'notes' | 'fees' | 'risk'>> & { status?: 'closed' | 'breakeven' | 'cancelled'; exit?: number; closedAt?: number; auto?: true };
+export type TradePatch = Partial<Pick<Trade, 'strategy' | 'notes' | 'fees' | 'risk' | 'entry' | 'stop' | 'target'>> & { status?: 'closed' | 'breakeven' | 'cancelled'; exit?: number; closedAt?: number; auto?: true };
 
 /** The list last read, and the tag the server gave it. */
 let held: { tag: string; trades: Trade[] } | null = null;
@@ -157,6 +157,15 @@ export function pnl(t: Trade): number | null {
   if (!isClosed(t)) return null;
   if (t.fills.some((f) => f.kind !== 'entry' && f.kind !== 'add')) return book(t).realized - t.fees;
   return (t.exit! - t.entry) * way(t) * t.qty - t.fees;
+}
+
+/** How a trade stands, for its colour: won, lost, even, or still to play out. */
+export type Outcome = 'win' | 'loss' | 'even' | 'open' | 'planned' | 'cancelled';
+
+export function outcome(t: Trade): Outcome {
+  if (t.status === 'planned' || t.status === 'open' || t.status === 'cancelled') return t.status;
+  const p = pnl(t);
+  return t.status === 'breakeven' || p === null || p === 0 ? 'even' : p > 0 ? 'win' : 'loss';
 }
 
 /** What it made in units of what it risked. */

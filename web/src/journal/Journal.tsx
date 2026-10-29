@@ -9,7 +9,7 @@
  */
 import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { setJournalOpen } from '../app/ui';
+import { setDrawingsChanged, setJournalOpen } from '../app/ui';
 import { AccountCard } from '../components/Account';
 import { SymbolSearch } from '../components/SymbolSearch';
 import { api, catalog, errorText, type AccountStatus } from '../lib/api';
@@ -26,13 +26,13 @@ import {
   equityCurve,
   groupBy,
   inWeek,
-  isClosed,
   isLive,
   journalApi,
   lastWeeks,
   localDay,
   localInput,
   money,
+  outcome,
   plannedRR,
   pnl,
   QUESTIONS,
@@ -49,6 +49,7 @@ import {
   type Side,
   type Status,
   type Trade,
+  type TradePatch,
 } from './model';
 
 type Tab = 'dashboard' | 'history' | 'review';
@@ -451,46 +452,82 @@ function Groups(props: { groups: Group[] }) {
 
 // ---------------------------------------------------------------- history
 
-type Filter = 'all' | 'live' | 'closed' | 'win' | 'loss';
-const FILTERS: [Filter, string][] = [
+type View = 'all' | 'open' | 'win' | 'loss' | 'even';
+const VIEWS: [View, string][] = [
   ['all', 'All'],
-  ['live', 'Open & planned'],
-  ['closed', 'Closed'],
+  ['open', 'Open'],
   ['win', 'Won'],
   ['loss', 'Lost'],
+  ['even', 'Break-even'],
 ];
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+/** `Today`, `Yesterday`, else `Tuesday 28 October`, with the year when it is not this one. */
+function dayName(day: string): string {
+  if (day === localDay(Date.now())) return 'Today';
+  if (day === localDay(Date.now() - 86_400_000)) return 'Yesterday';
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number];
+  return `${WEEKDAY_NAMES[new Date(y, m - 1, d).getDay()]} ${d} ${MONTHS[m - 1]}${y === new Date().getFullYear() ? '' : ` ${y}`}`;
+}
+
+/** `14:05` in this browser's time. */
+const clock = (ms: number): string => stamp(ms).slice(6);
+
+/**
+ * Every trade, as a statement reads: those still to play out on top, then the
+ * rest by the day each closed — the latest first — with what the day made.
+ */
 function History(props: { trades: Trade[]; price: (market: string, v: number | null) => string; onSelect: (id: number) => void }) {
-  const [filter, setFilter] = createSignal<Filter>('all');
+  const [view, setView] = createSignal<View>('all');
   const [side, setSide] = createSignal<'all' | Side>('all');
   const [query, setQuery] = createSignal('');
-  const rows = createMemo(() => {
+  // The side and the search narrow everything, the counts too; the view picks among what is left.
+  const pool = createMemo(() => {
     const q = query().trim().toUpperCase();
-    return props.trades
-      .filter((t) => {
-        const f = filter();
-        if (f === 'live' && !isLive(t)) return false;
-        if (f === 'closed' && !isClosed(t)) return false;
-        if (f === 'win' && !((pnl(t) ?? 0) > 0)) return false;
-        if (f === 'loss' && !((pnl(t) ?? 0) < 0)) return false;
-        if (side() !== 'all' && t.side !== side()) return false;
-        return !q || t.market.toUpperCase().includes(q) || t.strategy.toUpperCase().includes(q) || t.notes.toUpperCase().includes(q);
-      })
-      .sort((a, b) => when(b) - when(a));
+    return props.trades.filter((t) => (side() === 'all' || t.side === side()) && (!q || t.market.toUpperCase().includes(q) || t.strategy.toUpperCase().includes(q) || t.notes.toUpperCase().includes(q)));
   });
+  const counts = createMemo(() => {
+    const c: Record<View, number> = { all: 0, open: 0, win: 0, loss: 0, even: 0 };
+    for (const t of pool()) {
+      const o = outcome(t);
+      c.all++;
+      if (o === 'open' || o === 'planned') c.open++;
+      else if (o !== 'cancelled') c[o]++;
+    }
+    return c;
+  });
+  const live = createMemo(() =>
+    view() === 'all' || view() === 'open' ? pool().filter(isLive).sort((a, b) => (b.openedAt ?? b.startAt) - (a.openedAt ?? a.startAt)) : [],
+  );
+  const days = createMemo(() => {
+    if (view() === 'open') return [];
+    const byDay = new Map<string, Trade[]>();
+    for (const t of pool()) {
+      if (isLive(t) || (view() !== 'all' && outcome(t) !== view())) continue;
+      const day = localDay(when(t));
+      const list = byDay.get(day);
+      if (list) list.push(t);
+      else byDay.set(day, [t]);
+    }
+    return [...byDay.entries()]
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .map(([day, list]) => ({ day, trades: list.sort((a, b) => when(b) - when(a)), pnl: list.reduce((s, t) => s + (pnl(t) ?? 0), 0), r: list.reduce((s, t) => s + (rMultiple(t) ?? 0), 0) }));
+  });
+  const many = (n: number) => `${n} trade${n === 1 ? '' : 's'}`;
   return (
-    <div class="jr-hist">
-      <div class="jr-filters">
-        <div class="chips">
-          <For each={FILTERS}>
+    <div class="jh">
+      <div class="jh-bar">
+        <div class="jh-views">
+          <For each={VIEWS}>
             {([id, label]) => (
-              <button classList={{ on: filter() === id }} onClick={() => setFilter(id)}>
+              <button classList={{ on: view() === id, [id]: true }} onClick={() => setView(id)}>
                 {label}
+                <span class="jh-count num">{counts()[id]}</span>
               </button>
             )}
           </For>
         </div>
-        <div class="chips">
+        <div class="jh-sides">
           <For each={['all', 'long', 'short'] as const}>
             {(id) => (
               <button classList={{ on: side() === id }} onClick={() => setSide(id)}>
@@ -499,66 +536,82 @@ function History(props: { trades: Trade[]; price: (market: string, v: number | n
             )}
           </For>
         </div>
-        <input class="jr-search" placeholder="Search market, strategy, notes" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
-        <span class="dim">{rows().length} trades</span>
+        <label class="jh-search">
+          <Icon name="search" size={12} />
+          <input placeholder="Search market, strategy, notes" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
+        </label>
       </div>
-      <div class="jr-scroll">
-        <table class="jr-table jr-trades">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Market</th>
-              <th>Side</th>
-              <th>Entry</th>
-              <th>Stop</th>
-              <th>Target</th>
-              <th>RR</th>
-              <th>Exit</th>
-              <th>Status</th>
-              <th>R</th>
-              <th>P&L</th>
-              <th>Strategy</th>
-            </tr>
-          </thead>
-          <tbody>
-            <For each={rows()}>
-              {(t) => (
-                <tr onClick={() => props.onSelect(t.id)}>
-                  <td class="num dim">{stamp(when(t))}</td>
-                  <td>
-                    {symbolOf(t.market)} <span class="dim">{venueLabel(t.market)}</span>
-                  </td>
-                  <td class={t.side === 'long' ? 'bull' : 'bear'}>{t.side === 'long' ? 'Long' : 'Short'}</td>
-                  <td class="num">{props.price(t.market, t.entry)}</td>
-                  <td class="num">{props.price(t.market, t.stop)}</td>
-                  <td class="num">{props.price(t.market, t.target)}</td>
-                  <td class="num">{plannedRR(t).toFixed(2)}</td>
-                  <td class="num">{props.price(t.market, t.exit)}</td>
-                  <td>
-                    <StatusBadge trade={t} />
-                  </td>
-                  <td class={`num ${tone(rMultiple(t))}`}>{rText(rMultiple(t))}</td>
-                  <td class={`num ${tone(pnl(t))}`}>{money(pnl(t))}</td>
-                  <td class="dim">{t.strategy}</td>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
+      <div class="jh-list">
+        <Show when={live().length > 0}>
+          <section class="jh-day">
+            <header class="jh-dayhead">
+              <span class="jh-dayname">Open &amp; planned</span>
+              <span class="grow" />
+              <span class="dim">{many(live().length)}</span>
+            </header>
+            <For each={live()}>{(t) => <Row trade={t} price={props.price} onSelect={props.onSelect} />}</For>
+          </section>
+        </Show>
+        <For each={days()}>
+          {(d) => (
+            <section class="jh-day">
+              <header class="jh-dayhead">
+                <span class="jh-dayname">{dayName(d.day)}</span>
+                <span class="grow" />
+                <span class="dim">{many(d.trades.length)}</span>
+                <span class={`num ${tone(d.r)}`}>{rText(d.r)}</span>
+                <span class={`num jh-daypnl ${tone(d.pnl)}`}>{money(d.pnl)}</span>
+              </header>
+              <For each={d.trades}>{(t) => <Row trade={t} price={props.price} onSelect={props.onSelect} />}</For>
+            </section>
+          )}
+        </For>
+        <Show when={live().length === 0 && days().length === 0}>
+          <p class="jh-none dim">No trades match.</p>
+        </Show>
       </div>
     </div>
   );
 }
 
-function StatusBadge(props: { trade: Trade }) {
-  const kind = () => {
-    const t = props.trade;
-    if (t.status === 'win' || (t.status === 'closed' && (pnl(t) ?? 0) > 0)) return 'bull';
-    if (t.status === 'loss' || (t.status === 'closed' && (pnl(t) ?? 0) < 0)) return 'bear';
-    return '';
-  };
+/** One trade on a line: when, which way, where, in and out, how it went. */
+function Row(props: { trade: Trade; price: (market: string, v: number | null) => string; onSelect: (id: number) => void }) {
+  const t = () => props.trade;
+  const done = () => !isLive(t());
+  const p = (v: number | null) => props.price(t().market, v);
   return (
-    <span class={`badge ${kind()}`} data-tip={props.trade.auto ? (props.trade.tracked ? 'Price decides this one' : 'Kept by hand: this market’s prices are not read here') : 'Set by hand'}>
+    <button class={`jh-row ${outcome(t())}`} onClick={() => props.onSelect(t().id)}>
+      <span class="jh-time num dim">{clock(done() ? when(t()) : (t().openedAt ?? t().startAt))}</span>
+      <span class={`jh-side ${t().side}`}>{t().side === 'long' ? 'Long' : 'Short'}</span>
+      <span class="jh-market">
+        <b>{symbolOf(t().market)}</b>
+        <span class="dim">{venueLabel(t().market)}</span>
+      </span>
+      <span class="jh-prices num">
+        <Show
+          when={done()}
+          fallback={
+            <>
+              {p(t().entry)} <span class="dim">SL</span> {p(t().stop)} <span class="dim">TP</span> {p(t().target)}
+            </>
+          }
+        >
+          {p(t().entry)} <span class="dim">→</span> {p(t().exit)}
+        </Show>
+      </span>
+      <span class="jh-strategy dim">{t().strategy}</span>
+      <Badge trade={t()} />
+      <span class="jh-r num">{done() ? rText(rMultiple(t())) : <span class="dim">{plannedRR(t()).toFixed(2)} RR</span>}</span>
+      <span class="jh-pnl num">{done() ? money(pnl(t())) : ''}</span>
+    </button>
+  );
+}
+
+/** A trade's status in its outcome's colour: won green, lost red, even orange. */
+function Badge(props: { trade: Trade }) {
+  const tip = () => (props.trade.auto ? (props.trade.tracked ? 'Price decides this one' : 'Kept by hand: this market’s prices are not read here') : 'Set by hand');
+  return (
+    <span class={`jh-badge ${outcome(props.trade)}`} data-tip={tip()}>
       {STATUS_LABEL[props.trade.status]}
     </span>
   );
@@ -566,6 +619,24 @@ function StatusBadge(props: { trade: Trade }) {
 
 // ---------------------------------------------------------------- one trade
 
+/** Who says how a trade went: price, or the hand — closed at a price, evened or called off. */
+type Mode = 'auto' | 'closed' | 'breakeven' | 'cancelled';
+const modeOf = (t: Trade): Mode => (t.auto ? 'auto' : t.status === 'breakeven' ? 'breakeven' : t.status === 'cancelled' ? 'cancelled' : 'closed');
+/** The minute a moment falls in: what a datetime-local input gives back. */
+const minute = (ms: number): number => Math.floor(ms / 60_000) * 60_000;
+
+/** `6h 07m`, `3d 4h`, `25m`. */
+function held(ms: number): string {
+  const m = Math.max(0, Math.round(ms / 60_000));
+  if (m < 60) return `${m}m`;
+  if (m < 1440) return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
+}
+
+/**
+ * One trade, every part of it in one form: its plan — entry, stop, target,
+ * risk, fees — who says how it went, its strategy and notes, saved together.
+ */
 function Editor(props: {
   trade: Trade;
   price: (market: string, v: number | null) => string;
@@ -574,33 +645,90 @@ function Editor(props: {
   onRemove: (id: number) => void;
 }) {
   const t = () => props.trade;
-  const [strategy, setStrategy] = createSignal(t().strategy);
-  const [notes, setNotes] = createSignal(t().notes);
-  const [fees, setFees] = createSignal(String(t().fees || ''));
-  const [risk, setRisk] = createSignal(String(Number(t().risk.toFixed(2))));
-  // A finished trade's exit and close time, to put right; a live one closes now.
-  const [exit, setExit] = createSignal(isLive(t()) || t().exit === null ? '' : String(t().exit));
-  const [closedAt, setClosedAt] = createSignal(localInput(t().closedAt ?? Date.now()));
+  const [entry, setEntry] = createSignal('');
+  const [stop, setStop] = createSignal('');
+  const [target, setTarget] = createSignal('');
+  const [risk, setRisk] = createSignal('');
+  const [fees, setFees] = createSignal('');
+  const [strategy, setStrategy] = createSignal('');
+  const [notes, setNotes] = createSignal('');
+  const [mode, setMode] = createSignal<Mode>('auto');
+  const [exit, setExit] = createSignal('');
+  const [closedAt, setClosedAt] = createSignal('');
+  // The form from the trade: when it opens, and again from what the server kept once saved.
+  // A price as typed, without the float's tail an average leaves: 80311.69999999998 is 80311.7.
+  const plain = (v: number) => String(Number(v.toPrecision(12)));
+  const fill = (x: Trade) => {
+    setEntry(plain(x.entry));
+    setStop(plain(x.stop));
+    setTarget(plain(x.target));
+    setRisk(String(Number(x.risk.toFixed(2))));
+    setFees(x.fees ? String(x.fees) : '');
+    setStrategy(x.strategy);
+    setNotes(x.notes);
+    setMode(modeOf(x));
+    setExit(x.exit === null ? '' : plain(x.exit));
+    setClosedAt(localInput(x.closedAt ?? Date.now()));
+  };
+  fill(t());
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [sure, setSure] = createSignal(false);
-  const when = () => (isLive(t()) ? {} : { closedAt: Date.parse(closedAt()) });
 
+  // What changed, as the server takes it.
+  const patch = (): TradePatch => {
+    const x = t();
+    const p: TradePatch = {};
+    if (entry() !== plain(x.entry)) p.entry = Number(entry());
+    if (stop() !== plain(x.stop)) p.stop = Number(stop());
+    if (target() !== plain(x.target)) p.target = Number(target());
+    if (Number(risk()) !== Number(x.risk.toFixed(2))) p.risk = Number(risk());
+    if (Number(fees() || 0) !== x.fees) p.fees = Number(fees() || 0);
+    if (strategy() !== x.strategy) p.strategy = strategy();
+    if (notes() !== x.notes) p.notes = notes();
+    const m = mode();
+    const at = Date.parse(closedAt());
+    const changed = x.auto || x.status !== m || at !== minute(x.closedAt ?? 0);
+    if (m === 'auto') {
+      if (!x.auto) p.auto = true;
+    } else if (m === 'closed') {
+      if (changed || exit() !== (x.exit === null ? '' : plain(x.exit))) Object.assign(p, { status: 'closed', exit: Number(exit()), closedAt: at });
+    } else if (changed) Object.assign(p, { status: m, closedAt: at });
+    return p;
+  };
+  const dirty = () => Object.keys(patch()).length > 0;
+  const problem = (): string | null => {
+    const [e, s, g] = [Number(entry()), Number(stop()), Number(target())];
+    if (!(e > 0 && s > 0 && g > 0)) return 'Entry, stop and target need prices.';
+    if (t().side === 'long' ? !(s < e && e < g) : !(g < e && e < s)) return t().side === 'long' ? 'A long’s stop goes below its entry, its target above.' : 'A short’s stop goes above its entry, its target below.';
+    if (!(Number(risk()) > 0)) return 'Risk needs an amount above 0.';
+    if (mode() === 'closed' && !(Number(exit()) > 0)) return 'Closed at a price needs the exit price.';
+    if (mode() !== 'auto' && Number.isNaN(Date.parse(closedAt()))) return 'Say when it closed.';
+    return null;
+  };
   const act = async (run: () => Promise<Trade | void>) => {
     setBusy(true);
     setError(null);
     try {
       const done = await run();
-      if (done) props.onChange(done);
+      if (done) {
+        props.onChange(done);
+        fill(done);
+      }
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(false);
     }
   };
-  const dirty = () => strategy() !== t().strategy || notes() !== t().notes || Number(fees() || 0) !== t().fees || Number(risk()) !== Number(t().risk.toFixed(2));
   const save = () =>
-    act(() => journalApi.update(t().id, { strategy: strategy(), notes: notes(), fees: Number(fees() || 0), ...(Number(risk()) > 0 && Number(risk()) !== Number(t().risk.toFixed(2)) ? { risk: Number(risk()) } : {}) }));
+    act(async () => {
+      const p = patch();
+      const done = await journalApi.update(t().id, p);
+      // Its position on the chart moved, or was resized, with it.
+      if (t().drawingId !== null && (p.entry !== undefined || p.stop !== undefined || p.target !== undefined || p.risk !== undefined)) setDrawingsChanged({ market: t().market });
+      return done;
+    });
   const openChart = () => {
     const chart = targetChart();
     if (!chart) return;
@@ -611,125 +739,163 @@ function Editor(props: {
   };
   const coin = () => symbolOf(t().market).replace(/(USDT|USDC|USD)$/, '') || 'units';
   const qtyOf = (q: number) => `${Number(q.toPrecision(4))} ${coin()}`;
-  const figures = (): [string, string, string?][] => [
-    ['Entry', props.price(t().market, t().entry)],
-    ['Stop', props.price(t().market, t().stop)],
-    ['Target', props.price(t().market, t().target)],
-    ['Planned RR', plannedRR(t()).toFixed(2)],
-    ['Risk', money(t().risk).replace('+', '')],
-    ['Size', qtyOf(t().qty)],
-    ['Drawn', stamp(t().startAt)],
-    ['Opened', stamp(t().openedAt)],
-    ['Closed', stamp(t().closedAt)],
-    ...(t().fills.length > 1 ? ([['Avg entry', props.price(t().market, book(t()).avgEntry)], ['Held', qtyOf(book(t()).held)]] as [string, string][]) : []),
-    [t().fills.filter((f) => !IN.has(f.kind)).length > 1 ? 'Avg exit' : 'Exit', props.price(t().market, t().exit)],
-    ['R', rText(rMultiple(t())), tone(rMultiple(t()))],
-    ['P&L', money(pnl(t())), tone(pnl(t()))],
+  // The size the form's risk buys over its stop; with adds drawn, the trade's own is a little less.
+  const size = () => {
+    const per = Math.abs(Number(entry()) - Number(stop()));
+    return per > 0 && Number(risk()) > 0 ? qtyOf(Number(risk()) / per) : '—';
+  };
+  const rr = () => {
+    const per = Math.abs(Number(entry()) - Number(stop()));
+    return per > 0 ? (Math.abs(Number(target()) - Number(entry())) / per).toFixed(2) : '—';
+  };
+  const timeline = () => {
+    const x = t();
+    const parts = [`Drawn ${stamp(x.startAt)}`];
+    if (x.openedAt !== null) parts.push(`opened ${stamp(x.openedAt)}`);
+    if (x.closedAt !== null && !isLive(x)) parts.push(`closed ${stamp(x.closedAt)}${x.openedAt !== null ? ` · held ${held(x.closedAt - x.openedAt)}` : ''}`);
+    return parts.join(' · ');
+  };
+  const modes = (): [Mode, string][] => [
+    ['auto', t().tracked ? 'Price decides' : 'Still open'],
+    ['closed', 'Closed'],
+    ['breakeven', 'Break-even'],
+    ['cancelled', 'Cancelled'],
   ];
+  const modeHint = () => {
+    const m = mode();
+    if (m === 'auto')
+      return t().tracked
+        ? `Open at the entry${t().legs.length > 0 ? ', its partials filled as price reaches them' : ''}, then closed at the target or the stop. Now: ${STATUS_LABEL[t().status]}.`
+        : 'This market’s prices are not read here, so close it by hand when it is done.';
+    if (m === 'closed') return 'Closed by hand at this price: price no longer decides it.';
+    if (m === 'breakeven') return 'Out at the entry: no gain, no loss.';
+    return 'Never taken: left out of every figure.';
+  };
+  const field = (label: string, value: () => string, set: (v: string) => void, hint?: () => string) => (
+    <label class="jd-field">
+      <span class="jd-label">{label}</span>
+      <input class="jr-in num" inputmode="decimal" value={value()} onInput={(e) => set(e.currentTarget.value)} />
+      {hint ? <span class="jd-hint dim num">{hint()}</span> : null}
+    </label>
+  );
   return (
     <>
       <div class="jr-scrim" onClick={props.onClose} />
       <aside class="jr-drawer">
-        <header class="jr-head">
-          <span class={t().side === 'long' ? 'bull' : 'bear'}>{t().side === 'long' ? 'Long' : 'Short'}</span>
+        <header class="jr-head jd-head">
+          <span class={`jh-side ${t().side}`}>{t().side === 'long' ? 'Long' : 'Short'}</span>
           <span class="jr-title">{symbolOf(t().market)}</span>
           <span class="dim">{venueLabel(t().market)}</span>
-          <StatusBadge trade={t()} />
+          <Badge trade={t()} />
           <span class="grow" />
           <button class="iconbtn" aria-label="Close" onClick={props.onClose}>
             <Icon name="close" size={15} />
           </button>
         </header>
         <div class="jr-drawer-body">
-          <dl class="jr-figures">
-            <For each={figures()}>
-              {([label, value, cls]) => (
-                <>
-                  <dt class="dim">{label}</dt>
-                  <dd class={`num ${cls ?? ''}`}>{value}</dd>
-                </>
-              )}
-            </For>
-          </dl>
-          <Show when={t().fills.length > 1 || t().legs.length > 0}>
-            <ol class="jr-fills num">
-              <For each={t().fills}>
-                {(f) => {
-                  const b = book(t());
-                  const made = IN.has(f.kind) ? null : (f.price - b.avgEntry) * (t().side === 'long' ? 1 : -1) * f.qty;
-                  return (
-                    <li>
-                      <span class="dim">{stamp(f.at)}</span>
-                      <span>{FILL_LABEL[f.kind]}</span>
-                      <span>{IN.has(f.kind) ? '+' : '−'}{qtyOf(f.qty)}</span>
-                      <span>@ {props.price(t().market, f.price)}</span>
-                      <span class={tone(made)}>{made === null ? '' : money(made)}</span>
-                    </li>
-                  );
-                }}
-              </For>
-              <For each={t().legs.filter((_, i) => !t().fills.some((f) => f.leg === i))}>
-                {(l) => (
-                  <li class="dim">
-                    <span>{isLive(t()) ? 'waiting' : 'not reached'}</span>
-                    <span>{l.kind === 'take' ? 'Take profit' : l.kind === 'cut' ? 'Cut loss' : 'Add'}</span>
-                    <span>{Math.round(l.share * 100)}%</span>
-                    <span>@ {props.price(t().market, l.price)}</span>
-                    <span />
-                  </li>
+          <div class={`jd-hero ${outcome(t())}`}>
+            <div class="jd-result">
+              <span class="jd-pnl num">{isLive(t()) || t().status === 'cancelled' ? STATUS_LABEL[t().status] : money(pnl(t()))}</span>
+              <Show when={!isLive(t()) && t().status !== 'cancelled'}>
+                <span class="jd-r num">{rText(rMultiple(t()))}</span>
+              </Show>
+            </div>
+            <span class="dim num">{timeline()}</span>
+          </div>
+
+          <section class="jd-section">
+            <h3>Plan</h3>
+            <div class="jd-grid">
+              {field('Entry', entry, setEntry)}
+              {field('Stop loss', stop, setStop)}
+              {field('Take profit', target, setTarget, () => `${rr()} RR`)}
+              {field('Risk $', risk, setRisk, () => size())}
+              {field('Fees $', fees, setFees)}
+            </div>
+            <p class="jd-hint dim">
+              {t().drawingId !== null
+                ? `Kept in step with its ${t().timeframe} position on the chart: change it here or there.`
+                : t().timeframe
+                  ? 'Its position was deleted from the chart; the trade keeps these prices.'
+                  : 'Added by hand.'}
+            </p>
+          </section>
+
+          <section class="jd-section">
+            <h3>Outcome</h3>
+            <div class="jd-modes">
+              <For each={modes()}>
+                {([id, label]) => (
+                  <button classList={{ on: mode() === id, [id]: true }} onClick={() => setMode(id)}>
+                    {label}
+                  </button>
                 )}
               </For>
-            </ol>
+            </div>
+            <Show when={mode() !== 'auto'}>
+              <div class="jd-grid">
+                <Show when={mode() === 'closed'}>{field('Exit price', exit, setExit)}</Show>
+                <label class="jd-field jd-wide">
+                  <span class="jd-label">{mode() === 'cancelled' ? 'Called off' : 'Closed'}</span>
+                  <input class="jr-in" type="datetime-local" value={closedAt()} onInput={(e) => setClosedAt(e.currentTarget.value)} />
+                </label>
+              </div>
+            </Show>
+            <p class="jd-hint dim">{modeHint()}</p>
+          </section>
+
+          <section class="jd-section">
+            <StrategyPicker value={strategy()} onChange={setStrategy} />
+            <label class="jd-field">
+              <span class="jd-label">Notes</span>
+              <textarea class="jr-in" rows={4} placeholder="Setup, emotions, lessons learned…" value={notes()} onInput={(e) => setNotes(e.currentTarget.value)} />
+            </label>
+          </section>
+
+          <Show when={t().fills.length > 1 || t().legs.length > 0}>
+            <details class="jd-section jd-fills">
+              <summary>
+                <h3>Fills</h3>
+              </summary>
+              <ol class="jr-fills num">
+                <For each={t().fills}>
+                  {(f) => {
+                    const b = book(t());
+                    const made = IN.has(f.kind) ? null : (f.price - b.avgEntry) * (t().side === 'long' ? 1 : -1) * f.qty;
+                    return (
+                      <li>
+                        <span class="dim">{stamp(f.at)}</span>
+                        <span>{FILL_LABEL[f.kind]}</span>
+                        <span>
+                          {IN.has(f.kind) ? '+' : '−'}
+                          {qtyOf(f.qty)}
+                        </span>
+                        <span>@ {props.price(t().market, f.price)}</span>
+                        <span class={tone(made)}>{made === null ? '' : money(made)}</span>
+                      </li>
+                    );
+                  }}
+                </For>
+                <For each={t().legs.filter((_, i) => !t().fills.some((f) => f.leg === i))}>
+                  {(l) => (
+                    <li class="dim">
+                      <span>{isLive(t()) ? 'waiting' : 'not reached'}</span>
+                      <span>{l.kind === 'take' ? 'Take profit' : l.kind === 'cut' ? 'Cut loss' : 'Add'}</span>
+                      <span>{Math.round(l.share * 100)}%</span>
+                      <span>@ {props.price(t().market, l.price)}</span>
+                      <span />
+                    </li>
+                  )}
+                </For>
+              </ol>
+            </details>
           </Show>
-          <p class="dim jr-note">
-            {t().drawingId !== null ? `Follows its ${t().timeframe} position on the chart: moving it moves the trade.` : t().timeframe ? 'Its position was deleted from the chart; the trade stays.' : 'Added by hand.'}{' '}
-            {t().auto
-              ? t().tracked
-                ? `Price decides it: open at the entry${t().legs.length > 0 ? ', its legs filled as price reaches them' : ''}, closed at the target or the stop.`
-                : 'This market’s prices are not read here: set how it went by hand.'
-              : 'Its status was set by hand.'}
-          </p>
-
-          <div class="jr-actions">
-            <input class="jr-in num" inputmode="decimal" placeholder="Exit price" value={exit()} onInput={(e) => setExit(e.currentTarget.value)} />
-            <Show when={!isLive(t())}>
-              <input class="jr-in jr-when" type="datetime-local" aria-label="Closed at" value={closedAt()} onInput={(e) => setClosedAt(e.currentTarget.value)} />
-            </Show>
-            <button class="tb" disabled={busy() || !(Number(exit()) > 0) || Number.isNaN(Date.parse(closedAt()))} onClick={() => act(() => journalApi.update(t().id, { status: 'closed', exit: Number(exit()), ...when() }))}>
-              {isLive(t()) ? 'Close at it' : 'Set exit'}
-            </button>
-            <button class="tb" disabled={busy()} onClick={() => act(() => journalApi.update(t().id, { status: 'breakeven', ...when() }))}>
-              Break-even
-            </button>
-            <button class="tb" disabled={busy()} onClick={() => act(() => journalApi.update(t().id, { status: 'cancelled', ...when() }))}>
-              {isLive(t()) ? 'Cancel' : 'Cancelled'}
-            </button>
-            <Show when={!t().auto && t().tracked}>
-              <button class="tb" disabled={busy()} data-tip="Weigh it against price again, from where it was drawn" onClick={() => act(() => journalApi.update(t().id, { auto: true }))}>
-                Let price decide
-              </button>
-            </Show>
-          </div>
-
-          <StrategyPicker value={strategy()} onChange={setStrategy} />
-          <div class="jr-row">
-            <label class="jr-label">
-              Risk ($)
-              <input class="jr-in num" inputmode="decimal" value={risk()} onInput={(e) => setRisk(e.currentTarget.value)} />
-            </label>
-            <label class="jr-label">
-              Fees ($)
-              <input class="jr-in num" inputmode="decimal" value={fees()} onInput={(e) => setFees(e.currentTarget.value)} />
-            </label>
-          </div>
-          <label class="jr-label">
-            Notes
-            <textarea class="jr-in" rows={6} value={notes()} onInput={(e) => setNotes(e.currentTarget.value)} />
-          </label>
-          <Show when={error()}>{(e) => <p class="bear">{e()}</p>}</Show>
-          <div class="jr-actions">
-            <button class="tb on" disabled={busy() || !dirty()} onClick={save}>
-              Save
+        </div>
+        <footer class="jd-foot">
+          <Show when={(dirty() && problem()) || error()}>{(e) => <p class="bear jd-error">{e()}</p>}</Show>
+          <div class="jd-actions">
+            <button class="jd-save" disabled={busy() || !dirty() || problem() !== null} onClick={save}>
+              {busy() ? 'Saving…' : 'Save'}
             </button>
             <button class="tb" onClick={openChart}>
               <Icon name="external" size={12} />
@@ -743,10 +909,10 @@ function Editor(props: {
               onClick={() => (sure() ? act(async () => void (await journalApi.remove(t().id), props.onRemove(t().id))) : setSure(true))}
             >
               <Icon name="trash" size={12} />
-              <span>{sure() ? 'Delete from the journal' : 'Delete'}</span>
+              <span>{sure() ? 'Delete for good' : 'Delete'}</span>
             </button>
           </div>
-        </div>
+        </footer>
       </aside>
     </>
   );
