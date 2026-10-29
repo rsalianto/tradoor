@@ -8,8 +8,7 @@
 
 <p align="center">
   <b>A trading terminal in the browser, built for speed.</b><br>
-  TradingView-style charts and ExoCharts-style market profiles in a workspace you lay out yourself,<br>
-  drawn by a Rust engine in WebAssembly and fed live from the exchanges.
+  TradingView-style charts, ExoCharts-style market profiles and a DOM in a workspace you lay out yourself, drawn by a Rust engine in WebAssembly and fed live from the exchanges.
 </p>
 
 <p align="center">
@@ -46,179 +45,187 @@
   <sub>A tour of the live site: pan and zoom, TPO profiles, a footprint, liquidations and signals.</sub>
 </p>
 
-<table>
-  <tr>
-    <td width="25%" valign="top">
-      <h3>⚡ Light and fast</h3>
-      The chart engine is Rust in a Web Worker, drawing with WebGL2 on an OffscreenCanvas, so the page thread never touches a candle. A minute chart with months behind it costs what one opened today does.
-    </td>
-    <td width="25%" valign="top">
-      <h3>📊 Market profile</h3>
-      TPO profiles by session, footprints with bid and ask at every price, value areas, and a Values panel that reads a market at a glance.
-    </td>
-    <td width="25%" valign="top">
-      <h3>🔥 Live from the source</h3>
-      Exchange streams straight to the browser: trades fold into the forming bar, liquidations land from twelve exchanges, and net taker flow is counted per venue.
-    </td>
-    <td width="25%" valign="top">
-      <h3>📓 Journal and training</h3>
-      Every position you draw becomes a trade that price settles, and a paper account trades Binance's perpetuals at their live prices.
-    </td>
-  </tr>
-</table>
+**⚡ Light and fast.** The chart engine is Rust in a Web Worker, drawing with WebGL2 on an OffscreenCanvas, so the page thread never touches a candle. A minute chart with months behind it costs what one opened today does.
 
-<br>
+**📊 Order flow and market profile.** A DOM and a tape on seven exchanges, TPO profiles by session, footprints with bid and ask at every price, value areas, and a Values panel that reads a market at a glance.
+
+**🔥 Live from the source.** Exchange streams straight to the browser: trades fold into the forming bar, order books fill the DOM, liquidations land from twelve exchanges, and net taker flow is counted per venue.
+
+**📓 Journal and training.** Every position you draw becomes a trade that price settles, and a paper account trades Binance's perpetuals at their live prices, from the chart or the DOM.
 
 ## Features
 
 Every screenshot is the live site, or for the journal and training a local one with sample trades.
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/tpo.webp" alt="BTCUSDT hourly bars as TPO profiles by day, each with its value area high and low marked" width="100%">
-      <br>
-      <sub>An hourly chart split into a TPO profile per day.</sub>
-      <h3>Market profile</h3>
-      Any chart can be read as TPO profiles — by day, week or month — each session with its value area, point of control and single prints, and the price axis, drawings and indicators still in place.
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/footprint.webp" alt="A 15-minute BTCUSDT footprint chart: each bar split into the volume sold and bought at every price" width="100%">
-      <br>
-      <sub>Fifteen-minute bars as footprints, sold against bought at every price.</sub>
-      <h3>Footprint</h3>
-      Volume bought and sold at each price inside every bar — split, delta, total, cluster or ladder — with each bar's value area, stats and profile.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/liquidations.webp" alt="The liquidations panel for BTCUSDT: totals for the last hour, 4 hours, 12 hours and day, and a tape of each liquidation with its exchange, side, price and size" width="100%">
-      <br>
-      <sub>BTCUSDT's liquidations on every exchange, as totals and as a tape.</sub>
-      <h3>Liquidations</h3>
-      One ticker's liquidations from twelve exchanges as they land: a tape with each one's venue, side, price and size, totals over the last hour to day, and a feed riding up the chart above the volume.
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/signals.webp" alt="The signal panel: three-drive patterns found across 200 coins on the 4H, 1D and 1W, each with its entry, targets and stop, and the triggered ones with how they went" width="100%">
-      <br>
-      <sub>The screener's three drives across 200 coins.</sub>
-      <h3>Signals</h3>
-      A screener scans 200 coins on the 4H, 1D and 1W for three drives into a line, with each one's entry, targets and stop, follows it until it is filled, stopped or gone, and can tell Telegram.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/journal.webp" alt="The journal's dashboard: net P&L, win rate, total R, profit factor, drawdown and streak; the equity curve; the P&L calendar with each week's R; and the breakdowns by pair, side and strategy" width="100%">
-      <br>
-      <sub>The journal's dashboard, with sample trades.</sub>
-      <h3>Trading journal</h3>
-      Every Long or Short position drawn on a chart is a trade, kept in step as you move it and settled by price — entry, then target or stop — with partial exits, averaged entries, strategies and notes. The dashboard reads it back: the figures that matter, the equity curve, a P&L calendar with each week's R, and a weekly review.
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/training.webp" alt="Training: a one-minute BTCUSDT chart, the order ticket with leverage and size, and an open long with its take profit, stop loss, Reverse and Close" width="100%">
-      <br>
-      <sub>Paper trading at live prices, an open long with its take profit and stop loss.</sub>
-      <h3>Training</h3>
-      100,000 USDT on Binance's BTC, ETH and SOL perpetuals at their live prices: market and limit orders, up to 100× on isolated margin, take profit, stop loss and Reverse, with liquidation, fees and funding as Binance has them — filled by the server, browser open or not.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/flow.webp" alt="The flow panel: BTC's net taker flow on each exchange over the last minute, hour, 4 hours, 12 hours and day, and below it the minutes that crossed a size" width="100%">
-      <br>
-      <sub>BTC's net taker flow per exchange, and the big minutes.</sub>
-      <h3>Flow</h3>
-      Net taker flow on each exchange, spot and perpetual, over the last minute to day, and the minutes that ran hard one way marked on the chart where they traded.
-    </td>
-    <td width="50%" valign="top" align="center">
-      <img src="docs/screenshots/mobile.webp" alt="tradoor on a phone: a 15-minute BTCUSDT chart with its tools down the side" width="46%">
-      <br>
-      <sub>On a phone: one chart and a menu.</sub>
-      <h3>Everywhere</h3>
-      The same terminal on a phone, with touch gestures, and on any browser that runs WebGL2 — falling back to a 2D canvas where it does not.
-    </td>
-  </tr>
-</table>
+### Many charts, one workspace
 
-<br>
+<p align="center">
+  <img src="docs/screenshots/charts.webp" alt="Six charts on one screen: BTCUSDT as candles and as TPO profiles, ETHUSDT, SOLUSDT, BTCUSDT spot and BTCUSDT on Bybit, with the watchlist, liquidations and values beside them" width="100%">
+  <br>
+  <sub>Six charts from the grid menu, the new ones on the next tickers in the watchlist.</sub>
+</p>
+
+Up to 20 charts on screen, all drawing: the first four with WebGL, the rest in 2D. Pick a grid from the menu in the top bar, keep Symbol, Interval, Crosshair or Time in step across the charts, and draw on any of them from one toolbar. Every panel splits, tabs and docks by drag: drop a tab on a tab strip to reorder it, or on a panel's edge to set it beside. Four layouts are ready to start from (Classic, Multi-timeframe, Order flow, and DOM & Tape), your own are saved by name when signed in, and your watchlists stay whichever you open.
+
+### DOM and Tape
+
+<p align="center">
+  <img src="docs/screenshots/dom-tape.webp" alt="The DOM and Tape layout on BTCUSDT: a one-minute chart with liquidations and flow under it, the DOM in the middle, and the tape and watchlist at the right" width="100%">
+  <br>
+  <sub>The DOM &amp; Tape layout: a one-minute chart, the DOM and the tape, all on BTCUSDT.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/dom.webp" alt="The DOM for BTCUSDT on Binance: the volume profile, bids, market sells, price, market buys, asks and pull/stack at each price, with the last price lit in the middle" width="45%">
+  <img src="docs/screenshots/tape.webp" alt="The tape for BTCUSDT: each trade's time, price and size in dollars, buys in green and sells in red, the big ones lit" width="53%">
+</p>
+
+The DOM is the order book by price on Binance, Bybit, OKX, Bitget, Kraken, Hyperliquid and Lighter: the bids and asks, the market sells and buys that traded at each price, a volume profile, and what was pulled from a level or stacked onto it beyond what trades took. A row is a tick or many, sizes are in coins or dollars, and the size filter judges whole orders, not single fills. Clear the profile, the trades or Pull/Stack, all of it or only above or below a row, or let each start again on the clock. The tape prints every trade as it lands, lights the big ones, and holds still under the pointer. Both read the exchange's own socket from the browser. In the workspace they only read; in Training the DOM trades on paper.
+
+### Market profile
+
+<p align="center">
+  <img src="docs/screenshots/tpo.webp" alt="BTCUSDT hourly bars as TPO profiles by day, each with its value area high and low marked" width="440">
+  <br>
+  <sub>An hourly chart split into a TPO profile per day.</sub>
+</p>
+
+Any chart can be read as TPO profiles — by day, week or month — each session with its value area, point of control and single prints, and the price axis, drawings and indicators still in place.
+
+### Footprint
+
+<p align="center">
+  <img src="docs/screenshots/footprint.webp" alt="A 15-minute BTCUSDT footprint chart: each bar split into the volume sold and bought at every price" width="440">
+  <br>
+  <sub>Fifteen-minute bars as footprints, sold against bought at every price.</sub>
+</p>
+
+Volume bought and sold at each price inside every bar — split, delta, total, cluster or ladder — with each bar's value area, stats and profile.
+
+### Liquidations
+
+<p align="center">
+  <img src="docs/screenshots/liquidations.webp" alt="The liquidations panel for BTCUSDT: totals for the last hour, 4 hours, 12 hours and day, and a tape of each liquidation with its exchange, side, price and size" width="440">
+  <br>
+  <sub>BTCUSDT's liquidations on every exchange, as totals and as a tape.</sub>
+</p>
+
+One ticker's liquidations from twelve exchanges as they land: a tape with each one's venue, side, price and size, totals over the last hour to day, and a feed riding up the chart above the volume.
+
+### Signals
+
+<p align="center">
+  <img src="docs/screenshots/signals.webp" alt="The signal panel: three-drive patterns found across 200 coins on the 4H, 1D and 1W, each with its entry, targets and stop, and the triggered ones with how they went" width="440">
+  <br>
+  <sub>The screener's three drives across 200 coins.</sub>
+</p>
+
+A screener scans 200 coins on the 4H, 1D and 1W for three drives into a line, with each one's entry, targets and stop, follows it until it is filled, stopped or gone, and can tell Telegram.
+
+### Flow
+
+<p align="center">
+  <img src="docs/screenshots/flow.webp" alt="The flow panel: BTC's net taker flow on each exchange over the last minute, hour, 4 hours, 12 hours and day, and below it the minutes that crossed a size" width="440">
+  <br>
+  <sub>BTC's net taker flow per exchange, and the big minutes.</sub>
+</p>
+
+Net taker flow on each exchange, spot and perpetual, over the last minute to day, and the minutes that ran hard one way marked on the chart where they traded.
+
+### Trading journal
+
+<p align="center">
+  <img src="docs/screenshots/journal.webp" alt="The journal's dashboard: net P&L, win rate, total R, profit factor, drawdown and streak; the equity curve; the P&L calendar with each week's R; and the breakdowns by pair, side and strategy" width="100%">
+  <br>
+  <sub>The journal's dashboard, with sample trades.</sub>
+</p>
+
+Every Long or Short position drawn on a chart is a trade, kept in step as you move it and settled by price — entry, then target or stop — with partial exits, averaged entries, strategies and notes. The dashboard reads it back: the figures that matter, the equity curve, a P&L calendar with each week's R, and a weekly review.
+
+### Training
+
+<p align="center">
+  <img src="docs/screenshots/training.webp" alt="Training: a one-minute BTCUSDT chart, the order ticket with leverage and size, and an open long with its take profit, stop loss, Reverse and Close" width="100%">
+  <br>
+  <sub>Paper trading at live prices, an open long with its take profit and stop loss.</sub>
+</p>
+
+100,000 USDT on Binance's BTC, ETH and SOL perpetuals at their live prices: market and limit orders, up to 100× on isolated margin, take profit, stop loss and Reverse, with liquidation, fees and funding as Binance has them — filled by the server, browser open or not. Open the DOM beside the chart to trade from the book: click a bid to buy, an ask to sell, drag an order to move it, and Shift- or Ctrl-click a row for the stop loss or take profit.
+
+### Everywhere
+
+<p align="center">
+  <img src="docs/screenshots/mobile.webp" alt="tradoor on a phone: a 15-minute BTCUSDT chart with its tools down the side" width="260">
+  <br>
+  <sub>On a phone: one chart and a menu.</sub>
+</p>
+
+The same terminal on a phone, with touch gestures, and on any browser that runs WebGL2 — falling back to a 2D canvas where it does not.
 
 ## Everything in the box
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h4>Charts</h4>
-      <ul>
-        <li>One minute to a year; 2D, 3D, 2W, 3M, 6M and 12M folded from days with a live forming bar</li>
-        <li>An open world for 15 minutes and shorter: a window of the newest bars, widened as you pan back</li>
-        <li>EMA 12/25 ribbon, EMA 200, RSI, Stoch RSI, volume, key levels, anchored VWAP, open interest</li>
-        <li>Linear or log price axis, auto scale, panes you size yourself</li>
-        <li>A 4K picture of any chart to the clipboard</li>
-      </ul>
-    </td>
-    <td width="33%" valign="top">
-      <h4>Drawing</h4>
-      <ul>
-        <li>Trendline, ray, horizontal, path, brush, zone, parallel channel, fib, note, measure</li>
-        <li>Long and short positions with risk, reward and legs</li>
-        <li>A weak or strong magnet to the candles</li>
-        <li>Drawings belong to the market and show on every timeframe, standing on the bar that holds them</li>
-        <li>Undo and redo, lock, hide per timeframe</li>
-      </ul>
-    </td>
-    <td width="33%" valign="top">
-      <h4>Workspace</h4>
-      <ul>
-        <li>Splits, tabs and docking by drag</li>
-        <li>Colour link groups: one symbol, many panels</li>
-        <li>Command palette, symbol search across every venue, keyboard first</li>
-        <li>Watchlists, price alerts to Telegram, themes</li>
-        <li>Signed in with Telegram, the same workspace on every device</li>
-      </ul>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" valign="top">
-      <h4>Markets</h4>
-      <ul>
-        <li>Spot and perpetuals on Binance, Bybit, OKX, Bitget, Kraken; perpetuals on Hyperliquid and Lighter</li>
-        <li>TOTAL, TOTAL2, TOTAL3, TOTALES, OTHERS, BTC.D, ETH.D, USDT.D, OTHERS.D and the VIX</li>
-        <li>The S&amp;P 500 and Nasdaq-100 as trade.xyz's perpetuals</li>
-        <li>One market priced in another, as a ratio</li>
-      </ul>
-    </td>
-    <td width="33%" valign="top">
-      <h4>History</h4>
-      <ul>
-        <li>Columnar partitions of about 16 bytes a minute: five years of BTCUSDT minutes in 42 MB</li>
-        <li>Served from disk or a CDN, cached by the browser for a year</li>
-        <li>Markets not archived chart straight from the exchange's REST API</li>
-      </ul>
-    </td>
-    <td width="33%" valign="top">
-      <h4>Server</h4>
-      <ul>
-        <li>Rust — Axum and Tokio — with PostgreSQL 18 for metadata only</li>
-        <li>A day of liquidations, open interest and flow for the tickers it follows</li>
-        <li>Rate limits per address and per exchange host</li>
-        <li>One Docker image, deployed from CI</li>
-      </ul>
-    </td>
-  </tr>
-</table>
+#### Charts
 
-<br>
+- One minute to a year; 2D, 3D, 2W, 3M, 6M and 12M folded from days with a live forming bar
+- An open world for 15 minutes and shorter: a window of the newest bars, widened as you pan back
+- EMA 12/25 ribbon, EMA 200, RSI, Stoch RSI, volume, key levels, anchored VWAP, open interest
+- Linear or log price axis, auto scale, panes you size yourself
+- A 4K picture of any chart to the clipboard
+
+#### Drawing
+
+- Trendline, ray, horizontal, path, brush, zone, parallel channel, fib, note, measure
+- Long and short positions with risk, reward and legs
+- A weak or strong magnet to the candles
+- Drawings belong to the market and show on every timeframe, standing on the bar that holds them
+- Undo and redo, lock, hide per timeframe
+
+#### Order flow
+
+- A DOM on seven exchanges: bids, asks, sold, bought, a volume profile and Pull/Stack at every price
+- Rows of a tick or many, coins or dollars, a size filter that judges whole orders
+- Clear all of it or one part, above or below a row, or on the clock
+- A tape of every trade, the big ones lit
+- Footprints, TPO profiles, and net taker flow per exchange
+
+#### Workspace
+
+- Splits, tabs and docking by drag
+- Up to 20 charts from a grid menu, with symbol, interval, crosshair and time kept in step
+- Recommended layouts, your own saved by name, and export or import as a file
+- Colour link groups: one symbol, many panels
+- Command palette, symbol search across every venue, keyboard first
+- Watchlists, price alerts to Telegram, themes, light ones included
+- Signed in with Telegram, the same workspace on every device
+
+#### Markets
+
+- Spot and perpetuals on Binance, Bybit, OKX, Bitget, Kraken; perpetuals on Hyperliquid and Lighter
+- TOTAL, TOTAL2, TOTAL3, TOTALES, OTHERS, BTC.D, ETH.D, USDT.D, OTHERS.D and the VIX
+- The S&amp;P 500 and Nasdaq-100 as trade.xyz's perpetuals
+- One market priced in another, as a ratio
+
+#### History
+
+- Columnar partitions of about 16 bytes a minute: five years of BTCUSDT minutes in 42 MB
+- Served from disk or a CDN, cached by the browser for a year
+- Markets not archived chart straight from the exchange's REST API
+
+#### Server
+
+- Rust — Axum and Tokio — with PostgreSQL 18 for metadata only
+- A day of liquidations, open interest and flow for the tickers it follows
+- Rate limits per address and per exchange host
+- One Docker image, deployed from CI
 
 ## Under the hood
 
-| Part | What it is |
-|---|---|
-| Chart engine | Rust compiled to WebAssembly (about 155 KB gzip after wasm-opt), run in a Web Worker. Candles are drawn with WebGL2 on an OffscreenCanvas, text on a 2D layer and the liquidation feed on a third, so the page thread never touches a candle. |
-| History | Immutable columnar partition files, about 16 bytes per 1-minute bar: five years of BTCUSDT perpetual minutes is 42 MB. Served from disk or a CDN and cached by the browser for a year. |
-| Live | Exchange WebSockets straight to the browser: trades folded into the forming bar between kline updates, and liquidations feeding a ticker above the volume and a tape of their own as they land. |
-| Server | Rust — Axum and Tokio — for the market catalogue, drawings and workspaces, accounts, the journal and training, and a day of liquidations for a few tickers. |
-| Database | PostgreSQL 18, for metadata only. Candles never enter it. |
-| UI | SolidJS (about 50 KB brotli): splits, tabs, docking by drag, link groups, command palette, theme; one chart and a menu on a phone. |
+- **Chart engine**: Rust compiled to WebAssembly (about 155 KB gzip after wasm-opt), run in a Web Worker. Candles are drawn with WebGL2 on an OffscreenCanvas, text on a 2D layer and the liquidation feed on a third, so the page thread never touches a candle.
+- **History**: Immutable columnar partition files, about 16 bytes per 1-minute bar: five years of BTCUSDT perpetual minutes is 42 MB. Served from disk or a CDN and cached by the browser for a year.
+- **Live**: Exchange WebSockets straight to the browser: trades folded into the forming bar between kline updates, order books kept for the DOM, and liquidations feeding a ticker above the volume and a tape of their own as they land. The server relays a stream only when the browser cannot reach the exchange.
+- **Server**: Rust — Axum and Tokio — for the market catalogue, drawings and workspaces, accounts, the journal and training, and a day of liquidations for a few tickers.
+- **Database**: PostgreSQL 18, for metadata only. Candles never enter it.
+- **UI**: SolidJS (about 52 KB brotli): splits, tabs, docking by drag, link groups, command palette, theme; one chart and a menu on a phone.
 
 ```text
 crates/core      candles, timeframes, indicators and studies with Pine Script semantics; no dependencies
