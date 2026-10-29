@@ -271,8 +271,9 @@ struct Liquidation {
 /// The most profiles a TPO chart opens on — the current one and the ones before
 /// it, to be read against one another; fewer when square blocks would not fit.
 const TPO_OPENING_SESSIONS: usize = 14;
-/// The price pane's room above and below TPO profiles, as a share of its height.
-const TPO_MARGIN: f64 = 0.05;
+/// The price pane's room above TPO profiles — clear of the legend, as a footprint
+/// keeps — and below them, as a share of its height.
+const TPO_MARGINS: (f64, f64) = (0.1, 0.05);
 /// Profiles shown before the price pane is laid out to fit them square.
 const TPO_FALLBACK_SESSIONS: usize = 8;
 /// The fewest profiles a TPO chart opens on: a week, as MMT holds a daily chart.
@@ -1179,7 +1180,7 @@ impl Chart {
             let mut margins = state.margins;
             if *g == Group::Price && self.tpo().is_some() {
                 // Profiles are read by their shape: every pixel of height is another row.
-                margins = (margins.0.min(TPO_MARGIN), margins.1.min(TPO_MARGIN));
+                margins = (margins.0.min(TPO_MARGINS.0), margins.1.min(TPO_MARGINS.1));
             }
             if *g == Group::Price && self.footprint_drawn() {
                 // Every pixel of height is another row a bar can be read in.
