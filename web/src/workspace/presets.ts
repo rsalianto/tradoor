@@ -2,10 +2,11 @@
  * Layouts to start from, in the Layouts menu: Classic, the first visit's;
  * Multi-timeframe, one ticker at four timeframes; and Order flow, the footprint
  * and its profile with the flow and liquidations under them. Picking one lays
- * out the panels; the workspace keeps its theme and favourite timeframes.
+ * out the panels; the workspace keeps its theme, favourite timeframes and
+ * watchlists.
  */
 import { DEFAULT_MARKET } from '../lib/markets';
-import { bareChart, defaultWorkspace, LINK_COLORS, newPanel, tabsFor, uid, type ChartPanelState, type LayoutNode, type LinkColor, type LinkState, type Panel, type WorkspaceDoc } from './model';
+import { bareChart, defaultWorkspace, LINK_COLORS, newPanel, tabsFor, uid, type ChartPanelState, type LayoutNode, type LinkColor, type LinkState, type Panel, type WatchlistPanelState, type WorkspaceDoc } from './model';
 
 export interface LayoutPreset {
   id: string;
@@ -83,7 +84,35 @@ export const LAYOUTS: readonly LayoutPreset[] = [
   },
 ];
 
-/** Lays the workspace out as `preset`, keeping its theme and favourite timeframes. */
+/** Lays the workspace out as `preset`, keeping its theme, favourite timeframes and watchlists. */
 export function applyLayout(doc: WorkspaceDoc, preset: LayoutPreset): void {
+  const lists = watchlists(doc);
   Object.assign(doc, preset.build(), { name: preset.name });
+  keepWatchlists(doc, lists);
+}
+
+type List = Pick<WatchlistPanelState, 'markets' | 'collapsed' | 'flags'>;
+
+/** The watchlist panels, in the order the layout shows them. */
+function placedWatchlists(doc: WorkspaceDoc): WatchlistPanelState[] {
+  const ids = (node: LayoutNode): string[] => (node.kind === 'tabs' ? node.panels : node.children.flatMap(ids));
+  return ids(doc.root).flatMap((id) => {
+    const p = doc.panels[id];
+    return p?.type === 'watchlist' ? [p] : [];
+  });
+}
+
+/** The watchlists' markets, sections, folds and flags, copied. */
+export const watchlists = (doc: WorkspaceDoc): List[] => placedWatchlists(doc).map((p) => ({ markets: [...p.markets], collapsed: [...p.collapsed], flags: { ...p.flags } }));
+
+/**
+ * A reader's lists are theirs, not the layout's: whatever layout comes in —
+ * a recommended one, a saved one, a file — its watchlists take the lists the
+ * one before had, first to first. One it has more of keeps its own.
+ */
+export function keepWatchlists(doc: WorkspaceDoc, lists: readonly List[]): void {
+  placedWatchlists(doc).forEach((p, i) => {
+    const list = lists[i];
+    if (list) Object.assign(p, { markets: [...list.markets], collapsed: [...list.collapsed], flags: { ...list.flags } });
+  });
 }

@@ -3,8 +3,9 @@
  * (an account's, so they follow it to every device), and a layout as a JSON
  * file to keep or share. Opened from the top bar, and in Settings.
  *
- * Opening one replaces the layout in use, which the app saves as it goes; a
- * saved layout is a copy, changed only by saving over it.
+ * Opening one replaces the layout in use, which the app saves as it goes, but
+ * not the watchlists, which stay the reader's; a saved layout is a copy,
+ * changed only by saving over it.
  */
 import { createResource, For, Show } from 'solid-js';
 import { setOverlay } from '../app/ui';
@@ -14,12 +15,16 @@ import { session } from '../lib/owner';
 import { formatDateTime } from '../lib/timezone';
 import { toast } from '../lib/toasts';
 import { validate, type WorkspaceDoc } from '../workspace/model';
-import { applyLayout, LAYOUTS } from '../workspace/presets';
+import { applyLayout, keepWatchlists, LAYOUTS, watchlists } from '../workspace/presets';
 import { doc, update } from '../workspace/store';
 
-/** What a layout file or a saved layout brings: all of it but when it was saved. */
+/** What a layout file or a saved layout brings: all of it but when it was saved — and the watchlists, which stay the reader's. */
 function take(next: WorkspaceDoc): void {
-  update((d) => void Object.assign(d, { name: next.name, root: next.root, panels: next.panels, links: next.links, sync: next.sync, theme: next.theme, timeframes: next.timeframes }));
+  update((d) => {
+    const lists = watchlists(d);
+    Object.assign(d, { name: next.name, root: next.root, panels: next.panels, links: next.links, sync: next.sync, theme: next.theme, timeframes: next.timeframes });
+    keepWatchlists(d, lists);
+  });
 }
 
 const slug = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'layout';

@@ -44,3 +44,20 @@ Deno.test('order flow leads with a footprint and its profile', () => {
   assertEquals(tpo?.tpo, '1d', 'then TPO by day');
   assert(Object.values(doc.panels).some((p) => p.type === 'flow') && Object.values(doc.panels).some((p) => p.type === 'liquidations'));
 });
+
+Deno.test('the watchlists stay the reader\'s whatever layout is picked', () => {
+  const doc = defaultWorkspace();
+  const list = Object.values(doc.panels).find((p) => p.type === 'watchlist')!;
+  if (list.type !== 'watchlist') throw new Error('no watchlist');
+  list.markets = ['#Mine', 'bybit-perp:XRPUSDT', 'okx-perp:DOGEUSDT'];
+  list.collapsed = ['Mine'];
+  list.flags = { 'bybit-perp:XRPUSDT': 'red' };
+  for (const l of LAYOUTS) {
+    applyLayout(doc, l);
+    const shown = placed(doc.root).map((id) => doc.panels[id]!).filter((p) => p.type === 'watchlist');
+    assert(shown.length > 0, `${l.id} has a watchlist`);
+    const first = shown[0]!;
+    if (first.type !== 'watchlist') throw new Error('not a watchlist');
+    assertEquals([first.markets, first.collapsed, first.flags], [['#Mine', 'bybit-perp:XRPUSDT', 'okx-perp:DOGEUSDT'], ['Mine'], { 'bybit-perp:XRPUSDT': 'red' }], `${l.id} keeps the list`);
+  }
+});
