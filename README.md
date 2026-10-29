@@ -88,9 +88,9 @@ The DOM is the order book by price on Binance, Bybit, OKX, Bitget, Kraken, Hyper
 ### Market profile
 
 <p align="center">
-  <img src="docs/screenshots/tpo.webp" alt="BTCUSDT hourly bars as TPO profiles by day, each with its value area high and low marked" width="440">
+  <img src="docs/screenshots/tpo.webp" alt="BTCUSDT 30-minute bars as TPO profiles by day: square blocks side by side, each with its value area, point of control, poor highs and lows and single prints" width="100%">
   <br>
-  <sub>An hourly chart split into a TPO profile per day.</sub>
+  <sub>A profile a day of 30-minute brackets, square blocks side by side.</sub>
 </p>
 
 Any chart can be read as TPO profiles laid out as MMT lays them out — square blocks side by side, by day, week or month, Asia, London or New York, or sessions of your own — each with its value area, point of control, single prints, poor highs and lows and, beside it, its volume, in your theme's colours. Expand, merge or split a profile from its menu; drawings and indicators stay in place.
