@@ -1,6 +1,7 @@
 /**
  * The terminal layout: splits with draggable gutters, tab groups, and docking
- * by dragging a tab onto another group's centre or edge.
+ * by dragging a tab onto another group's centre or edge — or onto a tab
+ * strip, between its tabs, which reorders them.
  */
 import { createEffect, createSignal, For, lazy, Match, on, onCleanup, Show, Switch, type JSX } from 'solid-js';
 import { chartControllers, controllersChanged, covered, dragging, mobileMenu, setDragging, setJournalOpen, setMobile, setMobileMenu, setOverlay, setSharedRail, setTrainingOpen } from '../app/ui';
@@ -316,16 +317,27 @@ function zoneAt(e: DragEvent, el: HTMLElement): DropZone {
 
 function TabsView(props: { node: TabsNode }) {
   const [zone, setZone] = createSignal<DropZone | null>(null);
+  /** Over the tab strip: the place among the tabs a tab let go would take, and where to mark it. */
+  const [slot, setSlot] = createSignal<{ at: number; x: number } | null>(null);
+  let list!: HTMLDivElement;
+  const slotAt = (e: DragEvent) => {
+    const box = list.getBoundingClientRect();
+    const tabs = [...list.querySelectorAll<HTMLElement>(':scope > .tab')].map((t) => t.getBoundingClientRect());
+    const at = tabs.findIndex((r) => e.clientX < r.left + r.width / 2);
+    const edge = at === -1 ? (tabs.at(-1)?.right ?? box.left) : tabs[at]!.left;
+    return { at: at === -1 ? tabs.length : at, x: edge - box.left + list.scrollLeft };
+  };
   const [adding, setAdding] = createSignal(false);
   useDismiss(adding, () => setAdding(false));
   const active = () => doc.panels[props.node.active];
   const focused = () => props.node.panels.includes(focusedPanelId() ?? '');
 
-  const drop = (where: DropZone) => {
+  const drop = (where: DropZone, at?: number) => {
     const id = dragging();
     setZone(null);
+    setSlot(null);
     setDragging(null);
-    if (id) update((d) => movePanel(d, id, props.node.id, where));
+    if (id) update((d) => movePanel(d, id, props.node.id, where, at));
   };
 
   const addHere = (type: PanelType, where: DropZone) => {
@@ -349,14 +361,19 @@ function TabsView(props: { node: TabsNode }) {
           if (!dragging()) return;
           e.preventDefault();
           setZone(null);
+          setSlot(slotAt(e));
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSlot(null);
         }}
         onDrop={(e) => {
           e.preventDefault();
-          drop('center');
+          drop('center', slotAt(e).at);
         }}
       >
-        <div class="tablist">
+        <div class="tablist" ref={list}>
           <For each={props.node.panels}>{(id) => <Tab id={id} tabs={props.node} />}</For>
+          <Show when={dragging() ? slot() : null}>{(s) => <div class="tabslot" style={{ left: `${s().x - 1}px` }} />}</Show>
         </div>
         <div class="tabtools">
           <button class="iconbtn" data-tip="Add a panel to this group" onPointerDown={(e) => e.stopPropagation()} onClick={() => setAdding((v) => !v)}>

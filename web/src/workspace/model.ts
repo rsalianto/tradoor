@@ -473,11 +473,11 @@ export function firstTabs(node: LayoutNode): TabsNode {
   return node.kind === 'tabs' ? node : firstTabs(node.children[0]!);
 }
 
-function insert(doc: WorkspaceDoc, panelId: string, targetId: string | null, zone: DropZone): void {
+function insert(doc: WorkspaceDoc, panelId: string, targetId: string | null, zone: DropZone, at?: number): void {
   const found = targetId ? findNode(doc.root, targetId) : null;
   const target = found?.kind === 'tabs' ? found : firstTabs(doc.root);
   if (zone === 'center') {
-    target.panels.push(panelId);
+    target.panels.splice(at === undefined ? target.panels.length : Math.max(0, Math.min(at, target.panels.length)), 0, panelId);
     target.active = panelId;
     return;
   }
@@ -519,10 +519,18 @@ export function removePanel(doc: WorkspaceDoc, panelId: string): void {
   doc.root = tabsFor(chart);
 }
 
-export function movePanel(doc: WorkspaceDoc, panelId: string, targetId: string, zone: DropZone): void {
+/** `at`: onto a tab strip, the place among its tabs — which reorders a group's own. */
+export function movePanel(doc: WorkspaceDoc, panelId: string, targetId: string, zone: DropZone, at?: number): void {
   const source = tabsOf(doc.root, panelId);
   const target = findNode(doc.root, targetId);
   if (!source || target?.kind !== 'tabs') return;
+  if (source === target && zone === 'center' && at !== undefined) {
+    const from = source.panels.indexOf(panelId);
+    source.panels.splice(from, 1);
+    source.panels.splice(Math.min(at > from ? at - 1 : at, source.panels.length), 0, panelId);
+    source.active = panelId;
+    return;
+  }
   if (source === target && (zone === 'center' || source.panels.length === 1)) {
     source.active = panelId;
     return;
@@ -531,7 +539,7 @@ export function movePanel(doc: WorkspaceDoc, panelId: string, targetId: string, 
   const root = normalize(doc.root);
   if (!root) return;
   doc.root = root;
-  insert(doc, panelId, targetId, zone);
+  insert(doc, panelId, targetId, zone, at);
 }
 
 export function activate(doc: WorkspaceDoc, tabsId: string, panelId: string): void {
