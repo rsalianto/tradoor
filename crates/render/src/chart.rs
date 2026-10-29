@@ -1158,9 +1158,10 @@ impl Chart {
             if *g == Group::Price && self.footprint_drawn() {
                 // Every pixel of height is another row a bar can be read in.
                 margins.0 = margins.0.min(0.1);
-                // The footprint's table stands along the price pane's foot: the bars keep above it.
+                // The footprint's table stands along the price pane's foot: the bars keep above it,
+                // with a row's room besides, since a bar's lowest row reaches down past its low.
                 if self.footprint_options.stats {
-                    margins.1 = margins.1.max(f64::from(footprint::table_height() + 8.0) / f64::from(h.max(1.0)));
+                    margins.1 = margins.1.max(f64::from(footprint::table_height() + 24.0) / f64::from(h.max(1.0)));
                 }
             }
             panes.push(PaneView { group: *g, plot: Rect { x: 0.0, y, w: plot_w, h: h.max(1.0) }, scale: PriceScale::new(mode, f64::from(y), f64::from(h.max(1.0)), margins) });
