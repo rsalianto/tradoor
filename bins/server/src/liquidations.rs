@@ -741,15 +741,15 @@ const STATS_FRESH: Duration = Duration::from_secs(2);
 /// One reading of a ticker's stats as sent: plain, and compressed once for
 /// everyone rather than by the compression layer for each.
 #[derive(Clone)]
-struct Answer {
-    at: Instant,
+pub(crate) struct Answer {
+    pub(crate) at: Instant,
     plain: axum::body::Bytes,
     gzip: axum::body::Bytes,
     brotli: axum::body::Bytes,
 }
 
 impl Answer {
-    fn new(plain: Vec<u8>) -> Self {
+    pub(crate) fn new(plain: Vec<u8>) -> Self {
         use std::io::Write;
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
         let gzip = gz.write_all(&plain).and_then(|()| gz.finish()).unwrap_or_default();
@@ -760,7 +760,7 @@ impl Answer {
     }
 
     /// The best the asker takes: brotli, gzip, or as it is.
-    fn send(self, headers: &axum::http::HeaderMap) -> axum::response::Response {
+    pub(crate) fn send(self, headers: &axum::http::HeaderMap) -> axum::response::Response {
         use axum::http::header;
         use axum::response::IntoResponse;
         let takes = |e: &str| headers.get(header::ACCEPT_ENCODING).and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|x| x.trim().starts_with(e)));

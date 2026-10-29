@@ -14,14 +14,16 @@
 //! over one added up from recorded minutes: the archive misses no trade, and a
 //! recorder that restarted did.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
 use axum::extract::{Query, State};
+use axum::http::HeaderMap;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -33,6 +35,7 @@ use tradoor_venues::{MarketRef, Venue};
 use crate::api::{ApiError, ApiResult, AppState};
 use crate::dns::Doh;
 use crate::footprint::{tick_of, unpack, Bar};
+use crate::liquidations::Answer;
 
 const HOUR: i64 = 3_600_000;
 const MINUTE: i64 = 60_000;
@@ -442,11 +445,21 @@ pub struct Ask {
     ticks: Option<i64>,
 }
 
+/// A chart's history as last sent, by what it asked: every chart of a market at
+/// one bar asks the same of a minute, so one reading serves them all — and when
+/// it was last asked for, so one nobody wants any more goes.
+type Key = (String, i64, bool, i64, i64);
+type Sent = Arc<tokio::sync::Mutex<Option<Answer>>>;
+static SENT: OnceLock<std::sync::Mutex<HashMap<Key, (std::time::Instant, Sent)>>> = OnceLock::new();
+/// How long a history as sent stands: the bar still forming moves, slowly.
+const FRESH: Duration = Duration::from_secs(60);
+
 /// `GET /api/footprint/history?market=&from=&to=&bar=`: the hours in that
 /// span added up into bars, their levels grouped onto one grid — with each
 /// bar's most and least delta from its open — and the minutes since the
-/// newest hour, so the bar still forming is whole.
-pub async fn history(State(state): State<AppState>, Query(ask): Query<Ask>) -> ApiResult<Json<Value>> {
+/// newest hour, so the bar still forming is whole. A span reaching now, as an
+/// open chart asks, is read once a minute for everyone who asks it.
+pub async fn history(State(state): State<AppState>, headers: HeaderMap, Query(ask): Query<Ask>) -> ApiResult<Response> {
     let Some(tick) = tick_of(&ask.market) else {
         return Err(ApiError::bad_request("this server does not record that market's footprint"));
     };
@@ -458,18 +471,42 @@ pub async fn history(State(state): State<AppState>, Query(ask): Query<Ask>) -> A
         return Err(ApiError::bad_request(format!("ask for at most {MAX_BARS} bars at a time")));
     }
     let usd = ask.unit.as_deref() == Some("usd");
+    let ticks = ask.ticks.filter(|t| *t > 0).unwrap_or(0).min(1_000);
+    let now = now_ms();
+    if to < now - MINUTE {
+        return Ok(Json(read(&state, &ask.market, tick, ask.bar, usd, ticks, from, to).await?).into_response());
+    }
+    let slot = {
+        let mut sent = SENT.get_or_init(Default::default).lock().map_err(|_| ApiError(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "the history cache is poisoned".into()))?;
+        sent.retain(|_, (used, _)| used.elapsed() < 10 * FRESH);
+        let entry = sent.entry((ask.market.clone(), ask.bar, usd, ticks, from)).or_insert_with(|| (std::time::Instant::now(), Sent::default()));
+        entry.0 = std::time::Instant::now();
+        entry.1.clone()
+    };
+    let mut held = slot.lock().await;
+    if let Some(answer) = held.as_ref().filter(|a| a.at.elapsed() < FRESH) {
+        return Ok(answer.clone().send(&headers));
+    }
+    let body = read(&state, &ask.market, tick, ask.bar, usd, ticks, from, now).await?;
+    let answer = Answer::new(serde_json::to_vec(&body).map_err(|e| ApiError(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?);
+    *held = Some(answer.clone());
+    Ok(answer.send(&headers))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn read(state: &AppState, market: &str, tick: f64, bar_ms: i64, usd: bool, ticks: i64, from: i64, to: i64) -> ApiResult<Value> {
     let client = state.pool.get().await?;
     let hours = client
         .query(
             "SELECT hour, base, levels, swing_up, swing_down, swing_up_usd, swing_down_usd FROM footprint_hour WHERE market = $1 AND hour >= $2 AND hour <= $3 ORDER BY hour",
-            &[&ask.market, &from, &to],
+            &[&market, &from, &to],
         )
         .await?;
     let newest = hours.last().map_or(from - HOUR, |r| r.get::<_, i64>(0));
     let minutes = client
         .query(
             "SELECT minute, base, levels FROM footprint_minute WHERE market = $1 AND minute >= $2 AND minute <= $3 ORDER BY minute",
-            &[&ask.market, &(newest + HOUR).max(from).max(to - RECENT), &to],
+            &[&market, &(newest + HOUR).max(from).max(to - RECENT), &to],
         )
         .await?;
 
@@ -479,7 +516,7 @@ pub async fn history(State(state): State<AppState>, Query(ask): Query<Ask>) -> A
     let worth = |level: i64| if usd { level as f64 * tick } else { 1.0 };
     for r in &hours {
         let at: i64 = r.get(0);
-        let bar = bars.entry(at.div_euclid(ask.bar) * ask.bar).or_default();
+        let bar = bars.entry(at.div_euclid(bar_ms) * bar_ms).or_default();
         let mut net = 0.0;
         for (level, buy, sell) in unpack(r.get(1), r.get(2)) {
             let held = bar.levels.entry(level).or_insert((0.0, 0.0));
@@ -492,7 +529,7 @@ pub async fn history(State(state): State<AppState>, Query(ask): Query<Ask>) -> A
     }
     for r in &minutes {
         let at: i64 = r.get(0);
-        let bar = bars.entry(at.div_euclid(ask.bar) * ask.bar).or_default();
+        let bar = bars.entry(at.div_euclid(bar_ms) * bar_ms).or_default();
         let mut net = 0.0;
         for (level, buy, sell) in unpack(r.get(1), r.get(2)) {
             let held = bar.levels.entry(level).or_insert((0.0, 0.0));
@@ -505,7 +542,7 @@ pub async fn history(State(state): State<AppState>, Query(ask): Query<Ask>) -> A
 
     // One grid for every bar, the reader's or fitted: no more than a couple of
     // hundred rows in a typical bar, for the chart to join further as it zooms out.
-    let fitted = !ask.ticks.is_some_and(|t| t > 0);
+    let fitted = ticks == 0;
     let by = if fitted {
         let mut spans: Vec<i64> = bars.values().filter_map(|b| Some(b.levels.keys().next_back()? - b.levels.keys().next()? + 1)).collect();
         spans.sort_unstable();
@@ -516,7 +553,7 @@ pub async fn history(State(state): State<AppState>, Query(ask): Query<Ask>) -> A
         }
         by
     } else {
-        ask.ticks.unwrap_or(1).clamp(1, 1_000)
+        ticks
     };
     let out: Vec<Value> = bars
         .iter()
@@ -535,7 +572,7 @@ pub async fn history(State(state): State<AppState>, Query(ask): Query<Ask>) -> A
             })
         })
         .collect();
-    Ok(Json(json!({ "market": ask.market, "tick": tick, "grid": by as f64 * tick, "fitted": fitted, "bars": out })))
+    Ok(json!({ "market": market, "tick": tick, "grid": by as f64 * tick, "fitted": fitted, "bars": out }))
 }
 
 /// A bar being added up from hours and minutes.
