@@ -40,9 +40,12 @@
 <br>
 
 <p align="center">
-  <img src="docs/screenshots/demo.webp" alt="A tour of the live site: a BTCUSDT chart panned and zoomed, the same chart as TPO profiles by day and as a footprint, the liquidations tape and the signal screener" width="100%">
+  <picture>
+    <source type="image/avif" srcset="https://raw.githubusercontent.com/rsalianto/tradoor/main/docs/screenshots/demo.avif">
+    <img src="docs/screenshots/demo.webp" alt="A tour of the live site at 60 fps: a BTCUSDT chart panned and zoomed, the same chart as TPO profiles by day and as a footprint, six charts on one screen, and the DOM and tape" width="100%">
+  </picture>
   <br>
-  <sub>A tour of the live site: pan and zoom, TPO profiles, a footprint, liquidations and signals.</sub>
+  <sub>A tour of the live site at 60 fps: pan and zoom, TPO profiles, a footprint, six charts at once, and the DOM and tape.</sub>
 </p>
 
 **⚡ Light and fast.** The chart engine is Rust in a Web Worker, drawing with WebGL2 on an OffscreenCanvas, so the page thread never touches a candle. A minute chart with months behind it costs what one opened today does.
