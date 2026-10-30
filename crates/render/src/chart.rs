@@ -515,6 +515,9 @@ impl Chart {
             self.live = None;
             self.placed.clear();
             self.draft = None;
+            // The old bars' footprint would stand between the new candles until
+            // the page's fetch for these lands.
+            self.footprint.clear();
             self.touch();
         }
     }
@@ -539,6 +542,8 @@ impl Chart {
         self.studies = self.compute_studies(&self.study_specs);
         if self.candles.is_empty() {
             self.view_ready = false;
+            // Another market on its way: the last one's footprint is not its.
+            self.footprint.clear();
         }
         self.touch();
     }
@@ -3058,6 +3063,15 @@ mod tests {
         // The live hour opens a bracket in the current day, or starts the next day.
         assert!(session.periods.len() == before + 1 || session.periods.len() == 1, "the forming bracket is part of the profile");
         assert_eq!(*session.periods.last().unwrap(), last.open_time + HOUR);
+    }
+
+    #[test]
+    fn a_new_timeframe_drops_the_old_bars_footprint() {
+        let mut c = chart();
+        let bar = footprint::Bar { time: c.candles()[10].open_time, levels: vec![(100.0, 1.0, 2.0)], ..footprint::Bar::default() };
+        c.set_footprint(vec![bar], 1.0, true);
+        c.set_timeframe(ChartTimeframe::H4);
+        assert!(c.footprint.is_empty(), "an hour's columns would stand between four-hour candles");
     }
 
     #[test]

@@ -312,6 +312,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     }
     setFpLoading(true);
     setFpSince(null);
+    // What was drawn is another market's or timeframe's: gone until this one's lands.
+    send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
     const market_ = market();
     const barMs = tfMs(timeframe());
     const settings = flow ? { ticks: 0, unit: 'coins' as const } : { ticks: props.panel.footprintTicks, unit: props.panel.footprintUnit === 'usd' ? ('usd' as const) : ('coins' as const) };
