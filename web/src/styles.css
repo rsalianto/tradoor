@@ -275,6 +275,12 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .set-inline { display: flex; align-items: center; gap: 6px; }
 .set-inline .box.wide { flex: 1; min-width: 0; }
 .set-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.set-check { display: flex; align-items: center; gap: 6px; }
+/* Footprints kept in this browser, a market a row, the biggest first. */
+.fp-used { display: flex; flex-direction: column; max-height: 180px; overflow-y: auto; border-top: 1px solid var(--border); padding-top: 6px; }
+.fp-used-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px 70px 20px; align-items: center; gap: 8px; min-height: 22px; font-size: 11px; color: var(--muted); }
+.fp-used-row .sym { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-used-row .num { text-align: right; }
 .set-account { display: flex; align-items: center; gap: 12px; }
 .set-account .who { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
 .set-account .who b { font-size: 13px; font-weight: 600; color: var(--text); }

@@ -553,6 +553,33 @@ interface Entry {
   linger: ReturnType<typeof setTimeout> | undefined;
 }
 
+/**
+ * A market's trades alone, on the sockets the DOM and tape share: no book and
+ * nothing held, for whoever keeps them elsewhere — the footprint recorded in
+ * the browser. `qty` is in coins. Nothing for an index or a ratio.
+ */
+export function listenPrints(market: string, listener: { print(time: number, price: number, qty: number, buy: boolean): void; state(state: SocketState): void }): () => void {
+  const venue = parseMarket(market)?.venue;
+  if (!venue || venue === 'index') return () => {};
+  let off: (() => void) | null = null;
+  let closed = false;
+  void (async () => {
+    const native = await nativeOf(market);
+    const size = venue === 'okx-perp' ? await contractSize(native) : 1;
+    if (closed || native === '') return;
+    off = hub.subscribe(venue, 'prints', native, {
+      message: (msg) => {
+        if (msg.kind === 'print' && msg.qty > 0 && msg.price > 0) listener.print(msg.time || Date.now(), msg.price, msg.qty * size, msg.buy);
+      },
+      state: (state) => listener.state(state),
+    });
+  })();
+  return () => {
+    closed = true;
+    off?.();
+  };
+}
+
 const flows = new Map<string, Entry>();
 
 /** The market's flow, listening from now on; let go with `releaseFlow`. */

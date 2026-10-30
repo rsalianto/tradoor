@@ -77,11 +77,26 @@ export async function fetchFootprint(market: string, barMs: number, from: number
   }
   const answers = await Promise.all(pages);
   const tick = answers.find((a) => a.tick > 0)?.tick ?? 1;
-  const minutes = answers.flatMap((a) => a.bars).sort((a, b) => a.at - b.at);
+  return foldMinutes(answers.flatMap((a) => a.bars), tick, barMs, settings);
+}
+
+/** A minute of footprint: when it started, and `[price, bought, sold]` at each level. */
+export interface Minute {
+  at: number;
+  levels: [number, number, number][];
+}
+
+/**
+ * Minutes folded into bars of `barMs` and grouped onto one price grid — the
+ * same for every bar, so a level reads straight across the screen rather than
+ * each bar keeping a grid of its own. `tick` is the minutes' own level; `by`,
+ * how many of them a row joins, is worked out from the bars unless given.
+ */
+export function foldMinutes(minutes: readonly Minute[], tick: number, barMs: number, settings: Settings = { ticks: 0, unit: 'coins' }, by?: number): Footprint & { by: number } {
   const byBar = new Map<number, Map<number, [number, number]>>();
   // The delta as the bar went, minute by minute, and the most and least it reached.
   const swings = new Map<number, { delta: number; max: number; min: number }>();
-  for (const minute of minutes) {
+  for (const minute of [...minutes].sort((a, b) => a.at - b.at)) {
     const at = Math.floor(minute.at / barMs) * barMs;
     let levels = byBar.get(at);
     if (!levels) {
@@ -119,14 +134,15 @@ export async function fetchFootprint(market: string, barMs: number, from: number
   const typical = spans.length > 0 ? spans[Math.floor(spans.length * 0.8)]! : 0;
   // A row size the reader set is theirs; left to fit, the chart joins these rows as it zooms out.
   const fitted = !(settings.ticks > 0);
-  let by = fitted ? 1 : Math.round(settings.ticks);
-  while (fitted && typical / by > MAX_FINE_ROWS) by = coarser(by);
+  let grouped = by ?? (fitted ? 1 : Math.round(settings.ticks));
+  while (by === undefined && fitted && typical / grouped > MAX_FINE_ROWS) grouped = coarser(grouped);
   return {
-    grid: by * tick,
+    grid: grouped * tick,
     fitted,
+    by: grouped,
     bars: [...byBar.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([time, levels]) => ({ time, levels: group(levels, tick, by, settings), maxDelta: swings.get(time)?.max ?? 0, minDelta: swings.get(time)?.min ?? 0 })),
+      .map(([time, levels]) => ({ time, levels: group(levels, tick, grouped, settings), maxDelta: swings.get(time)?.max ?? 0, minDelta: swings.get(time)?.min ?? 0 })),
   };
 }
 

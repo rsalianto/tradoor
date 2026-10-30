@@ -16,6 +16,7 @@ import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
 import { fetchFootprint, flatten, fromHours, recordedMarkets, type Levels } from '../lib/footprint';
+import { onRecorded, recordable, recordedFootprint, recorderSettings, want as wantRecorded } from '../lib/fp-recorder';
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
@@ -238,8 +239,15 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   // at a minute apiece; a chart of longer bars adds those minutes together.
   const [recorded, setRecorded] = createSignal<Map<string, number>>(new Map());
   void recordedMarkets().then(setRecorded);
+  /** The footprint comes from this browser's own recordings, not the server's. */
+  const browserFootprint = () => !recorded().has(market()) && recorderSettings().on && recordable(market());
   /** Whether this market's footprint can be asked for at all. */
-  const footprintable = () => recorded().has(market());
+  const footprintable = () => recorded().has(market()) || browserFootprint();
+  // Every chart's market recorded here while it is open, so its footprint is there when asked for.
+  createEffect(() => {
+    if (props.training) return;
+    onCleanup(wantRecorded(market()));
+  });
   const footprintOn = () => !props.training && props.panel.footprint === true && footprintable() && !tpoShown();
   createEffect(() => send({ t: 'footprintShown', id: sid, value: footprintOn() }));
   // The mode and what else a column carries, as the engine reads them.
@@ -263,6 +271,45 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     const market_ = market();
     const barMs = tfMs(timeframe());
     const settings = flow ? { ticks: 0, unit: 'coins' as const } : { ticks: props.panel.footprintTicks, unit: props.panel.footprintUnit === 'usd' ? ('usd' as const) : ('coins' as const) };
+    if (browserFootprint()) {
+      // This browser's recordings, every day kept, folded again as minutes are
+      // written: the last bar alone, or all of it when a gap was filled.
+      const from = Date.now() - recorderSettings().days * 86_400_000;
+      let dropped = false;
+      let by: number | undefined;
+      let held = new Map<number, Levels>();
+      let busy = false;
+      let again: boolean | null = null;
+      const load = async (full: boolean) => {
+        if (busy) return void (again = (again ?? false) || full);
+        busy = true;
+        const last = Math.max(from, ...held.keys());
+        const fp = await recordedFootprint(market_, barMs, full ? from : last, settings, full ? undefined : by);
+        busy = false;
+        if (dropped) return;
+        if (fp) {
+          if (full) {
+            by = fp.by;
+            held = new Map();
+          }
+          for (const bar of fp.bars) held.set(bar.time, bar);
+          const bars = [...held.values()].sort((a, b) => a.time - b.time);
+          send({ t: 'footprint', id: sid, flat: flatten(bars), grid: fp.grid, fitted: fp.fitted });
+        } else send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
+        if (again !== null) {
+          const next = again;
+          again = null;
+          void load(next);
+        }
+      };
+      void load(true);
+      const off = onRecorded(market_, (full) => void load(full));
+      onCleanup(() => {
+        dropped = true;
+        off();
+      });
+      return;
+    }
     // What the chart can show of it: a screenful of bars back from now, since
     // a chart of fifteen-minute bars covers a day in one screen and a chart of
     // minutes an afternoon.
@@ -1330,6 +1377,11 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               <span class="dim">
                 {tfLabel(timeframe())}
                 {split() ? ` · TPO ${TPO_SPLITS.find((t) => t.value === split())?.label}` : ''} · {venueLabel(market())}
+                <Show when={footprintOn() && browserFootprint()}>
+                  <span class="dim" data-tip={`Recorded in this browser while tradoor is open, kept ${recorderSettings().days} days: bars with no cells are when it was closed. Settings, General.`}>
+                    {' · footprint from this browser'}
+                  </span>
+                </Show>
               </span>
               <Show when={legend()}>
                 {(l) => (

@@ -10,6 +10,9 @@ import { LayoutsMenu } from './LayoutsMenu';
 import { formatDateTime } from '../lib/timezone';
 import { doc, resetWorkspace, setThemeValue, update } from '../workspace/store';
 import { AccountCard, clock } from './Account';
+import { forgetRecorded, KEEP_DAYS, recorderSettings, setRecorderSettings } from '../lib/fp-recorder';
+import { usage } from '../lib/fp-store';
+import { symbolOf, venueLabel } from '../lib/markets';
 
 function Swatch(props: { name: string; label: string; fallback: string }) {
   const value = () => doc.theme[props.name] ?? props.fallback;
@@ -236,6 +239,85 @@ function GeneralSection() {
             </For>
           </select>
         </Row>
+      </div>
+      <BrowserFootprints />
+    </>
+  );
+}
+
+const megabytes = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : bytes > 0 ? `${Math.max(1, Math.round(bytes / 1e3))} KB` : 'nothing');
+
+/** Footprints recorded in this browser: whether, for how long, and what they take — each deletable. */
+function BrowserFootprints() {
+  const [used, setUsed] = createSignal<{ market: string; minutes: number; bytes: number }[] | null>(null);
+  const [site, setSite] = createSignal<{ usage: number; quota: number } | null>(null);
+  const refresh = () => {
+    void usage()
+      .then(setUsed)
+      .catch(() => setUsed([]));
+    void navigator.storage
+      ?.estimate()
+      .then((e) => setSite({ usage: e.usage ?? 0, quota: e.quota ?? 0 }))
+      .catch(() => {});
+  };
+  refresh();
+  const total = () => (used() ?? []).reduce((sum, m) => sum + m.bytes, 0);
+  const remove = (market?: string) => {
+    const what = market ? `${symbolOf(market)} (${venueLabel(market)})'s footprint` : 'every footprint';
+    if (!confirm(`Delete ${what} recorded in this browser? This cannot be undone; the server's own markets are not touched.`)) return;
+    void forgetRecorded(market).then(refresh);
+  };
+  return (
+    <>
+      <h3 class="set-sub">Footprints in this browser</h3>
+      <p class="lead">For every market the server does not record, the footprint is recorded here, in this browser alone, while a chart shows it. Nothing is sent to the server, and another device keeps its own.</p>
+      <div class="set-card">
+        <Row label="Record" tip="Off, footprints show only for the markets the server records">
+          <label class="set-check">
+            <input type="checkbox" checked={recorderSettings().on} onChange={(e) => setRecorderSettings({ on: e.currentTarget.checked })} />
+            <span>{recorderSettings().on ? 'Recording the markets on your charts' : 'Not recording'}</span>
+          </label>
+        </Row>
+        <Row label="Keep" tip="Older minutes are deleted on their own">
+          <select class="box wide" onChange={(e) => setRecorderSettings({ days: Number(e.currentTarget.value) })}>
+            <For each={KEEP_DAYS}>
+              {(d) => (
+                <option value={d} selected={recorderSettings().days === d}>
+                  {d === 1 ? 'The last day' : `The last ${d} days`}
+                </option>
+              )}
+            </For>
+          </select>
+        </Row>
+        <Row label="Stored here">
+          <div class="set-actions">
+            <span class="num">{used() === null ? '…' : `${megabytes(total())} · ${used()!.length} market${used()!.length === 1 ? '' : 's'}`}</span>
+            <Show when={site()}>{(s) => <span class="dim">of {megabytes(s().usage)} this site uses; the browser allows {megabytes(s().quota)}</span>}</Show>
+            <Show when={(used() ?? []).length > 0}>
+              <button class="btn danger" onClick={() => remove()}>
+                Delete all
+              </button>
+            </Show>
+          </div>
+        </Row>
+        <Show when={(used() ?? []).length > 0}>
+          <div class="fp-used">
+            <For each={used()!}>
+              {(m) => (
+                <div class="fp-used-row">
+                  <span class="sym">
+                    {symbolOf(m.market)} <span class="dim">{venueLabel(m.market)}</span>
+                  </span>
+                  <span class="num dim">{Math.round(m.minutes / 60)} h</span>
+                  <span class="num">{megabytes(m.bytes)}</span>
+                  <button class="dim" data-tip={`Delete ${symbolOf(m.market)}'s footprint`} aria-label={`Delete ${symbolOf(m.market)}'s footprint`} onClick={() => remove(m.market)}>
+                    ✕
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
     </>
   );

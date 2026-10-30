@@ -498,6 +498,23 @@ rows holding seventy per cent of its volume and rings the one that traded most;
 its volume and delta are written under it, and every visible bar summed by
 price is drawn against the right edge.
 
+Every other market's footprint is recorded in the reader's own browser
+(`lib/fp-recorder`): while a chart shows a market, its trades come off the
+exchange socket the DOM and tape share and are bucketed by minute and level —
+about a hundred-thousandth of the price, never finer than its decimals — then
+written every ten seconds to IndexedDB (`lib/fp-store`), a minute a record of
+int32 steps and float32 sides, with the spans recorded whole beside them.
+Nothing reaches the server. One tab records a market, the one holding its Web
+Lock; the others read the database and hear each write, and the minute under
+way, on a BroadcastChannel. The hours no tab was open are filled from Binance's
+`aggTrades` where it is the market's exchange — the last day's gaps, newest
+first, paced under its weight limit and capped at a hundred and twenty calls a
+recording — straight from the browser, not through the relay. Minutes are kept
+seven days by default (Settings, General: one to thirty), the database's size
+is shown there per market, and any market or all of them can be deleted. A
+chart folds the minutes as it folds the server's, and a bar no recording reached
+is its thin candle alone.
+
 Price alerts are rows per browser id, like drawings (`/api/alerts`); the
 browser watches the prices, each alert market's daily candle stream, and fires
 them — Crossing, Crossing Up or Down, Greater or Less Than — with a sound, a
