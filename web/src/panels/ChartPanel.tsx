@@ -16,7 +16,7 @@ import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
 import { fetchFootprint, flatten, fromHours, recordedMarkets, type Levels } from '../lib/footprint';
-import { onRecorded, recordable, recordedFootprint, recorderSettings, want as wantRecorded } from '../lib/fp-recorder';
+import { onRecorded, recordable, recordedFootprint, recorderSettings, recordStatus, want as wantRecorded } from '../lib/fp-recorder';
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
@@ -25,7 +25,7 @@ import { Icon } from '../lib/icons';
 import { VenueTag } from '../lib/exchanges';
 import { WatchlistToggle } from '../components/WatchlistToggle';
 import { liquidationVenues } from '../lib/liquidation-venues';
-import { formatClock, formatFileTime, zoneLabel } from '../lib/timezone';
+import { formatClock, formatDateTime, formatFileTime, zoneLabel } from '../lib/timezone';
 import { serializeTpo, tpoValue, withTpoValue } from '../lib/tpo-settings';
 import { isRatio, symbolOf, venueLabel } from '../lib/markets';
 import { alertState, createAlert, deleteAlert, digitsFor, editAlert, styleAlert, titleOf } from '../lib/alerts';
@@ -260,14 +260,56 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         .join(';'),
     }),
   );
+  /** The footprint is being fetched or read, and nothing of it is on the chart yet. */
+  const [fpLoading, setFpLoading] = createSignal(false);
+  /** The oldest bar this browser's recordings reach, once read. */
+  const [fpSince, setFpSince] = createSignal<number | null>(null);
+  /**
+   * What the footprint is doing, said in the legend, and how far along a thin
+   * line over the chart shows: a share done, `busy` while there is no telling, or none.
+   */
+  const fpNote = (): { text: string; tip: string; progress: number | 'busy' | null } | null => {
+    if (!footprintOn() && !tpoFlow()) return null;
+    const venue = venueLabel(market());
+    if (!browserFootprint()) return fpLoading() ? { text: 'loading footprint…', tip: "The server's recorded footprint for these bars", progress: 'busy' } : null;
+    const status = recordStatus(market());
+    const filling = status?.filling;
+    if (filling) {
+      return {
+        text: filling.done > 0 ? `filling from Binance · back to ${formatClock(filling.back).slice(0, 5)}` : 'filling from Binance…',
+        tip: "The last day's hours no tab had this market open, from Binance's trade history: the newest first, paced to keep within its limits, as far as its calls reach",
+        // Done when the day is in, or the calls are spent: whichever comes first.
+        progress: Math.max(filling.done / filling.of, filling.calls),
+      };
+    }
+    if (fpLoading()) return { text: 'reading footprint…', tip: 'What this browser recorded, from its own storage', progress: 'busy' };
+    if (!status?.live) return { text: `footprint: connecting to ${venue}…`, tip: 'Trades come from the exchange itself, the same socket as the DOM and tape', progress: 'busy' };
+    const since = fpSince();
+    if (since === null) return { text: 'footprint: recording, the first cells come with the next trades', tip: 'Recorded in this browser from now on', progress: null };
+    const at = Date.now() - since < 86_400_000 ? formatClock(since).slice(0, 5) : formatDateTime(since).slice(0, 16);
+    const fills = /^Binance/.test(venue);
+    return {
+      text: fills ? `footprint from this browser, since ${at}` : `footprint since ${at} · ${venue} keeps no trade history for earlier bars`,
+      tip: `Recorded in this browser while tradoor is open, kept ${recorderSettings().days} days: a bar with no cells is from before, or when it was closed.${fills ? " Binance's history fills the last day's gaps." : ''} Settings, General.`,
+      progress: null,
+    };
+  };
+  /** The line's share, held in an object: none done yet is still a line to show. */
+  const fpProgress = () => {
+    const share = fpNote()?.progress;
+    return share === null || share === undefined ? null : { share };
+  };
   /** A TPO chart's volume profiles split by who took the volume: the footprint's trades, where they are recorded. */
   const tpoFlow = () => tpoShown() && footprintable() && tpoValue(props.panel.tpoSettings, 'vp') === '1' && tpoValue(props.panel.tpoSettings, 'vpMode') !== 'total';
   createEffect(() => {
     const flow = tpoFlow();
     if (!footprintOn() && !flow) {
       send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
+      setFpLoading(false);
       return;
     }
+    setFpLoading(true);
+    setFpSince(null);
     const market_ = market();
     const barMs = tfMs(timeframe());
     const settings = flow ? { ticks: 0, unit: 'coins' as const } : { ticks: props.panel.footprintTicks, unit: props.panel.footprintUnit === 'usd' ? ('usd' as const) : ('coins' as const) };
@@ -295,7 +337,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           for (const bar of fp.bars) held.set(bar.time, bar);
           const bars = [...held.values()].sort((a, b) => a.time - b.time);
           send({ t: 'footprint', id: sid, flat: flatten(bars), grid: fp.grid, fitted: fp.fitted });
+          setFpSince(bars.find((b) => b.levels.length > 0)?.time ?? null);
         } else send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
+        setFpLoading(false);
         if (again !== null) {
           const next = again;
           again = null;
@@ -333,8 +377,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
             bars = [...held.values()].sort((a, b) => a.time - b.time);
           }
           send({ t: 'footprint', id: sid, flat: flatten(bars), grid, fitted });
+          setFpLoading(false);
         },
-        () => {},
+        () => setFpLoading(false),
       );
     void load(days);
     const timer = setInterval(() => void load(flow && !hours ? 1 : days), flow || hours ? 60_000 : 20_000);
@@ -1253,6 +1298,10 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
             setMenu({ x: Math.max(0, Math.min(p.x, box.clientWidth - 220)), y: Math.max(0, Math.min(p.y, box.clientHeight - (profile ? 300 : 120))), tpo: profile });
           }}
         >
+          {/* A hairline over the chart while the footprint is fetched or filled: how far, or that something is under way. */}
+          <Show when={fpProgress()}>
+            {(p) => <div class="fp-progress" classList={{ busy: p().share === 'busy' }} style={{ width: p().share === 'busy' ? undefined : `${Math.max(2, Math.round((p().share as number) * 100))}%` }} />}
+          </Show>
           <Show when={DEBUG}>
             <div class="debug-line">
               {(tick(), `${sid} · panel ${market()} ${timeframe()} · engine ${status().market ?? '–'} ${status().timeframe ?? ''} ${status().loading ? 'loading' : 'ready'} ${status().bars} bars${status().error ? ` · ${status().error}` : ''} · sent ${marketSends} · worker ${((Date.now() - heardAt) / 1000).toFixed(1)}s ago · ${ping()}`)}
@@ -1377,10 +1426,12 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               <span class="dim">
                 {tfLabel(timeframe())}
                 {split() ? ` · TPO ${TPO_SPLITS.find((t) => t.value === split())?.label}` : ''} · {venueLabel(market())}
-                <Show when={footprintOn() && browserFootprint()}>
-                  <span class="dim" data-tip={`Recorded in this browser while tradoor is open, kept ${recorderSettings().days} days: bars with no cells are when it was closed. Settings, General.`}>
-                    {' · footprint from this browser'}
-                  </span>
+                <Show when={fpNote()}>
+                  {(note) => (
+                    <span class="dim" data-tip={note().tip}>
+                      {` · ${note().text}`}
+                    </span>
+                  )}
                 </Show>
               </span>
               <Show when={legend()}>

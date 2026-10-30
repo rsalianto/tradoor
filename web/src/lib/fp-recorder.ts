@@ -13,7 +13,7 @@
 import { createSignal } from 'solid-js';
 import { digitsFor } from './alerts';
 import { foldMinutes, recordedMarkets, type Footprint, type Minute, type Settings } from './footprint';
-import { cover, gaps, levelFor, merge, MINUTE, MinuteBook, pack, readAggTrades, toMinute, trimSpans, unpack, type Levels } from './fp-minutes';
+import { cover, gaps, levelFor, merge, MINUTE, MinuteBook, pack, readAggTrades, toMinute, trimSpans, unpack, type Levels, type Span } from './fp-minutes';
 import { addMinutes, forget, prune, readMarket, readMinutes, writeMarket, type MarketRecord } from './fp-store';
 import { isRatio, parseMarket } from './markets';
 import { listenPrints } from './orderflow';
@@ -89,8 +89,40 @@ function tell(market: string, full = false): void {
   for (const listener of listeners.get(market) ?? []) listener(full);
 }
 
-channel?.addEventListener('message', (e: MessageEvent<{ market: string; live?: [number, ArrayBuffer] | null; full?: boolean }>) => {
+/** What a market's recorder is doing, for its charts to say so. */
+export interface RecordStatus {
+  /**
+   * Filling the gaps of the last day from Binance: how much is done of how
+   * much (ms), the oldest time reached, and the share of the calls it may make
+   * used — a busy market runs out of calls before the day is in.
+   */
+  filling: { done: number; of: number; back: number; calls: number } | null;
+  /** Recording live since then; 0 while the socket is not up. */
+  live: number;
+}
+const [statuses, setStatuses] = createSignal(new Map<string, RecordStatus>());
+/** The markets this tab records, whose status it answers for. */
+const here = new Set<string>();
+export const recordStatus = (market: string): RecordStatus | undefined => statuses().get(market);
+
+function setStatus(market: string, status: RecordStatus | null, broadcast = true): void {
+  const next = new Map(statuses());
+  if (status) next.set(market, status);
+  else next.delete(market);
+  setStatuses(next);
+  if (broadcast) channel?.postMessage({ market, status });
+}
+
+type Message = { market: string; live?: [number, ArrayBuffer] | null; full?: boolean; status?: RecordStatus | null; ask?: true };
+
+channel?.addEventListener('message', (e: MessageEvent<Message>) => {
   const { market, live: minute, full } = e.data;
+  // A tab just opened on a market asks its recorder where things stand.
+  if (e.data.ask) {
+    if (here.has(market)) channel.postMessage({ market, status: statuses().get(market) ?? null });
+    return;
+  }
+  if ('status' in e.data) return setStatus(market, e.data.status ?? null, false);
   if (minute) live.set(market, [minute[0], unpack(minute[1])]);
   else if (minute === null) live.delete(market);
   tell(market, full === true);
@@ -130,6 +162,7 @@ export function want(market: string): () => void {
   clearTimeout(entry.linger);
   entry.users += 1;
   if (!entry.stop) start(market, entry);
+  channel?.postMessage({ market, ask: true });
   let released = false;
   return () => {
     if (released) return;
@@ -173,6 +206,13 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
   let liveSince = 0;
   let filling = false;
   const venue = parseMarket(market)?.venue;
+  here.add(market);
+  let status: RecordStatus = { filling: null, live: 0 };
+  const report = (patch: Partial<RecordStatus>) => {
+    status = { ...status, ...patch };
+    if (!signal.aborted) setStatus(market, status);
+  };
+  report({});
   const off = listenPrints(market, {
     print(time, price, qty, buy) {
       if (!book) {
@@ -186,13 +226,15 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
       if (state === 'live' && !liveSince) {
         liveSince = now;
         book?.resume(now);
+        report({ live: now });
         if (!filling && (venue === 'binance-spot' || venue === 'binance-perp')) {
           filling = true;
-          void backfill(market, venue, now, () => meta, (m) => (meta = m), signal);
+          void backfill(market, venue, now, () => meta, (m) => (meta = m), (f) => report({ filling: f }), signal);
         }
       } else if (state !== 'live' && liveSince) {
         meta = { ...meta, spans: cover(meta.spans, liveSince, now) };
         liveSince = 0;
+        report({ live: 0 });
       }
     },
   });
@@ -217,10 +259,41 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
   if (liveSince) meta = { ...meta, spans: cover(meta.spans, liveSince, Date.now()) };
   liveSince = 0;
   await flush(true);
+  here.delete(market);
+  setStatus(market, null);
 }
 
-/** Binance's trades for the gaps of the last day, newest first, as far as the calls allow. */
-async function backfill(market: string, venue: 'binance-spot' | 'binance-perp', until: number, get: () => MarketRecord, set: (m: MarketRecord) => void, signal: AbortSignal): Promise<void> {
+/** Binance's trades for the gaps of the last day, newest first, as far as the calls allow; `progress` hears how far. */
+async function backfill(
+  market: string,
+  venue: 'binance-spot' | 'binance-perp',
+  until: number,
+  get: () => MarketRecord,
+  set: (m: MarketRecord) => void,
+  progress: (filling: RecordStatus['filling']) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const holes = gaps(get().spans, Math.max(until - BACKFILL_MS, until - settings().days * DAY), until).reverse();
+  const of = holes.reduce((sum, [a, b]) => sum + (b - a), 0);
+  if (of < MINUTE) return;
+  let done = 0;
+  progress({ done, of, back: until, calls: 0 });
+  try {
+    await fill(market, venue, holes, get, set, signal, (ms, back, calls) => progress({ done: (done += ms), of, back, calls }));
+  } finally {
+    progress(null);
+  }
+}
+
+async function fill(
+  market: string,
+  venue: 'binance-spot' | 'binance-perp',
+  holes: Span[],
+  get: () => MarketRecord,
+  set: (m: MarketRecord) => void,
+  signal: AbortSignal,
+  filled: (ms: number, back: number, calls: number) => void,
+): Promise<void> {
   const symbol = parseMarket(market)?.symbol;
   if (!symbol) return;
   const hosts = venue === 'binance-perp' ? ['https://fapi.binance.com/fapi/v1/aggTrades'] : ['https://api.binance.com/api/v3/aggTrades', 'https://data-api.binance.vision/api/v3/aggTrades'];
@@ -241,8 +314,6 @@ async function backfill(market: string, venue: 'binance-spot' | 'binance-perp', 
     }
     return null;
   };
-  const days = settings().days;
-  const holes = gaps(get().spans, Math.max(until - BACKFILL_MS, until - days * DAY), until).reverse();
   for (const [from, to] of holes) {
     // An hour a window, the newest first: a window is as far as one start and end may span.
     for (let end = to; end > from && calls > 0 && !signal.aborted; end -= HOUR) {
@@ -266,6 +337,7 @@ async function backfill(market: string, venue: 'binance-spot' | 'binance-perp', 
       await writeMarket(get());
       channel?.postMessage({ market, full: true });
       tell(market, true);
+      filled(reached - start, start, 1 - calls / BACKFILL_CALLS);
       if (reached < end) return;
     }
   }

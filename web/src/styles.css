@@ -277,6 +277,11 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .set-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .set-check { display: flex; align-items: center; gap: 6px; }
 /* Footprints kept in this browser, a market a row, the biggest first. */
+/* The footprint under way: a hairline over the chart, filling, or a short run sweeping across while there is no telling how far. */
+.fp-progress { position: absolute; top: 0; left: 0; z-index: 3; height: 2px; background: var(--primary); opacity: 0.75; pointer-events: none; transition: width 0.4s ease; }
+.fp-progress.busy { width: 22%; animation: fp-sweep 1.4s ease-in-out infinite; }
+@keyframes fp-sweep { from { left: -22%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .fp-progress.busy { animation: none; left: 0; width: 100%; opacity: 0.35; } }
 .fp-used { display: flex; flex-direction: column; max-height: 180px; overflow-y: auto; border-top: 1px solid var(--border); padding-top: 6px; }
 .fp-used-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px 70px 20px; align-items: center; gap: 8px; min-height: 22px; font-size: 11px; color: var(--muted); }
 .fp-used-row .sym { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
