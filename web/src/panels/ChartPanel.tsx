@@ -15,7 +15,9 @@ import { before, DrawingHistory, type DrawingChange, type DrawingRef, type Step 
 import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
-import { fetchFootprint, flatten, fromHours, recordedMarkets, type Levels } from '../lib/footprint';
+import { fetchFootprint, flatten, foldMinutes, fromHours, recordedMarkets, type Levels, type Minute } from '../lib/footprint';
+import { MinuteBook, toMinute } from '../lib/fp-minutes';
+import { listenPrints } from '../lib/orderflow';
 import { onRecorded, recordable, recordedFootprint, recorderSettings, recordStatus, want as wantRecorded } from '../lib/fp-recorder';
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
@@ -368,24 +370,76 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     // The month a TPO chart reads is asked for once; after that only its last
     // day, folded into what is held.
     let held = new Map<number, Levels>();
+    let shown: Levels[] = [];
+    let grid = 0;
+    let fitted = true;
+    // The bar under way, trade by trade: the server's finished minutes of it,
+    // and what traded since off the exchange's own socket — the server itself
+    // is asked only now and then, and hands out finished minutes alone.
+    const tick = recorded().get(market_) ?? 0;
+    const book = !flow && tick > 0 ? new MinuteBook(tick, Date.now()) : null;
+    let barMinutes: Minute[] = [];
+    let lastServer = 0;
+    const draw = () => {
+      if (dropped) return;
+      let bars = shown;
+      if (book && grid > 0) {
+        const barStart = Math.floor(Date.now() / barMs) * barMs;
+        const since = [...book.minutes].filter(([at]) => at > lastServer && at >= barStart).map(([at, levels]) => toMinute(at, levels, tick));
+        const minutes = [...barMinutes.filter((m) => m.at >= barStart), ...since];
+        const bar = minutes.length > 0 ? foldMinutes(minutes, tick, barMs, settings, Math.max(1, Math.round(grid / tick))).bars.find((b) => b.time === barStart) : undefined;
+        if (bar) bars = [...shown.filter((b) => b.time !== barStart), bar].sort((a, b) => a.time - b.time);
+      }
+      send({ t: 'footprint', id: sid, flat: flatten(bars), grid, fitted });
+    };
     const load = (span: number) =>
       fetchFootprint(market_, barMs, span === days ? from : Date.now() - span * 86_400_000, Date.now(), settings, span).then(
-        ({ bars, grid, fitted }) => {
+        (fp) => {
           if (dropped) return;
+          let bars = fp.bars;
           if (flow) {
             held = new Map([...held, ...bars.map((b) => [b.time, b] as const)]);
             bars = [...held.values()].sort((a, b) => a.time - b.time);
           }
-          send({ t: 'footprint', id: sid, flat: flatten(bars), grid, fitted });
+          shown = bars;
+          grid = fp.grid;
+          fitted = fp.fitted;
+          draw();
           setFpLoading(false);
         },
         () => setFpLoading(false),
       );
     void load(days);
     const timer = setInterval(() => void load(flow && !hours ? 1 : days), flow || hours ? 60_000 : 20_000);
+    let offPrints = () => {};
+    let tailTimer: ReturnType<typeof setInterval> | undefined;
+    if (book) {
+      const tail = async () => {
+        const barStart = Math.floor(Date.now() / barMs) * barMs;
+        const answer = await api.footprint(market_, barStart, Date.now()).catch(() => null);
+        if (!answer || dropped) return;
+        barMinutes = answer.bars.map((b) => ({ at: b.at, levels: b.levels }));
+        lastServer = Math.max(barStart - 1, ...barMinutes.map((m) => m.at));
+        // What the server has now is the server's: the browser's own count of those minutes goes.
+        book.take(lastServer + 1);
+        draw();
+      };
+      let pending: ReturnType<typeof setTimeout> | undefined;
+      offPrints = listenPrints(market_, {
+        print(time, price, qty, buy) {
+          if (book.add(time, price, qty, buy)) pending ??= setTimeout(() => ((pending = undefined), draw()), 500);
+        },
+        state() {},
+      });
+      void tail();
+      tailTimer = setInterval(() => void tail(), 15_000);
+      onCleanup(() => clearTimeout(pending));
+    }
     onCleanup(() => {
       dropped = true;
       clearInterval(timer);
+      clearInterval(tailTimer);
+      offPrints();
     });
   });
 

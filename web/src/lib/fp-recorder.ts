@@ -20,8 +20,10 @@ import { listenPrints } from './orderflow';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
-/** How often finished minutes are written down, and the minute under way told to charts. */
+/** How often finished minutes are written down. */
 const FLUSH_MS = 10_000;
+/** How often charts hear of trades not written down yet: often enough to read as live. */
+const LIVE_MS = 1_000;
 /** A market no chart shows any more keeps recording this long, for a chart put back. */
 const LINGER_MS = 60_000;
 /** How far back a gap is filled from the exchange's history, and how many calls that may take. */
@@ -81,8 +83,8 @@ export const recordable = (market: string): boolean => {
 /** `full`: older minutes changed too — a gap filled — not only the newest. */
 type Listener = (full: boolean) => void;
 const listeners = new Map<string, Set<Listener>>();
-/** The minute under way, as its recorder last told it: charts show it before it is written down. */
-const live = new Map<string, [number, Levels]>();
+/** The minutes not written down yet — the one under way, and any just finished — as their recorder last told them. */
+const live = new Map<string, [number, Levels][]>();
 const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('tradoor-footprint') : null;
 
 function tell(market: string, full = false): void {
@@ -113,7 +115,7 @@ function setStatus(market: string, status: RecordStatus | null, broadcast = true
   if (broadcast) channel?.postMessage({ market, status });
 }
 
-type Message = { market: string; live?: [number, ArrayBuffer] | null; full?: boolean; status?: RecordStatus | null; ask?: true };
+type Message = { market: string; live?: [number, ArrayBuffer][] | null; full?: boolean; status?: RecordStatus | null; ask?: true };
 
 channel?.addEventListener('message', (e: MessageEvent<Message>) => {
   const { market, live: minute, full } = e.data;
@@ -123,7 +125,7 @@ channel?.addEventListener('message', (e: MessageEvent<Message>) => {
     return;
   }
   if ('status' in e.data) return setStatus(market, e.data.status ?? null, false);
-  if (minute) live.set(market, [minute[0], unpack(minute[1])]);
+  if (minute) live.set(market, minute.map(([at, levels]): [number, Levels] => [at, unpack(levels)]));
   else if (minute === null) live.delete(market);
   tell(market, full === true);
 });
@@ -136,12 +138,10 @@ export function onRecorded(market: string, listener: Listener): () => void {
   return () => set.delete(listener);
 }
 
-export const liveMinute = (market: string): [number, Levels] | undefined => live.get(market);
-
-function announce(market: string, minute: [number, Levels] | null): void {
-  if (minute) live.set(market, minute);
+function announce(market: string, minutes: [number, Levels][]): void {
+  if (minutes.length > 0) live.set(market, minutes);
   else live.delete(market);
-  channel?.postMessage({ market, live: minute ? [minute[0], pack(minute[1])] : null });
+  channel?.postMessage({ market, live: minutes.length > 0 ? minutes.map(([at, levels]) => [at, pack(levels)]) : null });
   tell(market);
 }
 
@@ -213,13 +213,17 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
     if (!signal.aborted) setStatus(market, status);
   };
   report({});
+  // Trades since charts last heard, and a write under way: the minutes it takes are neither here nor there until it is done.
+  let changed = false;
+  let writing = false;
+  const unwritten = (): [number, Levels][] => (book ? [...book.minutes].sort((a, b) => a[0] - b[0]).map(([at, levels]): [number, Levels] => [at, new Map(levels)]) : []);
   const off = listenPrints(market, {
     print(time, price, qty, buy) {
       if (!book) {
         if (!(meta.level > 0)) meta = { ...meta, level: levelFor(price, digitsFor(market, price)) };
         book = new MinuteBook(meta.level, liveSince || Date.now());
       }
-      book.add(time, price, qty, buy);
+      if (book.add(time, price, qty, buy)) changed = true;
     },
     state(state) {
       const now = Date.now();
@@ -239,6 +243,7 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
     },
   });
   const flush = async (all: boolean) => {
+    writing = true;
     const now = Date.now();
     const finished = book ? book.take(all ? Number.POSITIVE_INFINITY : Math.floor(now / MINUTE) * MINUTE) : [];
     if (liveSince) meta = { ...meta, spans: cover(meta.spans, liveSince, now) };
@@ -249,12 +254,19 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
     } catch {
       // A full disk or a closed database: this stretch is not kept.
     }
-    const current = book ? [...book.minutes][0] : undefined;
-    announce(market, all || !current ? null : [current[0], new Map(current[1])]);
+    writing = false;
+    changed = false;
+    announce(market, all ? [] : unwritten());
   };
   const timer = setInterval(() => void flush(false), FLUSH_MS);
+  const ticker = setInterval(() => {
+    if (!changed || writing) return;
+    changed = false;
+    announce(market, unwritten());
+  }, LIVE_MS);
   await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
   clearInterval(timer);
+  clearInterval(ticker);
   off();
   if (liveSince) meta = { ...meta, spans: cover(meta.spans, liveSince, Date.now()) };
   liveSince = 0;
@@ -373,12 +385,12 @@ export async function recordedFootprint(market: string, barMs: number, from: num
   const meta = await readMarket(market).catch(() => undefined);
   if (!meta || !(meta.level > 0)) return null;
   const minutes: [number, Levels][] = await readMinutes(market, from, Date.now()).catch(() => []);
-  const current = live.get(market);
-  // The minute under way is not written down yet; a stretch of it an earlier recording kept, is.
-  if (current && current[0] >= from) {
-    const i = minutes.findIndex(([at]) => at === current[0]);
-    if (i >= 0) minutes[i] = [current[0], merge(minutes[i]![1], current[1])];
-    else minutes.push(current);
+  // The minutes not written down yet; a stretch of one an earlier recording kept, is.
+  for (const [at, levels] of live.get(market) ?? []) {
+    if (at < from) continue;
+    const i = minutes.findIndex(([m]) => m === at);
+    if (i >= 0) minutes[i] = [at, merge(minutes[i]![1], levels)];
+    else minutes.push([at, levels]);
   }
   const folded: Minute[] = minutes.map(([at, levels]) => toMinute(at, levels, meta.level));
   return foldMinutes(folded, meta.level, barMs, settings, by);
