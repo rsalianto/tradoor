@@ -21,6 +21,7 @@
 //! table says what each came to: its volume, its delta, that delta as a share
 //! of the volume, and the most and least the delta reached on the way.
 
+use crate::color::Color;
 use crate::paint::{Align, Baseline, Frame, Rect};
 use crate::theme::Theme;
 
@@ -284,10 +285,9 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
             }
             let (top, drawn) = (top_of(*price), drawn_at(*price));
             let alpha = |v: f64| (55.0 + 200.0 * (v / loudest).clamp(0.0, 1.0).sqrt() as f32) as u8;
-            // A number over a filled cell has to fight the fill: over a strong
-            // one the background colour reads, over a faint one the text
-            // colour does. Grey over both reads over neither.
-            let ink = |fill: u8| if fill >= 150 { t.background } else { t.text };
+            // A number reads in black or white, whichever stands out more from
+            // the colour its cell actually shows — the fill over the background.
+            let ink = |color: Color, fill: u8| color.with_alpha(fill).over(t.background).ink();
             let side = if buy >= sell { t.bull } else { t.bear };
             let middle = top + drawn / 2.0;
             match mode {
@@ -296,10 +296,10 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                     f.rect(s.cells + half + 0.5, top, half - 0.5, drawn, t.bull.with_alpha(alpha(*buy)));
                     let (sold, bought) = (short(*sell), short(*buy));
                     if let Some(size) = fit(&sold, half - pad) {
-                        f.text(s.cells + half - pad, middle, sold, ink(alpha(*sell)), Align::Right, Baseline::Middle, size, None, Some(view.plot));
+                        f.text(s.cells + half - pad, middle, sold, ink(t.bear, alpha(*sell)), Align::Right, Baseline::Middle, size, None, Some(view.plot));
                     }
                     if let Some(size) = fit(&bought, half - pad) {
-                        f.text(s.cells + half + pad, middle, bought, ink(alpha(*buy)), Align::Left, Baseline::Middle, size, None, Some(view.plot));
+                        f.text(s.cells + half + pad, middle, bought, ink(t.bull, alpha(*buy)), Align::Left, Baseline::Middle, size, None, Some(view.plot));
                     }
                 }
                 Mode::Cluster => {
@@ -318,7 +318,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                     f.rect(s.cells, top, s.cells_width, drawn, color.with_alpha(alpha(value.abs())));
                     let text = if mode == Mode::Total { short(value) } else { signed(value) };
                     if let Some(size) = fit(&text, s.cells_width) {
-                        f.text(s.cells + s.cells_width / 2.0, middle, text, ink(alpha(value.abs())), Align::Center, Baseline::Middle, size, None, Some(view.plot));
+                        f.text(s.cells + s.cells_width / 2.0, middle, text, ink(color, alpha(value.abs())), Align::Center, Baseline::Middle, size, None, Some(view.plot));
                     }
                 }
             }
@@ -459,7 +459,7 @@ fn table(f: &mut Frame, view: &View<'_>, rows: &[(f32, Bar)]) {
                 _ => signed(v),
             };
             if let Some(size) = fitted(view, &text, s.width, TABLE_ROW).map(|s| s.min(size)) {
-                let ink = if alpha >= 150 { t.background } else { t.text };
+                let ink = color.with_alpha(alpha).over(t.background).ink();
                 f.text(s.left + s.width / 2.0, y + TABLE_ROW / 2.0, text, ink, Align::Center, Baseline::Middle, size, None, Some(view.plot));
             }
         }
@@ -630,8 +630,10 @@ mod tests {
         let bar = Bar { time: 0, levels: vec![(100.0, 100.0, 0.02), (101.0, 0.02, 0.02)], ..Default::default() };
         paint(&mut f, &view, &[(0.0, &bar)], Options { mode: Mode::Split, value_area: false, stats: false, profile: false }, 1.0);
         let colour_of = |text: &str| f.texts.iter().find(|t| t.text == text).map(|t| t.color);
-        assert_eq!(colour_of("100"), Some(theme.background), "over a filled cell, the background colour reads");
-        assert_eq!(colour_of("0.02"), Some(theme.text), "over a faint one, the text colour does");
+        let black = Color::hex(0x0f0f0f);
+        let white = Color::hex(0xf2f5f2);
+        assert_eq!(colour_of("100"), Some(black), "over a filled cell, black reads");
+        assert_eq!(colour_of("0.02"), Some(white), "over a faint one, white does — never a grey that reads over neither");
     }
 
     #[test]

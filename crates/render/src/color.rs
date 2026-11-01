@@ -52,11 +52,43 @@ impl Color {
         let luminance = 0.299 * f32::from(self.r) + 0.587 * f32::from(self.g) + 0.114 * f32::from(self.b);
         if luminance > 140.0 { Color::hex(0x0f0f0f) } else { Color::hex(0xf2f5f2) }
     }
+
+    /// This colour laid over `under` at its own opacity: what a see-through fill shows.
+    pub fn over(self, under: Color) -> Color {
+        let t = f32::from(self.a) / 255.0;
+        let ch = |a: u8, b: u8| (f32::from(b) + (f32::from(a) - f32::from(b)) * t).round() as u8;
+        Color { r: ch(self.r, under.r), g: ch(self.g, under.g), b: ch(self.b, under.b), a: 255 }
+    }
+
+    /// Near-black or near-white, whichever stands out more against this colour
+    /// by the contrast the eye reads (WCAG's relative luminance): the two are
+    /// even at about 0.18, so a mid-tone fill gets dark text, a dim one light.
+    pub fn ink(self) -> Color {
+        let linear = |c: u8| {
+            let v = f32::from(c) / 255.0;
+            if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        let luminance = 0.2126 * linear(self.r) + 0.7152 * linear(self.g) + 0.0722 * linear(self.b);
+        if luminance > 0.179 { Color::hex(0x0f0f0f) } else { Color::hex(0xf2f5f2) }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ink_is_whichever_of_black_and_white_reads_better() {
+        // Fills taken from a footprint on the default theme: a mid green reads in
+        // black, a dim one and a dim red in white.
+        assert_eq!(Color::hex(0x758c63).ink(), Color::hex(0x0f0f0f));
+        assert_eq!(Color::hex(0x434d3b).ink(), Color::hex(0xf2f5f2));
+        assert_eq!(Color::hex(0x593531).ink(), Color::hex(0xf2f5f2));
+        assert_eq!(Color::hex(0xffffff).ink(), Color::hex(0x0f0f0f));
+        assert_eq!(Color::hex(0x2962ff).ink(), Color::hex(0xf2f5f2), "a strong blue takes white");
+        let half = Color { a: 128, ..Color::hex(0xffffff) };
+        assert_eq!(half.over(Color::hex(0x000000)), Color::hex(0x808080));
+    }
 
     #[test]
     fn parses_css_spellings() {
