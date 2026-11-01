@@ -36,7 +36,8 @@ pub enum Mode {
     Delta,
     /// One cell: everything that traded at the level, whichever way.
     Total,
-    /// No numbers: a bar across the cell, as long as the level was busy.
+    /// A bar across the cell, as long as the level was busy, and its volume
+    /// where it fits.
     Cluster,
     /// The delta added up from the foot of the bar, level by level.
     Ladder,
@@ -303,10 +304,17 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                     }
                 }
                 Mode::Cluster => {
-                    // No numbers: the length of the bar is the reading, which
-                    // is what a chart zoomed out has room to say.
-                    let share = ((buy + sell) / loudest).clamp(0.0, 1.0) as f32;
-                    f.rect(s.cells, top, s.cells_width * share, drawn, side.with_alpha(alpha(buy + sell)));
+                    // The length of the bar is the reading, which is all a
+                    // chart zoomed out has room to say; where the row has room,
+                    // the volume is written too.
+                    let total = buy + sell;
+                    let (bar, fill) = (s.cells_width * (total / loudest).clamp(0.0, 1.0) as f32, alpha(total));
+                    f.rect(s.cells, top, bar, drawn, side.with_alpha(fill));
+                    let text = short(total);
+                    if let Some((on, size)) = on_or_past(view, &text, bar, s.cells_width, row) {
+                        let (from, color) = if on { (s.cells, ink(side, fill)) } else { (s.cells + bar, t.background.ink()) };
+                        f.text(from + pad, middle, text, color, Align::Left, Baseline::Middle, size, None, Some(view.plot));
+                    }
                 }
                 Mode::Delta | Mode::Total | Mode::Ladder => {
                     let value = match mode {
@@ -402,6 +410,12 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
             let w = (room * ((buy + sell) / loudest) as f32).max(1.0);
             let color = if buy >= sell { t.bull } else { t.bear };
             f.rect(view.plot.right() - w, top, w, drawn, color.with_alpha(90));
+            // What traded there, written from the right as the bar grows.
+            let text = short(buy + sell);
+            if let Some((on, size)) = on_or_past(view, &text, w, room, row_height(view, *price, step)) {
+                let (to, ink) = if on { (view.plot.right(), color.with_alpha(90).over(t.background).ink()) } else { (view.plot.right() - w, t.background.ink()) };
+                f.text(to - 3.0, top + drawn / 2.0, text, ink, Align::Right, Baseline::Middle, size, None, Some(view.plot));
+            }
         }
     }
 
@@ -418,6 +432,17 @@ fn fitted(view: &View<'_>, text: &str, room: f32, row: f32) -> Option<f32> {
     let per_px = if view.theme.font_px > 0.0 { view.char_width / view.theme.font_px } else { 0.6 };
     let size = (row * 0.62).min(11.0).min((room - 4.0) / (text.chars().count().max(1) as f32 * per_px));
     (row >= NUMBER_HEIGHT && size >= SMALLEST_NUMBER).then_some(size)
+}
+
+/// Where a volume is written against its bar, `bar` wide in a space `room`
+/// wide: on the bar or past its end, whichever holds it bigger, so it sits on
+/// one colour whole. Whether on the bar, and the size — or none, without room.
+fn on_or_past(view: &View<'_>, text: &str, bar: f32, room: f32, row: f32) -> Option<(bool, f32)> {
+    match (fitted(view, text, bar, row), fitted(view, text, room - bar, row)) {
+        (Some(on), Some(past)) if past > on => Some((false, past)),
+        (Some(on), _) => Some((true, on)),
+        (None, past) => past.map(|size| (false, size)),
+    }
 }
 
 /// What each bar came to, in a table along the foot of the plot: a row a
@@ -709,6 +734,49 @@ mod tests {
         assert!(wrote(Mode::Split).contains(&"4.00".to_string()) && wrote(Mode::Split).contains(&"1.00".to_string()), "both sides of it");
         assert!(wrote(Mode::Delta).contains(&"-3.00".to_string()), "the difference, and which way it went");
         assert!(wrote(Mode::Total).contains(&"5.00".to_string()), "everything that traded there");
+        assert!(wrote(Mode::Cluster).contains(&"5.00".to_string()), "and beside its bar, the same");
+    }
+
+    #[test]
+    fn the_profile_writes_what_traded_at_each_price_on_screen() {
+        let theme = Theme::default();
+        let plot = Rect { x: 0.0, y: 0.0, w: 400.0, h: 300.0 };
+        let mut f = Frame::default();
+        f.begin(400.0, 300.0, 1.0, theme.background);
+        let x = |l: f64| 100.0 + l as f32 * 80.0;
+        // Seventy pixels to the price, so all three rows are on screen.
+        let y = |p: f64| 300.0 - (p as f32 - 99.0) * 70.0;
+        let view = View { plot, bar_spacing: 80.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let (one, two) = (bar(), bar());
+        paint(&mut f, &view, &[(0.0, &one), (1.0, &two)], Options { mode: Mode::Delta, value_area: false, stats: false, profile: true }, 1.0);
+        // Both bars summed: 10, 6 and 17 by price, against the right edge.
+        for total in [10.0, 6.0, 17.0] {
+            let text = short(total);
+            assert!(f.texts.iter().any(|t| t.text == text && t.x > plot.right() - plot.w * PROFILE_SHARE), "{text} by the edge");
+        }
+    }
+
+    #[test]
+    fn a_cluster_number_sits_wholly_on_its_bar_or_wholly_past_it() {
+        let theme = Theme::default();
+        let plot = Rect { x: 0.0, y: 0.0, w: 400.0, h: 300.0 };
+        let mut f = Frame::default();
+        f.begin(400.0, 300.0, 1.0, theme.background);
+        let x = |l: f64| 200.0 + l as f32;
+        let y = |p: f64| 300.0 - (p as f32 - 99.0) * 100.0;
+        let view = View { plot, bar_spacing: 80.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        paint(&mut f, &view, &[(0.0, &bar())], Options { mode: Mode::Cluster, value_area: false, stats: false, profile: false }, 1.0);
+        let s = slot(200.0, 80.0);
+        let loudest = bar().levels.iter().map(|(_, b, s)| b + s).fold(0.0_f64, f64::max);
+        for (_, buy, sell) in &bar().levels {
+            let text = short(buy + sell);
+            let written = f.texts.iter().find(|t| t.text == text).expect("every level writes its volume");
+            let end = s.cells + s.cells_width * ((buy + sell) / loudest) as f32;
+            let width = text.chars().count() as f32 * 6.0 / theme.font_px * written.size;
+            let on = written.x + width <= end + 0.5;
+            let past = written.x >= end;
+            assert!(on || past, "{text} straddles the end of its bar: x {} width {width} end {end}", written.x);
+        }
     }
 
     #[test]
