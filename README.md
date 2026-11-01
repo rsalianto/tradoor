@@ -98,12 +98,12 @@ Any chart can be read as TPO profiles laid out as MMT lays them out — square b
 ### Footprint
 
 <p align="center">
-  <img src="docs/screenshots/footprint.webp" alt="A 15-minute BTCUSDT footprint chart: beside each bar's thin candle, a column of cells with the delta at every price, and under the bars a table of each one's volume, delta, delta %, and the most and least its delta reached" width="100%">
+  <img src="docs/screenshots/footprint.webp" alt="A 15-minute BTCUSDT footprint chart: beside each bar's thin candle, a column of cells with the delta at every price; under the bars a table of each one's volume, delta, delta %, and the most and least its delta reached; and at the right edge, what traded at each price on screen" width="100%">
   <br>
   <sub>Fifteen-minute bars as footprints: the delta at every price, and what each bar came to underneath.</sub>
 </p>
 
-Volume bought and sold at each price inside every bar, beside a thin candle — as the delta, the two sides apart, their sum, a cluster or a ladder. The rows follow the zoom, so every cell keeps a number you can read, and a table under the bars gives each one's volume, delta, delta %, and the most and least its delta reached. The value area, imbalances and the profile of everything on screen come with it. Hourly and daily charts read the footprint's history, kept for good: Binance's BTC perpetual from January 2026, read from Binance's archive of every trade, and every recorded market from the day the server began recording it.
+Volume bought and sold at each price inside every bar, beside a thin candle — as the delta, the two sides apart, their sum, a cluster or a ladder. The rows follow the zoom, so every cell keeps a number you can read, and a table under the bars gives each one's volume, delta, delta %, and the most and least its delta reached. The value area, imbalances and the profile of everything on screen come with it, and every number is written in black or white, whichever reads on its cell. Hourly and daily charts read the footprint's history, kept for good: Binance's BTC perpetual from January 2026, read from Binance's archive of every trade, and every recorded market from the day the server began recording it.
 
 ### Footprint on any coin
 
