@@ -160,6 +160,9 @@ pub struct DrawingStyle {
     pub risk_cash: bool,
     pub lot: Option<f64>,
     pub leverage: Option<f64>,
+    /// Sized by its margin: moving the stop changes what it risks, not its size.
+    pub by_margin: bool,
+    pub margin: Option<f64>,
     pub qty_decimals: Option<usize>,
     /// A position's partial takes (`t`), partial cuts (`c`) and adds (`a`):
     /// each a price and a percent of the entry's size.
@@ -213,6 +216,8 @@ impl DrawingStyle {
             "riskUnit" => self.risk_cash = value != "%",
             "lot" => self.lot = num().filter(|v| *v > 0.0),
             "leverage" => self.leverage = num().filter(|v| *v > 0.0),
+            "sizeBy" => self.by_margin = value == "margin",
+            "margin" => self.margin = num().filter(|v| *v > 0.0),
             "qtyDecimals" => self.qty_decimals = num().map(|v| v.clamp(0.0, 10.0) as usize),
             "legs" => {
                 self.legs = value
@@ -626,8 +631,22 @@ fn trim_level(v: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+/// The coins a position's entry buys (bins/server journal, `coins_of`): what its
+/// margin buys at its leverage, or what its risk buys over its stop.
+fn position_coins(style: &DrawingStyle, entry: f64, stop: f64) -> f64 {
+    let risk_per = (entry - stop).abs();
+    if style.by_margin {
+        if entry > 0.0 { style.margin.unwrap_or(100.0) * style.leverage.unwrap_or(1.0) / entry } else { 0.0 }
+    } else if risk_per > 0.0 {
+        let risk = if style.risk_cash { style.risk.unwrap_or(10.0) } else { style.account.unwrap_or(1000.0) * style.risk.unwrap_or(1.0) / 100.0 };
+        risk / risk_per
+    } else {
+        0.0
+    }
+}
+
 /// TradingView's long and short position: a target box and a stop box either
-/// side of the entry, with the quantity a fixed risk buys and what it makes.
+/// side of the entry, with the quantity it holds and what that makes.
 fn paint_position(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme, font: f32) {
     let Some((left, right, entry_y, stop_y, target_y)) = d.position_box() else { return };
     let style = &d.shape.style;
@@ -681,10 +700,8 @@ fn paint_position(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme, 
     let tick = 10f64.powi(-(d.precision as i32));
     let risk_per = (entry - stop).abs();
     let reward_per = (target - entry).abs();
-    let account = style.account.unwrap_or(1000.0);
-    let risk_amount = if style.risk_cash { style.risk.unwrap_or(10.0) } else { account * style.risk.unwrap_or(1.0) / 100.0 };
     let lot = style.lot.unwrap_or(1.0);
-    let qty = if risk_per > 0.0 { risk_amount / (risk_per * lot) } else { 0.0 };
+    let qty = position_coins(style, entry, stop) / lot;
     let rr = if risk_per > 0.0 { reward_per / risk_per } else { 0.0 };
     let digits = Some(d.precision);
     let cx = left + w / 2.0;
@@ -843,6 +860,10 @@ mod tests {
 
     #[test]
     fn styles_read_from_strings() {
+        let margin = DrawingStyle::from_pairs([("sizeBy", "margin"), ("margin", "200"), ("leverage", "5")]);
+        assert_eq!(position_coins(&margin, 100.0, 90.0), position_coins(&margin, 100.0, 50.0), "the stop moves what it risks, not its size");
+        assert_eq!(position_coins(&margin, 100.0, 90.0), 10.0);
+        assert_eq!(position_coins(&DrawingStyle::from_pairs([("riskUnit", "cash"), ("risk", "20")]), 100.0, 90.0), 2.0, "its risk over its stop");
         let s = DrawingStyle::from_pairs([("color", "#ff0000"), ("width", "3"), ("dash", "dotted"), ("extendRight", "1"), ("levels", "0,1|0.5,0,#00ff00,dashed|bad"), ("riskUnit", "cash"), ("nope", "x")]);
         assert_eq!(s.color, Some(Color::hex(0xff0000)));
         assert_eq!((s.width, s.dash, s.extend_right, s.risk_cash), (Some(3.0), Dash::Dotted, Some(true), true));

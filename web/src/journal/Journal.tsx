@@ -7,31 +7,39 @@
  * is kept for an account: until the browser signs in with Telegram, it shows
  * how, and nothing is written down.
  */
-import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
+import { createMemo, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { setDrawingsChanged, setJournalOpen } from '../app/ui';
 import { AccountCard } from '../components/Account';
+import { NumField } from '../components/NumField';
 import { SymbolSearch } from '../components/SymbolSearch';
 import { api, catalog, errorText, type AccountStatus } from '../lib/api';
+import { rememberSize } from '../lib/drawing-options';
+import { defaultStyle } from '../lib/drawing-style';
 import { formatPrice } from '../lib/format';
 import { VenueTag } from '../lib/exchanges';
 import { Icon } from '../lib/icons';
 import { isMarket, symbolOf, venueLabel } from '../lib/markets';
 import { focusPanel, marketOf, setPanelMarket, setPanelTimeframe, targetChart } from '../workspace/store';
+import { cents, coinsFor, figures, figuresOf, fits, lossPerCoin, marginFor, type DrawnLeg } from './legs';
+import { Readout } from './Readout';
 import { StrategyPicker } from './strategies';
 import {
   book,
+  closedPnl,
   dailyPnl,
   FILL_LABEL,
   equityCurve,
   groupBy,
   inWeek,
+  isClosed,
   isLive,
   journalApi,
   lastWeeks,
   localDay,
   localInput,
   money,
+  niceTicks,
   outcome,
   plannedRR,
   pnl,
@@ -172,7 +180,7 @@ export function Journal() {
             </Show>
             <Switch>
               <Match when={tab() === 'dashboard' && trades().length > 0}>
-                <Dashboard trades={trades()} />
+                <Dashboard trades={trades()} price={price} onSelect={setSelected} onAll={() => setTab('history')} />
               </Match>
               <Match when={tab() === 'history' && trades().length > 0}>
                 <History trades={trades()} price={price} onSelect={setSelected} />
@@ -234,7 +242,12 @@ const PERIODS: [string, string][] = [
   ['90', '90D'],
 ];
 
-function Dashboard(props: { trades: Trade[] }) {
+/**
+ * What the trades add up to, the one number first: the net, what stands behind
+ * it, the curve that got there, then where it was made and the latest trades.
+ * The period above scopes all of it.
+ */
+function Dashboard(props: { trades: Trade[]; price: (market: string, v: number | null) => string; onSelect: (id: number) => void; onAll: () => void }) {
   const [period, setPeriod] = createSignal('all');
   const list = createMemo(() => {
     const p = period();
@@ -243,49 +256,120 @@ function Dashboard(props: { trades: Trade[] }) {
     return props.trades.filter((t) => when(t) >= from);
   });
   const s = createMemo(() => stats(list()));
+  const latest = createMemo(() =>
+    list()
+      .filter((t) => isClosed(t))
+      .sort((a, b) => when(b) - when(a))
+      .slice(0, 6),
+  );
+  const share = (k: 'up' | 'down' | 'even') => (k === 'up' ? s().wins : k === 'down' ? s().losses : s().breakEven);
+  const streak = () => (s().streak > 0 ? `${s().streak} ${s().streakKind === 'win' ? (s().streak > 1 ? 'wins' : 'win') : s().streak > 1 ? 'losses' : 'loss'}` : '—');
   return (
-    <div class="jr-dash">
-      <div class="chips jr-periods">
-        <For each={PERIODS}>
-          {([id, label]) => (
-            <button classList={{ on: period() === id }} onClick={() => setPeriod(id)}>
-              {label}
-            </button>
-          )}
-        </For>
+    <div class="jx">
+      <div class="jx-bar">
+        <div class="jh-sides">
+          <For each={PERIODS}>
+            {([id, label]) => (
+              <button classList={{ on: period() === id }} onClick={() => setPeriod(id)}>
+                {label}
+              </button>
+            )}
+          </For>
+        </div>
+        <span class="dim num">
+          {s().closed} closed · {s().open} open · {s().planned} planned
+        </span>
       </div>
-      <div class="jr-cards">
-        <Card label="Net P&L" value={money(s().totalPnl)} tone={tone(s().totalPnl)} sub={`${money(s().grossProfit)} won · ${money(-s().grossLoss)} lost`} />
-        <Card label="Win rate" value={`${s().winRate.toFixed(1)}%`} sub={`${s().wins} won · ${s().losses} lost · ${s().breakEven} even`} />
-        <Card label="Total R" value={rText(s().totalR)} tone={tone(s().totalR)} sub={`${rText(s().avgR)} a trade`} />
-        <Card label="Profit factor" value={s().profitFactor === null ? '—' : s().profitFactor!.toFixed(2)} sub={`expectancy ${money(s().expectancy)}`} />
-        <Card label="Avg win / loss" value={money(s().avgWin)} sub={money(-s().avgLoss)} />
-        <Card label="Max drawdown" value={money(-s().maxDrawdown)} tone={s().maxDrawdown > 0 ? 'bear' : ''} sub={`best ${money(s().best)} · worst ${money(s().worst)}`} />
-        <Card label="Streak" value={s().streak > 0 ? `${s().streak} ${s().streakKind === 'win' ? (s().streak > 1 ? 'wins' : 'win') : s().streak > 1 ? 'losses' : 'loss'}` : '—'} tone={s().streakKind === 'win' ? 'bull' : s().streakKind === 'loss' ? 'bear' : ''} sub={s().avgHoldHours === null ? undefined : `held ${hold(s().avgHoldHours!)} on average`} />
-        <Card label="Trades" value={`${s().closed} closed`} sub={`${s().open} open · ${s().planned} planned · ${s().longs} long · ${s().shorts} short`} />
-      </div>
-      <div class="jr-grid">
-        <section class="jr-box jr-wide">
+      <Show when={s().closed > 0} fallback={<p class="jh-none dim">Nothing closed in this period.</p>}>
+        <section class="jx-summary">
+          <div class="jx-hero">
+            <span class="jx-cap">Net P&L</span>
+            <span class={`jx-net ${tone(s().totalPnl)}`}>{money(s().totalPnl)}</span>
+            <span class="muted num">
+              {rText(s().totalR)} over {s().closed} trade{s().closed === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div class="jx-kpi" data-tip="Trades that made money, of those closed">
+            <span class="jx-cap">Win rate</span>
+            <span class="jx-value">{s().winRate.toFixed(0)}%</span>
+            <div class="jx-meter" role="img" aria-label={`${s().wins} won, ${s().losses} lost, ${s().breakEven} even`}>
+              <For each={(['up', 'down', 'even'] as const).filter((k) => share(k) > 0)}>{(k) => <i class={k} style={{ 'flex-grow': share(k) }} />}</For>
+            </div>
+            <span class="dim num">
+              {s().wins} won · {s().losses} lost · {s().breakEven} even
+            </span>
+          </div>
+          <div class="jx-kpi" data-tip="What the winners made for each dollar the losers lost; above 1 is making money">
+            <span class="jx-cap">Profit factor</span>
+            <span class="jx-value">{s().profitFactor === null ? '—' : s().profitFactor!.toFixed(2)}</span>
+            <span class="dim num">
+              {money(s().grossProfit)} won · {money(-s().grossLoss)} lost
+            </span>
+          </div>
+          <div class="jx-kpi" data-tip="What a trade makes on average, in dollars and in what it risked">
+            <span class="jx-cap">Average trade</span>
+            <span class={`jx-value ${tone(s().expectancy)}`}>{money(s().expectancy)}</span>
+            <span class="dim num">{rText(s().avgR)} a trade</span>
+          </div>
+          <div class="jx-kpi" data-tip="The deepest the running total has fallen from a high">
+            <span class="jx-cap">Max drawdown</span>
+            <span class={`jx-value ${s().maxDrawdown > 0 ? 'bear' : ''}`}>{money(-s().maxDrawdown)}</span>
+            <span class="dim">from a high</span>
+          </div>
+        </section>
+
+        <dl class="jx-facts num">
+          <div>
+            <dt>Best trade</dt>
+            <dd class={tone(s().best)}>{money(s().best)}</dd>
+          </div>
+          <div>
+            <dt>Worst trade</dt>
+            <dd class={tone(s().worst)}>{money(s().worst)}</dd>
+          </div>
+          <div>
+            <dt>Average win</dt>
+            <dd>{money(s().avgWin)}</dd>
+          </div>
+          <div>
+            <dt>Average loss</dt>
+            <dd>{money(-s().avgLoss)}</dd>
+          </div>
+          <div>
+            <dt>Streak now</dt>
+            <dd class={s().streakKind === 'win' ? 'bull' : s().streakKind === 'loss' ? 'bear' : ''}>{streak()}</dd>
+          </div>
+          <div>
+            <dt>Average hold</dt>
+            <dd>{s().avgHoldHours === null ? '—' : hold(s().avgHoldHours!)}</dd>
+          </div>
+        </dl>
+
+        <section class="jx-box">
           <h3>Equity</h3>
           <Equity trades={list()} />
         </section>
-        <section class="jr-box">
-          <h3>P&L calendar</h3>
-          <Calendar trades={list()} />
+
+        <div class="jx-two">
+          <section class="jx-box">
+            <h3>P&L calendar</h3>
+            <Calendar trades={list()} />
+          </section>
+          <section class="jx-box">
+            <Breakdown trades={list()} />
+          </section>
+        </div>
+
+        <section class="jx-box jx-latest">
+          <header class="jx-head">
+            <h3>Latest trades</h3>
+            <button class="jx-link" onClick={props.onAll}>
+              All trades
+            </button>
+          </header>
+          <For each={latest()}>{(t) => <Row trade={t} price={props.price} onSelect={props.onSelect} dated />}</For>
         </section>
-        <section class="jr-box">
-          <h3>By pair</h3>
-          <Groups groups={groupBy(list(), (t) => symbolOf(t.market))} />
-        </section>
-        <section class="jr-box">
-          <h3>By side</h3>
-          <Groups groups={groupBy(list(), (t) => (t.side === 'long' ? 'Long' : 'Short'))} />
-        </section>
-        <section class="jr-box">
-          <h3>By strategy</h3>
-          <Groups groups={groupBy(list(), (t) => t.strategy)} />
-        </section>
-      </div>
+      </Show>
     </div>
   );
 }
@@ -304,32 +388,103 @@ function Card(props: { label: string; value: string; sub?: string; tone?: string
   );
 }
 
-/** The running total of closed trades, as a line over zero. */
+/** `$1.2K`, `−$85`: a figure on an axis, short. */
+function axisMoney(v: number): string {
+  const a = Math.abs(v);
+  return `${v < 0 ? '−' : ''}$${a >= 1000 ? `${Number((a / 1000).toFixed(1))}K` : Number(a.toFixed(2))}`;
+}
+
+const dayMonth = (ms: number): string => {
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]!.slice(0, 3)} ${d.getDate()}`;
+};
+
+/** The running total of closed trades from nothing, over time, each point read under the pointer or with the arrow keys. */
 function Equity(props: { trades: Trade[] }) {
-  const W = 600;
-  const H = 150;
   const curve = createMemo(() => equityCurve(props.trades));
   const shape = createMemo(() => {
     const c = curve();
-    if (c.length < 2) return null;
-    const totals = [0, ...c.map((p) => p.total)];
-    const lo = Math.min(...totals);
-    const hi = Math.max(...totals);
-    const span = hi - lo || 1;
-    const y = (v: number) => H - 6 - ((v - lo) / span) * (H - 12);
-    const x = (i: number) => (i / c.length) * W;
-    const points = [`0,${y(0)}`, ...c.map((p, i) => `${x(i + 1)},${y(p.total)}`)].join(' ');
-    return { points, zero: y(0), last: c[c.length - 1]!.total };
+    const first = c[0]!;
+    const from = Math.min(first.trade.openedAt ?? first.trade.startAt, first.at);
+    const to = c[c.length - 1]!.at;
+    const ticks = niceTicks(Math.min(0, ...c.map((p) => p.total)), Math.max(0, ...c.map((p) => p.total)));
+    const [lo, hi] = [ticks[0]!, ticks[ticks.length - 1]!];
+    const y = (v: number) => (hi > lo ? 100 - ((v - lo) / (hi - lo)) * 100 : 50);
+    // All in the one minute: evenly, for want of a span.
+    const x = (at: number, i: number) => (to > from ? ((at - from) / (to - from)) * 100 : ((i + 1) / c.length) * 100);
+    const points = c.map((p, i) => ({ x: x(p.at, i), y: y(p.total) }));
+    const line = [`0,${y(0)}`, ...points.map((p) => `${p.x},${p.y}`)].join(' ');
+    const labels = to - from < 36 * 3_600_000 ? (at: number) => stamp(at).slice(6) : dayMonth;
+    return { zero: y(0), ticks: ticks.map((v) => ({ v, y: y(v) })), points, line, area: `0,${y(0)} ${line} 100,${y(0)}`, last: c[c.length - 1]!.total, days: [0, 1, 2, 3].map((i) => ({ x: (i / 3) * 100, label: labels(from + ((to - from) * i) / 3) })) };
   });
+  const [hover, setHover] = createSignal<number | null>(null);
+  const nearest = (e: PointerEvent & { currentTarget: HTMLElement }) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const at = ((e.clientX - r.left) / r.width) * 100;
+    let best = 0;
+    shape().points.forEach((p, i) => {
+      if (Math.abs(p.x - at) < Math.abs(shape().points[best]!.x - at)) best = i;
+    });
+    setHover(best);
+  };
+  const keys = (e: KeyboardEvent) => {
+    const n = shape().points.length;
+    if (e.key === 'ArrowLeft') setHover((h) => Math.max(0, (h ?? n) - 1));
+    else if (e.key === 'ArrowRight') setHover((h) => Math.min(n - 1, (h ?? -1) + 1));
+    else return;
+    e.preventDefault();
+  };
+  const at = () => {
+    const i = hover();
+    return i === null ? null : { ...shape().points[i]!, ...curve()[i]! };
+  };
   return (
-    <Show when={shape()} fallback={<p class="dim">The curve draws itself once two trades have closed.</p>}>
-      {(s) => (
-        <svg class="jr-equity" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Equity: ${money(s().last)}`}>
-          <line x1="0" x2={W} y1={s().zero} y2={s().zero} class="jr-zero" />
-          <polyline points={s().points} class={s().last >= 0 ? 'jr-line bull' : 'jr-line bear'} vector-effect="non-scaling-stroke" />
+    <div class="jx-eq">
+      <div class="jx-eq-y num">
+        <For each={shape().ticks}>{(t) => <span style={{ top: `${t.y}%` }}>{axisMoney(t.v)}</span>}</For>
+      </div>
+      <div class="jx-eq-plot" tabIndex={0} role="img" aria-label={`Equity: ${money(shape().last)}. Arrow keys read each trade.`} onPointerMove={nearest} onPointerLeave={() => setHover(null)} onBlur={() => setHover(null)} onKeyDown={keys}>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <For each={shape().ticks}>{(t) => <line x1="0" x2="100" y1={t.y} y2={t.y} class={t.v === 0 ? 'jx-zero' : 'jx-gridline'} vector-effect="non-scaling-stroke" />}</For>
+          {/* The same curve twice, each cut at zero: green above it, red below. */}
+          <clipPath id="jx-above">
+            <rect x="-1" y="-1" width="102" height={shape().zero + 1} />
+          </clipPath>
+          <clipPath id="jx-below">
+            <rect x="-1" y={shape().zero} width="102" height={101 - shape().zero} />
+          </clipPath>
+          <g clip-path="url(#jx-above)">
+            <polygon points={shape().area} class="jx-area up" />
+            <polyline points={shape().line} class="jx-line up" vector-effect="non-scaling-stroke" />
+          </g>
+          <g clip-path="url(#jx-below)">
+            <polygon points={shape().area} class="jx-area down" />
+            <polyline points={shape().line} class="jx-line down" vector-effect="non-scaling-stroke" />
+          </g>
         </svg>
-      )}
-    </Show>
+        <Show when={!at()}>
+          <i class={`jx-dot ${shape().last >= 0 ? 'up' : 'down'}`} style={{ left: `${shape().points[shape().points.length - 1]!.x}%`, top: `${shape().points[shape().points.length - 1]!.y}%` }} />
+        </Show>
+        <Show when={at()}>
+          {(p) => (
+            <>
+              <i class="jx-cross" style={{ left: `${p().x}%` }} />
+              <i class={`jx-dot ${p().total >= 0 ? 'up' : 'down'}`} style={{ left: `${p().x}%`, top: `${p().y}%` }} />
+              <div class="jx-tip num" classList={{ flip: p().x > 60 }} style={{ left: `${p().x}%` }}>
+                <b class={tone(p().total)}>{money(p().total)}</b>
+                <span class="dim">{stamp(p().at)}</span>
+                <span class="muted">
+                  {symbolOf(p().trade.market)} {p().trade.side === 'long' ? 'Long' : 'Short'} {money(pnl(p().trade))}
+                </span>
+              </div>
+            </>
+          )}
+        </Show>
+      </div>
+      <div class="jx-eq-x num">
+        <For each={shape().days}>{(d) => <span style={{ left: `${d.x}%` }}>{d.label}</span>}</For>
+      </div>
+    </div>
   );
 }
 
@@ -338,8 +493,9 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 /** A month of days, each with what its closed trades made, and each week's R beside it. */
 function Calendar(props: { trades: Trade[] }) {
-  const today = new Date();
-  const [month, setMonth] = createSignal({ y: today.getFullYear(), m: today.getMonth() });
+  // It opens on the last month anything closed in, not on an empty one.
+  const last = new Date(Math.max(0, ...props.trades.filter(isClosed).map(when)) || Date.now());
+  const [month, setMonth] = createSignal({ y: last.getFullYear(), m: last.getMonth() });
   const days = createMemo(() => dailyPnl(props.trades));
   const cells = createMemo(() => {
     const { y, m } = month();
@@ -360,23 +516,25 @@ function Calendar(props: { trades: Trade[] }) {
   const total = createMemo(() => cells().reduce((sum, day) => sum + (day ? (days().get(day)?.pnl ?? 0) : 0), 0));
   const biggest = createMemo(() => Math.max(1, ...cells().map((day) => Math.abs(day ? (days().get(day)?.pnl ?? 0) : 0))));
   const step = (n: number) => setMonth(({ y, m }) => ({ y: m + n < 0 ? y - 1 : m + n > 11 ? y + 1 : y, m: (m + n + 12) % 12 }));
+  const now = localDay(Date.now());
   return (
-    <div class="jr-cal">
-      <div class="jr-cal-head">
+    <div class="jx-cal">
+      <div class="jx-cal-head">
         <button class="iconbtn" aria-label="Previous month" onClick={() => step(-1)}>
           ‹
         </button>
-        <span class="grow">
+        <span class="jx-cal-month">
           {MONTHS[month().m]} {month().y}
         </span>
-        <span class={`num ${tone(total())}`}>{money(total())}</span>
         <button class="iconbtn" aria-label="Next month" onClick={() => step(1)}>
           ›
         </button>
+        <span class="grow" />
+        <span class={`num ${tone(total())}`}>{money(total())}</span>
       </div>
-      <div class="jr-cal-grid">
-        <For each={WEEKDAYS}>{(d) => <span class="dim jr-wd">{d}</span>}</For>
-        <span class="dim jr-wd">Week</span>
+      <div class="jx-cal-grid">
+        <For each={WEEKDAYS}>{(d) => <span class="jx-wd">{d}</span>}</For>
+        <span class="jx-wd">Week</span>
         <For each={weeks()}>
           {(week) => (
             <>
@@ -386,22 +544,22 @@ function Calendar(props: { trades: Trade[] }) {
                   const strength = () => Math.min(1, Math.abs(d()?.pnl ?? 0) / biggest());
                   return (
                     <div
-                      class="jr-day"
-                      classList={{ blank: !day, up: (d()?.pnl ?? 0) > 0, down: (d()?.pnl ?? 0) < 0 }}
-                      style={{ '--s': String(0.12 + strength() * 0.5) }}
+                      class="jx-day"
+                      classList={{ blank: !day, up: (d()?.pnl ?? 0) > 0, down: (d()?.pnl ?? 0) < 0, today: day === now }}
+                      style={{ '--s': String(0.1 + strength() * 0.22) }}
                       data-tip={d() ? `${day}: ${money(d()!.pnl)} from ${d()!.trades} trade${d()!.trades > 1 ? 's' : ''}` : undefined}
                     >
                       <Show when={day}>
-                        <span class="dim">{Number(day!.slice(8))}</span>
+                        <span class="jx-date">{Number(day!.slice(8))}</span>
                         <Show when={d()}>
-                          <span class="num">{compactMoney(d()!.pnl)}</span>
+                          <span class={`num ${tone(d()!.pnl)}`}>{compactMoney(d()!.pnl)}</span>
                         </Show>
                       </Show>
                     </div>
                   );
                 }}
               </For>
-              <div class={`jr-week num ${week.trades > 0 ? tone(week.r) : 'dim'}`} data-tip={week.trades > 0 ? `Week of ${week.first}: ${rText(week.r)} from ${week.trades} trade${week.trades > 1 ? 's' : ''}` : undefined}>
+              <div class={`jx-week num ${week.trades > 0 ? tone(week.r) : 'dim'}`} data-tip={week.trades > 0 ? `Week of ${week.first}: ${rText(week.r)} from ${week.trades} trade${week.trades > 1 ? 's' : ''}` : undefined}>
                 {week.trades > 0 ? rText(week.r) : '—'}
               </div>
             </>
@@ -419,34 +577,64 @@ function compactMoney(v: number): string {
   return `${sign}${a >= 1000 ? `${(a / 1000).toFixed(1)}K` : a.toFixed(a >= 100 ? 0 : 1)}`;
 }
 
-function Groups(props: { groups: Group[] }) {
+const BREAKDOWNS: { id: string; label: string; key: (t: Trade) => string }[] = [
+  { id: 'pair', label: 'Pair', key: (t) => symbolOf(t.market) },
+  { id: 'side', label: 'Side', key: (t) => (t.side === 'long' ? 'Long' : 'Short') },
+  { id: 'strategy', label: 'Strategy', key: (t) => t.strategy || 'No strategy' },
+];
+
+/** Where it was made: closed trades by pair, side or strategy, each one's net as a bar from zero. */
+function Breakdown(props: { trades: Trade[] }) {
+  const [by, setBy] = createSignal(BREAKDOWNS[0]!);
+  const groups = createMemo(() => groupBy(props.trades, by().key).slice(0, 10));
+  const scale = createMemo(() => {
+    const neg = Math.max(0, ...groups().map((g) => -g.pnl));
+    const pos = Math.max(0, ...groups().map((g) => g.pnl));
+    return { neg, span: neg + pos || 1 };
+  });
   return (
-    <Show when={props.groups.length > 0} fallback={<p class="dim">Nothing closed yet.</p>}>
-      <table class="jr-table jr-groups">
+    <>
+      <header class="jx-head">
+        <h3>Where it was made</h3>
+        <div class="jh-sides">
+          <For each={BREAKDOWNS}>
+            {(b) => (
+              <button classList={{ on: by().id === b.id }} onClick={() => setBy(b)}>
+                {b.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </header>
+      <table class="jx-table num">
         <thead>
           <tr>
             <th />
             <th>Trades</th>
             <th>Win</th>
-            <th>R</th>
+            <th class="wide" />
             <th>P&L</th>
           </tr>
         </thead>
         <tbody>
-          <For each={props.groups.slice(0, 12)}>
+          <For each={groups()}>
             {(g) => (
               <tr>
-                <td>{g.key}</td>
-                <td class="num">{g.trades}</td>
-                <td class="num">{g.winRate.toFixed(0)}%</td>
-                <td class={`num ${tone(g.totalR)}`}>{rText(g.totalR)}</td>
-                <td class={`num ${tone(g.pnl)}`}>{money(g.pnl)}</td>
+                <td class="name">{g.key}</td>
+                <td>{g.trades}</td>
+                <td>{g.winRate.toFixed(0)}%</td>
+                <td class="wide">
+                  <div class="jx-track" style={{ '--zero': `${(scale().neg / scale().span) * 100}%` }}>
+                    <i class={g.pnl >= 0 ? 'up' : 'down'} style={{ left: `${((scale().neg + Math.min(0, g.pnl)) / scale().span) * 100}%`, width: `${(Math.abs(g.pnl) / scale().span) * 100}%` }} />
+                  </div>
+                </td>
+                <td class={tone(g.pnl)}>{money(g.pnl)}</td>
               </tr>
             )}
           </For>
         </tbody>
       </table>
-    </Show>
+    </>
   );
 }
 
@@ -575,13 +763,13 @@ function History(props: { trades: Trade[]; price: (market: string, v: number | n
 }
 
 /** One trade on a line: when, which way, where, in and out, how it went. */
-function Row(props: { trade: Trade; price: (market: string, v: number | null) => string; onSelect: (id: number) => void }) {
+function Row(props: { trade: Trade; price: (market: string, v: number | null) => string; onSelect: (id: number) => void; dated?: boolean }) {
   const t = () => props.trade;
   const done = () => !isLive(t());
   const p = (v: number | null) => props.price(t().market, v);
   return (
     <button class={`jh-row ${outcome(t())}`} onClick={() => props.onSelect(t().id)}>
-      <span class="jh-time num dim">{clock(done() ? when(t()) : (t().openedAt ?? t().startAt))}</span>
+      <span class="jh-time num dim">{(props.dated ? stamp : clock)(done() ? when(t()) : (t().openedAt ?? t().startAt))}</span>
       <span class={`jh-side ${t().side}`}>{t().side === 'long' ? 'Long' : 'Short'}</span>
       <span class="jh-market">
         <b>{symbolOf(t().market)}</b>
@@ -633,9 +821,73 @@ function held(ms: number): string {
   return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
 }
 
+/** A price typed in a form, with what it comes to under it. */
+function PriceField(props: { label: string; value: string; onInput: (v: string) => void; hint?: string; tone?: string; required?: boolean }) {
+  return (
+    <label class="jd-field">
+      <span class="jd-label">{props.label}</span>
+      <input class="jr-in num" inputmode="decimal" required={props.required} value={props.value} onInput={(e) => props.onInput(e.currentTarget.value)} />
+      <Show when={props.hint}>
+        <span class={`jd-hint num ${props.tone ?? 'dim'}`}>{props.hint}</span>
+      </Show>
+    </label>
+  );
+}
+
+/** How far a price is from the entry. */
+function fromEntry(price: string, entry: string): string | undefined {
+  const [p, e] = [Number(price), Number(entry)];
+  if (!(p > 0 && e > 0)) return undefined;
+  const pct = ((p - e) / e) * 100;
+  return `${pct > 0 ? '+' : pct < 0 ? '−' : ''}${Math.abs(pct).toFixed(2)}%`;
+}
+
 /**
- * One trade, every part of it in one form: its plan — entry, stop, target,
- * risk, fees — who says how it went, its strategy and notes, saved together.
+ * A trade's size, in the form's own terms: its margin and leverage are what it
+ * keeps, so a stop moved changes what it risks and not its size. Its coins or
+ * its risk can be typed too, and the margin goes to what they take. What the
+ * numbers come to is worked out under them as they change.
+ */
+function SizeFields(props: {
+  entry: number;
+  stop: number;
+  target: number;
+  dir: number;
+  coin: string;
+  margin: number;
+  setMargin: (v: number) => void;
+  leverage: number;
+  setLeverage: (v: number) => void;
+  legs?: DrawnLeg[];
+  children?: JSX.Element;
+}) {
+  const live = () => (props.legs ?? []).filter((l) => fits(l, props.entry, props.stop, props.target));
+  const coins = () => coinsFor(props.margin, props.entry, props.leverage);
+  const per = () => lossPerCoin(props.entry, props.stop, live(), props.dir);
+  const made = createMemo(() => figures(props.entry, props.stop, props.target, coins(), live(), props.dir));
+  const number = (label: string, value: () => number, set: (v: number) => void) => (
+    <label class="jd-field">
+      <span class="jd-label">{label}</span>
+      <NumField class="jr-in num" value={value()} onValue={(v) => v > 0 && set(v)} label={label} />
+    </label>
+  );
+  return (
+    <>
+      <div class="jd-grid">
+        {number('Margin $', () => cents(props.margin), props.setMargin)}
+        {number('Leverage ×', () => props.leverage, props.setLeverage)}
+        {number(`Qty ${props.coin}`, () => figuresOf(coins()), (v) => props.setMargin(marginFor(v, props.entry, props.leverage)))}
+        {number('Risk $', () => cents(made().loss), (v) => per() > 0 && props.setMargin(marginFor(v / per(), props.entry, props.leverage)))}
+        {props.children}
+      </div>
+      <Readout figures={made()} hasLegs={live().some((l) => l.kind !== 'take')} />
+    </>
+  );
+}
+
+/**
+ * One trade, every part of it in one form: its plan, its size and what those
+ * come to, who says how it went, its strategy and notes, saved together.
  */
 function Editor(props: {
   trade: Trade;
@@ -648,7 +900,8 @@ function Editor(props: {
   const [entry, setEntry] = createSignal('');
   const [stop, setStop] = createSignal('');
   const [target, setTarget] = createSignal('');
-  const [risk, setRisk] = createSignal('');
+  const [margin, setMargin] = createSignal(0);
+  const [leverage, setLeverage] = createSignal(1);
   const [fees, setFees] = createSignal('');
   const [strategy, setStrategy] = createSignal('');
   const [notes, setNotes] = createSignal('');
@@ -662,7 +915,8 @@ function Editor(props: {
     setEntry(plain(x.entry));
     setStop(plain(x.stop));
     setTarget(plain(x.target));
-    setRisk(String(Number(x.risk.toFixed(2))));
+    setLeverage(x.leverage > 0 ? x.leverage : 1);
+    setMargin(marginFor(x.qty, x.entry, x.leverage > 0 ? x.leverage : 1));
     setFees(x.fees ? String(x.fees) : '');
     setStrategy(x.strategy);
     setNotes(x.notes);
@@ -675,6 +929,28 @@ function Editor(props: {
   const [error, setError] = createSignal<string | null>(null);
   const [sure, setSure] = createSignal(false);
 
+  const coins = () => coinsFor(margin(), Number(entry()), leverage());
+  const dir = () => (t().side === 'long' ? 1 : -1);
+  const legs = (): DrawnLeg[] => t().legs.map((l) => ({ kind: l.kind, price: l.price, percent: l.share * 100 }));
+  const moved = () => entry() !== plain(t().entry) || stop() !== plain(t().stop) || target() !== plain(t().target);
+  /** What the form comes to, before it is saved; null where only price can say. */
+  const result = createMemo((): number | null => {
+    const [x, m, feesNow] = [t(), mode(), Number(fees() || 0)];
+    if (m === 'cancelled' || !(coins() > 0)) return null;
+    if (m === 'auto') return isClosed(x) && !moved() && x.qty > 0 ? ((pnl(x)! + x.fees) * coins()) / x.qty - feesNow : null;
+    if (m === 'closed' && !(Number(exit()) > 0)) return null;
+    return closedPnl(x, { entry: entry() === plain(x.entry) ? x.entry : Number(entry()), qty: coins(), exit: m === 'closed' ? Number(exit()) : null, fees: feesNow });
+  });
+  const heroTone = () => {
+    const r = result();
+    return r === null ? outcome(t()) : r > 0 ? 'win' : r < 0 ? 'loss' : 'even';
+  };
+  const heroR = () => {
+    const r = result();
+    const risk = figures(Number(entry()), Number(stop()), Number(target()), coins(), legs().filter((l) => fits(l, Number(entry()), Number(stop()), Number(target()))), dir()).loss;
+    return r === null ? rMultiple(t()) : risk > 0 ? r / risk : null;
+  };
+
   // What changed, as the server takes it.
   const patch = (): TradePatch => {
     const x = t();
@@ -682,7 +958,9 @@ function Editor(props: {
     if (entry() !== plain(x.entry)) p.entry = Number(entry());
     if (stop() !== plain(x.stop)) p.stop = Number(stop());
     if (target() !== plain(x.target)) p.target = Number(target());
-    if (Number(risk()) !== Number(x.risk.toFixed(2))) p.risk = Number(risk());
+    // A margin rounds to the cent as it shows; only a real change is a new size.
+    if (coins() > 0 && Math.abs(coins() - x.qty) > x.qty * 1e-9) p.qty = coins();
+    if (leverage() !== x.leverage) p.leverage = leverage();
     if (Number(fees() || 0) !== x.fees) p.fees = Number(fees() || 0);
     if (strategy() !== x.strategy) p.strategy = strategy();
     if (notes() !== x.notes) p.notes = notes();
@@ -701,7 +979,7 @@ function Editor(props: {
     const [e, s, g] = [Number(entry()), Number(stop()), Number(target())];
     if (!(e > 0 && s > 0 && g > 0)) return 'Entry, stop and target need prices.';
     if (t().side === 'long' ? !(s < e && e < g) : !(g < e && e < s)) return t().side === 'long' ? 'A long’s stop goes below its entry, its target above.' : 'A short’s stop goes above its entry, its target below.';
-    if (!(Number(risk()) > 0)) return 'Risk needs an amount above 0.';
+    if (!(margin() > 0 && leverage() > 0)) return 'Margin and leverage need amounts above 0.';
     if (mode() === 'closed' && !(Number(exit()) > 0)) return 'Closed at a price needs the exit price.';
     if (mode() !== 'auto' && Number.isNaN(Date.parse(closedAt()))) return 'Say when it closed.';
     return null;
@@ -726,7 +1004,7 @@ function Editor(props: {
       const p = patch();
       const done = await journalApi.update(t().id, p);
       // Its position on the chart moved, or was resized, with it.
-      if (t().drawingId !== null && (p.entry !== undefined || p.stop !== undefined || p.target !== undefined || p.risk !== undefined)) setDrawingsChanged({ market: t().market });
+      if (t().drawingId !== null && (p.entry !== undefined || p.stop !== undefined || p.target !== undefined || p.qty !== undefined || p.leverage !== undefined)) setDrawingsChanged({ market: t().market });
       return done;
     });
   const openChart = () => {
@@ -737,17 +1015,8 @@ function Editor(props: {
     focusPanel(chart.id);
     setJournalOpen(false);
   };
-  const coin = () => symbolOf(t().market).replace(/(USDT|USDC|USD)$/, '') || 'units';
+  const coin = () => coinOf(t().market);
   const qtyOf = (q: number) => `${Number(q.toPrecision(4))} ${coin()}`;
-  // The size the form's risk buys over its stop; with adds drawn, the trade's own is a little less.
-  const size = () => {
-    const per = Math.abs(Number(entry()) - Number(stop()));
-    return per > 0 && Number(risk()) > 0 ? qtyOf(Number(risk()) / per) : '—';
-  };
-  const rr = () => {
-    const per = Math.abs(Number(entry()) - Number(stop()));
-    return per > 0 ? (Math.abs(Number(target()) - Number(entry())) / per).toFixed(2) : '—';
-  };
   const timeline = () => {
     const x = t();
     const parts = [`Drawn ${stamp(x.startAt)}`];
@@ -763,6 +1032,7 @@ function Editor(props: {
   ];
   const modeHint = () => {
     const m = mode();
+    if (m === 'auto' && moved() && t().tracked) return 'Its prices changed, so price weighs it again from the start once saved.';
     if (m === 'auto')
       return t().tracked
         ? `Open at the entry${t().legs.length > 0 ? ', its partials filled as price reaches them' : ''}, then closed at the target or the stop. Now: ${STATUS_LABEL[t().status]}.`
@@ -771,13 +1041,6 @@ function Editor(props: {
     if (m === 'breakeven') return 'Out at the entry: no gain, no loss.';
     return 'Never taken: left out of every figure.';
   };
-  const field = (label: string, value: () => string, set: (v: string) => void, hint?: () => string) => (
-    <label class="jd-field">
-      <span class="jd-label">{label}</span>
-      <input class="jr-in num" inputmode="decimal" value={value()} onInput={(e) => set(e.currentTarget.value)} />
-      {hint ? <span class="jd-hint dim num">{hint()}</span> : null}
-    </label>
-  );
   return (
     <>
       <div class="jr-scrim" onClick={props.onClose} />
@@ -793,11 +1056,11 @@ function Editor(props: {
           </button>
         </header>
         <div class="jr-drawer-body">
-          <div class={`jd-hero ${outcome(t())}`}>
+          <div class={`jd-hero ${heroTone()}`}>
             <div class="jd-result">
-              <span class="jd-pnl num">{isLive(t()) || t().status === 'cancelled' ? STATUS_LABEL[t().status] : money(pnl(t()))}</span>
-              <Show when={!isLive(t()) && t().status !== 'cancelled'}>
-                <span class="jd-r num">{rText(rMultiple(t()))}</span>
+              <span class="jd-pnl num">{result() !== null ? money(result()) : isLive(t()) || t().status === 'cancelled' ? STATUS_LABEL[t().status] : money(pnl(t()))}</span>
+              <Show when={result() !== null || (!isLive(t()) && t().status !== 'cancelled')}>
+                <span class="jd-r num">{rText(heroR())}</span>
               </Show>
             </div>
             <span class="dim num">{timeline()}</span>
@@ -806,11 +1069,9 @@ function Editor(props: {
           <section class="jd-section">
             <h3>Plan</h3>
             <div class="jd-grid">
-              {field('Entry', entry, setEntry)}
-              {field('Stop loss', stop, setStop)}
-              {field('Take profit', target, setTarget, () => `${rr()} RR`)}
-              {field('Risk $', risk, setRisk, () => size())}
-              {field('Fees $', fees, setFees)}
+              <PriceField label="Entry" value={entry()} onInput={setEntry} />
+              <PriceField label="Stop loss" value={stop()} onInput={setStop} hint={fromEntry(stop(), entry())} tone="bear" />
+              <PriceField label="Take profit" value={target()} onInput={setTarget} hint={fromEntry(target(), entry())} tone="bull" />
             </div>
             <p class="jd-hint dim">
               {t().drawingId !== null
@@ -819,6 +1080,13 @@ function Editor(props: {
                   ? 'Its position was deleted from the chart; the trade keeps these prices.'
                   : 'Added by hand.'}
             </p>
+          </section>
+
+          <section class="jd-section">
+            <h3>Size</h3>
+            <SizeFields entry={Number(entry())} stop={Number(stop())} target={Number(target())} dir={dir()} coin={coin()} margin={margin()} setMargin={setMargin} leverage={leverage()} setLeverage={setLeverage} legs={legs()}>
+              <PriceField label="Fees $" value={fees()} onInput={setFees} />
+            </SizeFields>
           </section>
 
           <section class="jd-section">
@@ -834,7 +1102,9 @@ function Editor(props: {
             </div>
             <Show when={mode() !== 'auto'}>
               <div class="jd-grid">
-                <Show when={mode() === 'closed'}>{field('Exit price', exit, setExit)}</Show>
+                <Show when={mode() === 'closed'}>
+                  <PriceField label="Exit price" value={exit()} onInput={setExit} />
+                </Show>
                 <label class="jd-field jd-wide">
                   <span class="jd-label">{mode() === 'cancelled' ? 'Called off' : 'Closed'}</span>
                   <input class="jr-in" type="datetime-local" value={closedAt()} onInput={(e) => setClosedAt(e.currentTarget.value)} />
@@ -918,6 +1188,9 @@ function Editor(props: {
   );
 }
 
+/** `BTC` of BTCUSDT: what a trade's size is counted in. */
+const coinOf = (market: string): string => symbolOf(market).replace(/(USDT|USDC|USD)$/, '') || 'units';
+
 // ---------------------------------------------------------------- by hand
 
 function AddTrade(props: { onClose: () => void; onAdd: (t: Trade) => void }) {
@@ -928,7 +1201,10 @@ function AddTrade(props: { onClose: () => void; onAdd: (t: Trade) => void }) {
   const [entry, setEntry] = createSignal('');
   const [stop, setStop] = createSignal('');
   const [target, setTarget] = createSignal('');
-  const [risk, setRisk] = createSignal('10');
+  // As the last position was sized, or the factory's.
+  const size = defaultStyle('long');
+  const [margin, setMargin] = createSignal(Number(size.margin) || 100);
+  const [leverage, setLeverage] = createSignal(Number(size.leverage) || 1);
   const [at, setAt] = createSignal(localInput(Date.now()));
   const [closed, setClosed] = createSignal(false);
   const [exit, setExit] = createSignal('');
@@ -937,6 +1213,8 @@ function AddTrade(props: { onClose: () => void; onAdd: (t: Trade) => void }) {
   const [notes, setNotes] = createSignal('');
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+
+  const closedTo = () => (Number(exit()) - Number(entry())) * (side() === 'long' ? 1 : -1) * coinsFor(margin(), Number(entry()), leverage());
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -948,6 +1226,7 @@ function AddTrade(props: { onClose: () => void; onAdd: (t: Trade) => void }) {
     setError(null);
     try {
       const status: Status = closed() ? 'closed' : 'planned';
+      rememberSize({ margin: margin(), leverage: leverage() });
       props.onAdd(
         await journalApi.create({
           market: market(),
@@ -955,7 +1234,8 @@ function AddTrade(props: { onClose: () => void; onAdd: (t: Trade) => void }) {
           entry: Number(entry()),
           stop: Number(stop()),
           target: Number(target()),
-          risk: Number(risk()) || undefined,
+          qty: coinsFor(margin(), Number(entry()), leverage()),
+          leverage: leverage(),
           startAt: Date.parse(at()),
           status,
           ...(closed() ? { exit: Number(exit()), closedAt: Date.parse(closedAt()) } : {}),
@@ -1012,44 +1292,33 @@ function AddTrade(props: { onClose: () => void; onAdd: (t: Trade) => void }) {
               Short
             </button>
           </div>
-          <div class="jr-row">
-            <label class="jr-label">
-              Entry
-              <input class="jr-in num" inputmode="decimal" required value={entry()} onInput={(e) => setEntry(e.currentTarget.value)} />
-            </label>
-            <label class="jr-label">
-              Stop
-              <input class="jr-in num" inputmode="decimal" required value={stop()} onInput={(e) => setStop(e.currentTarget.value)} />
-            </label>
-            <label class="jr-label">
-              Target
-              <input class="jr-in num" inputmode="decimal" required value={target()} onInput={(e) => setTarget(e.currentTarget.value)} />
-            </label>
+          <div class="jd-grid">
+            <PriceField label="Entry" value={entry()} onInput={setEntry} required />
+            <PriceField label="Stop loss" value={stop()} onInput={setStop} hint={fromEntry(stop(), entry())} tone="bear" required />
+            <PriceField label="Take profit" value={target()} onInput={setTarget} hint={fromEntry(target(), entry())} tone="bull" required />
           </div>
-          <div class="jr-row">
-            <label class="jr-label">
-              Risk ($)
-              <input class="jr-in num" inputmode="decimal" value={risk()} onInput={(e) => setRisk(e.currentTarget.value)} />
-            </label>
-            <label class="jr-label">
-              Entered
+          <SizeFields entry={Number(entry())} stop={Number(stop())} target={Number(target())} dir={side() === 'long' ? 1 : -1} coin={coinOf(market())} margin={margin()} setMargin={setMargin} leverage={leverage()} setLeverage={setLeverage}>
+            <label class="jd-field jd-wide">
+              <span class="jd-label">Entered</span>
               <input class="jr-in" type="datetime-local" value={at()} onInput={(e) => setAt(e.currentTarget.value)} />
             </label>
-          </div>
+          </SizeFields>
           <label class="jr-check">
             <input type="checkbox" checked={closed()} onChange={(e) => setClosed(e.currentTarget.checked)} /> Already closed
           </label>
           <Show when={closed()}>
-            <div class="jr-row">
-              <label class="jr-label">
-                Exit
-                <input class="jr-in num" inputmode="decimal" required value={exit()} onInput={(e) => setExit(e.currentTarget.value)} />
-              </label>
-              <label class="jr-label">
-                Closed
+            <div class="jd-grid">
+              <PriceField label="Exit price" value={exit()} onInput={setExit} required />
+              <label class="jd-field jd-wide">
+                <span class="jd-label">Closed</span>
                 <input class="jr-in" type="datetime-local" value={closedAt()} onInput={(e) => setClosedAt(e.currentTarget.value)} />
               </label>
             </div>
+            <Show when={Number(exit()) > 0 && Number(entry()) > 0}>
+              <p class="jd-hint num">
+                Comes to <b class={tone(closedTo())}>{money(closedTo())}</b>
+              </p>
+            </Show>
           </Show>
           <StrategyPicker value={strategy()} onChange={setStrategy} />
           <label class="jr-label">

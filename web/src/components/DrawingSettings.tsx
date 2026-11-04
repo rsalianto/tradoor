@@ -2,13 +2,14 @@
  * One drawing's settings, in the tabs TradingView puts them under. Every change
  * shows on the chart at once; Ok saves it, Cancel puts the drawing back.
  */
-import { createSignal, For, type JSX, onCleanup, onMount, Show } from 'solid-js';
+import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show } from 'solid-js';
 import type { DrawingPoint } from '../engine/protocol';
 import type { Drawing } from '../lib/api';
 import {
   isPosition,
   KIND_NAMES,
   parseLevels,
+  rememberSize,
   resetDefaultStyle,
   saveDefaultStyle,
   serializeLevels,
@@ -34,6 +35,8 @@ const LINE_KINDS = new Set(['trendline', 'ray', 'horizontal', 'path', 'brush']);
 
 export function DrawingSettings(props: {
   drawing: Drawing;
+  /** Where the chart has it now: dragged there while the dialog is open. */
+  points(): DrawingPoint[] | undefined;
   /** The instrument's price decimals: one tick is 10^-precision. */
   precision: number;
   onPreview(patch: DrawingPatch): void;
@@ -43,7 +46,8 @@ export function DrawingSettings(props: {
 }) {
   const kind = props.drawing.kind;
   const original: DrawingPatch = { style: { ...props.drawing.style }, label: props.drawing.label, points: props.drawing.points.map((p) => ({ ...p })) };
-  const [style, setStyleState] = createSignal<Style>({ ...factoryStyle(kind), ...original.style });
+  // A position saved with no `sizeBy` keeps to its risk: its size is not the factory's margin.
+  const [style, setStyleState] = createSignal<Style>({ ...factoryStyle(kind), ...(isPosition(kind) ? { sizeBy: 'risk' } : {}), ...original.style });
   const [label, setLabelState] = createSignal<string | null>(original.label);
   const [points, setPointsState] = createSignal<DrawingPoint[]>(original.points);
   const tabs: Tab[] = isPosition(kind) ? ['inputs', 'style', 'visibility'] : kind === 'text' ? ['style', 'coordinates', 'visibility'] : ['style', 'text', 'coordinates', 'visibility'];
@@ -86,6 +90,22 @@ export function DrawingSettings(props: {
     return v === undefined ? fallback : v === true || v === 1 || v === '1' || v === 'true';
   };
 
+  // Dragged on the chart meanwhile: a change of its own, saved at once, which Cancel leaves be. The
+  // dialog takes the new prices, and the chart, handed back the saved drawing, keeps what the
+  // dialog has changed so far.
+  createEffect(
+    on(
+      () => props.points(),
+      (now) => {
+        if (!now || now === points()) return;
+        if (JSON.stringify(now) !== JSON.stringify(points())) original.points = now.map((p) => ({ ...p }));
+        setPointsState(now);
+        preview();
+      },
+      { defer: true },
+    ),
+  );
+
   const cancel = () => {
     props.onPreview(original);
     props.onCancel();
@@ -93,6 +113,7 @@ export function DrawingSettings(props: {
   // A position's journal side, saved once the drawing is: its trade follows the drawing.
   let saveJournal: (() => Promise<void>) | undefined;
   const ok = () => {
+    if (isPosition(kind)) rememberSize(style());
     const after = saveJournal;
     void Promise.resolve(props.onCommit(patch()))
       .then(() => after?.())

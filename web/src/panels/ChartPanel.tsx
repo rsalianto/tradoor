@@ -1898,6 +1898,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               {(drawing) => (
                 <DrawingSettings
                   drawing={drawing()}
+                  points={() => drawings().find((x) => x.id === editId)?.points}
                   precision={untrack(() => price()?.precision ?? 2)}
                   onPreview={(patch) => previewDrawing(editId, patch)}
                   onCommit={(patch) => commitDrawing(drawing(), patch)}

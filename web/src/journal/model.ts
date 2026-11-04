@@ -45,8 +45,10 @@ export interface Trade {
   target: number;
   /** What the position risks, in the quote. */
   risk: number;
-  /** The coins that risk buys. */
+  /** The coins its entry buys. */
   qty: number;
+  /** Its margin is what those coins are worth at the entry, over this. */
+  leverage: number;
   status: Status;
   openedAt: number | null;
   closedAt: number | null;
@@ -75,7 +77,8 @@ export interface NewTrade {
   entry: number;
   stop: number;
   target: number;
-  risk?: number;
+  qty?: number;
+  leverage?: number;
   startAt?: number;
   status?: Status;
   exit?: number;
@@ -84,7 +87,7 @@ export interface NewTrade {
   notes?: string;
 }
 
-export type TradePatch = Partial<Pick<Trade, 'strategy' | 'notes' | 'fees' | 'risk' | 'entry' | 'stop' | 'target'>> & { status?: 'closed' | 'breakeven' | 'cancelled'; exit?: number; closedAt?: number; auto?: true };
+export type TradePatch = Partial<Pick<Trade, 'strategy' | 'notes' | 'fees' | 'qty' | 'leverage' | 'entry' | 'stop' | 'target'>> & { status?: 'closed' | 'breakeven' | 'cancelled'; exit?: number; closedAt?: number; auto?: true };
 
 /** The list last read, and the tag the server gave it. */
 let held: { tag: string; trades: Trade[] } | null = null;
@@ -121,7 +124,7 @@ const DONE: ReadonlySet<Status> = new Set(['win', 'loss', 'closed', 'breakeven']
 /** Played out, with an exit to weigh it by. */
 export const isClosed = (t: Trade): boolean => DONE.has(t.status) && t.exit !== null;
 export const isLive = (t: Trade): boolean => t.status === 'planned' || t.status === 'open';
-const way = (t: Trade): number => (t.side === 'long' ? 1 : -1);
+const way = (t: Pick<Trade, 'side'>): number => (t.side === 'long' ? 1 : -1);
 
 /** A trade's coins in and out: what is held, at what average entry, and what those out made. */
 export interface Book {
@@ -176,6 +179,19 @@ export function rMultiple(t: Trade): number | null {
 
 /** The reward the plan aims for over what it risks. */
 export const plannedRR = (t: Trade): number => Math.abs(t.target - t.entry) / Math.abs(t.entry - t.stop);
+
+/**
+ * What a close by hand comes to before it is saved, as bins/server journal will
+ * reckon it: at this size, out at `exit` (at the average entry, for break-even),
+ * what price took off on the way kept at the new size; with the entry moved, all
+ * of it in at the new entry and out at once.
+ */
+export function closedPnl(t: Pick<Trade, 'side' | 'entry' | 'qty' | 'fills'>, form: { entry: number; qty: number; exit: number | null; fees: number }): number {
+  const by = t.qty > 0 ? form.qty / t.qty : 1;
+  const kept = form.entry !== t.entry ? [] : t.fills.filter((f) => f.kind !== 'hand' && f.kind !== 'stop' && f.kind !== 'target').map((f) => ({ ...f, qty: f.qty * by }));
+  const b = book({ side: t.side, fills: kept.length > 0 ? kept : [{ kind: 'entry', price: form.entry, qty: form.qty, at: 0 }] });
+  return b.realized + ((form.exit ?? b.avgEntry) - b.avgEntry) * way(t) * b.held - form.fees;
+}
 
 /** What it makes now, at `price`, while open: what was taken off, and what is held. */
 export function openPnl(t: Trade, price: number): number {
@@ -324,12 +340,22 @@ export function dailyPnl(trades: readonly Trade[]): Map<string, { pnl: number; r
 }
 
 /** The running total of closed trades, in the order they closed. */
-export function equityCurve(trades: readonly Trade[]): { at: number; total: number }[] {
+export function equityCurve(trades: readonly Trade[]): { at: number; total: number; trade: Trade }[] {
   let total = 0;
   return trades
     .filter(isClosed)
     .sort((a, b) => when(a) - when(b))
-    .map((t) => ({ at: when(t), total: (total += pnl(t)!) }));
+    .map((t) => ({ at: when(t), total: (total += pnl(t)!), trade: t }));
+}
+
+/** Round figures for an axis from `lo` to `hi`, covering both, about `count` steps apart. */
+export function niceTicks(lo: number, hi: number, count = 4): number[] {
+  const rough = (hi - lo || Math.abs(hi) || 1) / count;
+  const scale = 10 ** Math.floor(Math.log10(rough));
+  const step = [1, 2, 2.5, 5, 10].find((m) => m * scale >= rough)! * scale;
+  const out: number[] = [];
+  for (let i = Math.floor(lo / step); i <= Math.ceil(hi / step); i++) out.push(Number((i * step).toFixed(10)));
+  return out;
 }
 
 // ---------------------------------------------------------------- weeks

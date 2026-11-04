@@ -143,7 +143,7 @@ The file format is described in [format.md](format.md).
 | `GET /api/markets` | the same as one object a market (2.4 MB, 350 KB gzipped), for pages loaded before `catalog` |
 | `GET /api/index/candles?symbol=&interval=&start=&end=&limit=` | an index's bars — TOTAL and its parts, the dominances, the VIX — as `[open, o, h, l, c, 0]`, oldest first, the forming one with them |
 | `GET /api/index/latest?symbols=&interval=` | the last two bars of each index named, by symbol: a watchlist's indices in one request |
-| `GET POST /api/journal` · `PATCH DELETE /api/journal/{id}` | this browser's journal trades — written only for an account, signed in with Telegram (403 otherwise) — tagged (`ETag`; asked with an unchanged tag, 304); add one by hand; set its strategy, notes, fees or risk, close it by hand (`closed` at `exit`, `breakeven`, `cancelled`) or give it back to price (`auto: true`); delete it |
+| `GET POST /api/journal` · `PATCH DELETE /api/journal/{id}` | this browser's journal trades — written only for an account, signed in with Telegram (403 otherwise) — tagged (`ETag`; asked with an unchanged tag, 304); add one by hand; set its strategy, notes or fees, its prices or its size (`qty`, `leverage`), close it by hand (`closed` at `exit`, `breakeven`, `cancelled`) or give it back to price (`auto: true`); delete it |
 | `GET /api/journal/reviews` · `PUT /api/journal/reviews/{week}` | this browser's weekly reviews; save a week's answers, for an account only |
 | `GET /api/training` · `GET /api/training/trades?run=` | training, for an account only: cash, leverages, positions with their liquidation prices, resting orders and the coins' live prices; a run's closed trades and every run's sum |
 | `POST /api/training/orders` · `DELETE /api/training/orders/{id}` | a market or limit order, long or short, with a take profit and stop loss; a resting order cancelled |
@@ -277,8 +277,7 @@ The trading journal (`journal`, `web/src/journal`) is the Journal button in
 the top bar (the phone's menu has it too): a view over the workspace, its
 charts left running under it. Every long or short position drawn on a chart
 is a trade in it — the drawing's entry, stop and target, and the coins its
-risk settings buy (1% of a 1,000 account, as the chart draws it, until set) —
-written by the drawings API as the drawing is (`sync_drawing`) and moved with
+size settings buy — written by the drawings API as the drawing is (`sync_drawing`) and moved with
 it. Deleting the drawing leaves the trade, untied; an undo that draws the same
 position again takes it back. Price decides how each went: a watcher reads
 each market's closed minutes from where it left off — Binance, Bybit,
@@ -290,7 +289,14 @@ a trade taken then and weighed from that moment, however far back its left
 edge sits; one wholly on bars already past is a setup looked back on, weighed
 from its left edge. A status set by hand — closed at a price, break-even,
 cancelled — takes the trade out of price's hands until it is given back, and
-moving a drawing weighs its trade again from the start. A position may carry
+moving a drawing weighs its trade again from the start. A position is sized by
+its margin (`sizeBy` in its style; a margin of 100 at 10× until set): its coins
+are the margin times the leverage over the entry, so moving its stop changes
+what it risks and not its size. Set to keep its risk instead (`sizeBy: risk`,
+as TradingView's tool does, and as positions drawn before margins were, which
+went over at the size they held), the stop moves its size. The chart's settings
+and the journal's forms show what the numbers come to as they are typed, the
+journal's keeping the margin too and writing it to the drawing. A position may carry
 legs, set in its settings (`PositionTicket`, laid out as rsalianto's trade
 form, its strategy picked from sketched cards) and drawn dashed across its box:
 partial take profits between the entry and the target, partial cut losses
@@ -302,9 +308,10 @@ the trade closes once nothing is held, a win on the target's side and a loss
 on the stop's, and what it made is its fills against their average entry. Its
 risk, the unit of its R, is what it loses at the stop with every add and cut
 on the way filled. The view itself is
-rsalianto's journal: a dashboard of what the trades add up to (net P&L, win
-rate, total R, profit factor, expectancy, drawdown, streak; the equity curve,
-a P&L calendar, and by pair, side and strategy), the history — each trade
+rsalianto's journal: a dashboard of what the trades add up to (net P&L first;
+win rate, profit factor, average trade, drawdown; the equity curve, a P&L
+calendar, where it was made by pair, side or strategy, and the latest trades),
+the history — each trade
 opened to set its strategy and notes, close it by hand or open its chart —
 and the weekly review's nine questions beside the week's figures. A journal
 is kept for an account: a browser not signed in with Telegram is shown how to

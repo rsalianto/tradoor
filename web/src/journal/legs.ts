@@ -76,3 +76,34 @@ export function fullEntry(entry: number, qty: number, legs: readonly DrawnLeg[])
   const bought = qty + adds.reduce((s, l) => s + (l.percent / 100) * qty, 0);
   return bought > 0 ? (entry * qty + adds.reduce((s, l) => s + l.price * (l.percent / 100) * qty, 0)) / bought : entry;
 }
+
+// ---------------------------------------------------------------- size
+
+/** What a margin holds at its leverage, in coins, at this entry. */
+export const coinsFor = (margin: number, entry: number, leverage: number): number => (entry > 0 ? (margin * leverage) / entry : 0);
+
+/** The margin those coins take. */
+export const marginFor = (coins: number, entry: number, leverage: number): number => (leverage > 0 ? (coins * entry) / leverage : 0);
+
+/** What a position loses for each coin of its entry's size at the stop, the legs on the way filled. */
+export const lossPerCoin = (entry: number, stop: number, legs: readonly DrawnLeg[], dir: number): number => -runTo(entry, stop, 1, legs, dir);
+
+export interface Figures {
+  /** What it loses at the stop, and makes at the target, the legs on the way filled. */
+  loss: number;
+  gain: number;
+  rr: number;
+  /** What it is worth at its entry. */
+  value: number;
+}
+
+export function figures(entry: number, stop: number, target: number, coins: number, legs: readonly DrawnLeg[], dir: number): Figures {
+  const per = Math.abs(entry - stop);
+  return { loss: Math.max(0, -runTo(entry, stop, coins, legs, dir)), gain: Math.max(0, runTo(entry, target, coins, legs, dir)), rr: per > 0 ? Math.abs(target - entry) / per : 0, value: coins * entry };
+}
+
+/** Money as a field shows it: cents, or a few figures below a dollar. */
+export const cents = (v: number): number => (Math.abs(v) >= 1 ? Number(v.toFixed(2)) : Number(v.toPrecision(4)));
+
+/** Coins as a field shows them. */
+export const figuresOf = (q: number): number => Number(q.toPrecision(6));

@@ -74,6 +74,14 @@ export function saveDefaultStyle(kind: string, style: Style): void {
   writePref(TEMPLATE_KEY, JSON.stringify(all));
 }
 
+/** The next position starts at the size this one was set to, long or short. */
+export function rememberSize(style: Style): void {
+  const all = templates();
+  const size = Object.fromEntries(['sizeBy', 'margin', 'leverage', 'account', 'risk', 'riskUnit'].filter((k) => style[k] !== undefined).map((k) => [k, style[k]!]));
+  for (const kind of ['long', 'short']) all[kind] = { ...all[kind], ...size };
+  writePref(TEMPLATE_KEY, JSON.stringify(all));
+}
+
 export function resetDefaultStyle(kind: string): void {
   const all = templates();
   delete all[kind];

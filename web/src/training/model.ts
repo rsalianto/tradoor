@@ -191,6 +191,7 @@ export function asJournal(t: ClosedTrade): Trade {
     id: t.id,
     drawingId: null,
     tracked: false,
+    leverage: 1,
     market: marketOfSymbol(t.symbol),
     side: t.side,
     timeframe: '1m',

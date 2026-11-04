@@ -158,7 +158,7 @@ Net taker flow on each exchange, spot and perpetual, over the last minute to day
 ### Trading journal
 
 <p align="center">
-  <img src="docs/screenshots/journal.webp" alt="The journal's dashboard: net P&L, win rate, total R, profit factor, drawdown and streak; the equity curve; the P&L calendar with each week's R; and the breakdowns by pair, side and strategy" width="100%">
+  <img src="docs/screenshots/journal.webp" alt="The journal's dashboard: net P&L first, then win rate, profit factor, average trade and drawdown; the equity curve, red below zero; the P&L calendar with each week's R; where it was made by pair, side or strategy; and the latest trades" width="100%">
   <br>
   <sub>The journal's dashboard, with sample trades.</sub>
 </p>
