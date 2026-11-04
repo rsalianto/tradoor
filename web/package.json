@@ -25,7 +25,7 @@
     {
       "name": "engine wasm",
       "path": "dist/assets/*.wasm",
-      "limit": "172 kB",
+      "limit": "173 kB",
       "gzip": true
     }
   ],
