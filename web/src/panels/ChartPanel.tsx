@@ -15,7 +15,7 @@ import { before, DrawingHistory, type DrawingChange, type DrawingRef, type Step 
 import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
-import { fetchFootprint, flatten, foldMinutes, fromHours, recordedMarkets, type Levels, type Minute } from '../lib/footprint';
+import { fetchFootprint, flatten, foldMinutes, fromHours, recordedMarkets, SeenBars, type Levels, type Minute } from '../lib/footprint';
 import { MinuteBook, toMinute } from '../lib/fp-minutes';
 import { replayFootprint, REPLAY_SPEEDS, REPLAY_STEPS } from '../lib/replay';
 import { listenPrints } from '../lib/orderflow';
@@ -449,6 +449,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     const book = !flow && tick > 0 ? new MinuteBook(tick, Date.now()) : null;
     let barMinutes: Minute[] = [];
     let lastServer = 0;
+    const seen = new SeenBars(barMs);
     const draw = () => {
       if (dropped) return;
       let bars = shown;
@@ -457,14 +458,15 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         const since = [...book.minutes].filter(([at]) => at > lastServer && at >= barStart).map(([at, levels]) => toMinute(at, levels, tick));
         const minutes = [...barMinutes.filter((m) => m.at >= barStart), ...since];
         const bar = minutes.length > 0 ? foldMinutes(minutes, tick, barMs, settings, Math.max(1, Math.round(grid / tick))).bars.find((b) => b.time === barStart) : undefined;
-        if (bar) bars = [...shown.filter((b) => b.time !== barStart), bar].sort((a, b) => a.time - b.time);
+        bars = seen.over(shown, bar, barStart);
       }
       send({ t: 'footprint', id: sid, flat: flatten(bars), grid, fitted });
     };
-    const load = (span: number) =>
-      fetchFootprint(market_, barMs, span === days ? from : Date.now() - span * 86_400_000, Date.now(), settings, span).then(
+    const load = (span: number, asked = Date.now()) =>
+      fetchFootprint(market_, barMs, span === days ? from : asked - span * 86_400_000, asked, settings, span).then(
         (fp) => {
           if (dropped) return;
+          seen.answered(fp.bars, asked);
           let bars = fp.bars;
           if (flow) {
             held = new Map([...held, ...bars.map((b) => [b.time, b] as const)]);

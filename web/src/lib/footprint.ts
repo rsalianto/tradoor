@@ -146,6 +146,41 @@ export function foldMinutes(minutes: readonly Minute[], tick: number, barMs: num
   };
 }
 
+/** How late past its last minute the server has a bar: it writes finished minutes down this often. */
+const WRITTEN_WITHIN_MS = 10_000;
+
+/**
+ * Bars seen trade by trade, laid over the server's. The bar under way is the
+ * browser's own, and so is one that has just closed until the server has all of
+ * it: it writes a finished minute down every few seconds and is asked now and
+ * then, and a chart of minutes would lose each bar for that long as it closed.
+ */
+export class SeenBars {
+  private forming: Levels | null = null;
+  private closed = new Map<number, Levels>();
+
+  constructor(private readonly barMs: number) {}
+
+  /** `shown` with these over it, `bar` being the one forming at `start`, if there is any of it yet. */
+  over(shown: readonly Levels[], bar: Levels | undefined, start: number): Levels[] {
+    if (this.forming && this.forming.time < start) {
+      this.closed.set(this.forming.time, this.forming);
+      this.forming = null;
+    }
+    if (bar) this.forming = bar;
+    const own = new Map(this.closed);
+    if (this.forming) own.set(this.forming.time, this.forming);
+    return [...shown.filter((b) => !own.has(b.time)), ...own.values()].sort((a, b) => a.time - b.time);
+  }
+
+  /** The server's bars, in an answer asked for at `asked`: those it had all of are its own from now on. */
+  answered(bars: readonly Levels[], asked: number): void {
+    for (const { time } of bars) {
+      if (asked >= time + this.barMs + WRITTEN_WITHIN_MS) this.closed.delete(time);
+    }
+  }
+}
+
 /** Steps to prices, adding neighbouring levels together onto the shared grid. */
 function group(levels: Map<number, [number, number]>, tick: number, by: number, settings: Settings): [number, number, number][] {
   const rounded = Math.round(by);
