@@ -68,7 +68,7 @@ Every screenshot is the live site, or for the journal and training a local one w
   <sub>Six charts from the grid menu, the new ones on the next tickers in the watchlist.</sub>
 </p>
 
-Up to 20 charts on screen, all drawing: the first four with WebGL, the rest in 2D. Pick a grid from the menu in the top bar, keep Symbol, Interval, Crosshair or Time in step across the charts, and draw on any of them from one toolbar. Every panel splits, tabs and docks by drag: drop a tab on a tab strip to reorder it, or on a panel's edge to set it beside. Four layouts are ready to start from (Classic, Multi-timeframe, Order flow, and DOM & Tape), your own are saved by name when signed in, and your watchlists stay whichever you open.
+Up to 20 charts on screen, all drawing: the first four with WebGL, the rest in 2D. Pick a grid from the menu in the top bar, keep Symbol, Interval, Crosshair or Time in step across the charts, and draw on any of them from one toolbar: what you draw, move or delete shows at once on every chart of that market. Maximize any chart to fill the workspace and minimize it back (Alt+Enter), and each chart's toolbar folds to fit its width. Every panel splits, tabs and docks by drag: drop a tab on a tab strip to reorder it, or on a panel's edge to set it beside. Four layouts are ready to start from (Classic, Multi-timeframe, Order flow, and DOM & Tape), your own are saved by name when signed in, and your watchlists stay whichever you open.
 
 ### DOM and Tape
 
@@ -163,7 +163,7 @@ Net taker flow on each exchange, spot and perpetual, over the last minute to day
   <sub>The journal's dashboard, with sample trades.</sub>
 </p>
 
-Every Long or Short position drawn on a chart is a trade, kept in step as you move it and settled by price — entry, then target or stop — with partial exits, averaged entries, strategies and notes. The dashboard reads it back: the figures that matter, the equity curve, a P&L calendar with each week's R, and a weekly review.
+Every Long or Short position drawn on a chart is a trade, kept in step as you move it and settled by price — entry, then target or stop — with partial exits, averaged entries, strategies and notes. A position keeps its margin when its stop moves, and the chart and the journal both work out what it risks and what it can make as you type. The dashboard reads it back: the net first, then the figures behind it, the equity curve, a P&L calendar with each week's R, where it was made by pair, side or strategy, the latest trades, and a weekly review.
 
 ### Training
 
@@ -198,9 +198,9 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 #### Drawing
 
 - Trendline, ray, horizontal, path, brush, zone, parallel channel, fib, note, measure
-- Long and short positions with risk, reward and legs
+- Long and short positions sized by margin or by risk, with reward and legs, worked out as you type
 - A weak or strong magnet to the candles
-- Drawings belong to the market and show on every timeframe, standing on the bar that holds them
+- Drawings belong to the market and show on every timeframe and every chart of it, standing on the bar that holds them
 - Undo and redo, lock, hide per timeframe
 
 #### Order flow
@@ -216,8 +216,9 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 
 - Splits, tabs and docking by drag
 - Up to 20 charts from a grid menu, with symbol, interval, crosshair and time kept in step
+- Any chart maximized over the layout and back (Alt+Enter), and toolbars that fold to fit
 - Recommended layouts, your own saved by name, and export or import as a file
-- Colour link groups: one symbol, many panels
+- Colour link groups: one symbol, many panels, each chart on its own timeframe
 - Command palette, symbol search across every venue, keyboard first
 - Watchlists, price alerts to Telegram, themes, light ones included
 - Signed in with Telegram, the same workspace on every device
@@ -244,12 +245,12 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 
 ## Under the hood
 
-- **Chart engine**: Rust compiled to WebAssembly (about 155 KB gzip after wasm-opt), run in a Web Worker. Candles are drawn with WebGL2 on an OffscreenCanvas, text on a 2D layer and the liquidation feed on a third, so the page thread never touches a candle.
+- **Chart engine**: Rust compiled to WebAssembly (about 173 KB gzip after wasm-opt), run in a Web Worker. Candles are drawn with WebGL2 on an OffscreenCanvas, text on a 2D layer and the liquidation feed on a third, so the page thread never touches a candle.
 - **History**: Immutable columnar partition files, about 16 bytes per 1-minute bar: five years of BTCUSDT perpetual minutes is 42 MB. Served from disk or a CDN and cached by the browser for a year.
 - **Live**: Exchange WebSockets straight to the browser: trades folded into the forming bar between kline updates, order books kept for the DOM, and liquidations feeding a ticker above the volume and a tape of their own as they land. The server relays a stream only when the browser cannot reach the exchange.
 - **Server**: Rust — Axum and Tokio — for the market catalogue, drawings and workspaces, accounts, the journal and training, and a day of liquidations for a few tickers.
 - **Database**: PostgreSQL 18, for metadata only. Candles never enter it.
-- **UI**: SolidJS (about 52 KB brotli): splits, tabs, docking by drag, link groups, command palette, theme; one chart and a menu on a phone.
+- **UI**: SolidJS (about 58 KB brotli): splits, tabs, docking by drag, link groups, command palette, theme; one chart and a menu on a phone.
 
 ```text
 crates/core      candles, timeframes, indicators and studies with Pine Script semantics; no dependencies
