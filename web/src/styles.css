@@ -443,7 +443,8 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .rangebar .sep { flex: none; }
 @container (max-width: 660px) { .rangebar .bars-info { display: none; } }
 @container (max-width: 470px) { .rangebar .maxbtn span { display: none; } }
-@container (max-width: 400px) { .rangebar .range { display: none; } }
+/* Only to make room for that button: a phone has none, and its ranges fit. */
+@container (max-width: 360px) { .rangebar:has(.maxbtn) .range { display: none; } }
 
 /* The symbol takes what the numbers leave; narrow panels drop the tag, then the change. */
 .wl { container-type: inline-size; }
