@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 /** Moving panels: onto a group, beside it, and among a strip's tabs. */
 import { assertEquals } from 'jsr:@std/assert@1';
-import { defaultWorkspace, movePanel, tabsOf, validate, type ChartPanelState, type LayoutNode, type WorkspaceDoc } from './model.ts';
+import { defaultWorkspace, movePanel, newPanel, panelTimeframe, tabsOf, validate, type ChartPanelState, type LayoutNode, type WorkspaceDoc } from './model.ts';
 
 const types = (doc: WorkspaceDoc, n: LayoutNode): string => (n.kind === 'tabs' ? `[${n.panels.map((p) => doc.panels[p]!.type).join(',')}]` : `${n.dir}(${n.children.map((c) => types(doc, c)).join(' ')})`);
 const idOf = (doc: WorkspaceDoc, type: string) => Object.values(doc.panels).find((p) => p.type === type)!.id;
@@ -39,4 +39,25 @@ Deno.test('the height dragged on a footprint table comes back with the layout, i
   assertEquals(row(undefined), undefined, 'a chart saved before there was one has none');
   assertEquals(row(500), undefined);
   assertEquals(row('tall'), undefined);
+});
+
+Deno.test('linked charts share a market and keep their own timeframes; a linked side panel goes by the group', () => {
+  const d = defaultWorkspace();
+  const chart = newPanel('chart', { link: 'green', market: 'binance-perp:BTCUSDT', timeframe: '5m' });
+  const values = newPanel('values', { link: 'green', market: 'binance-perp:BTCUSDT', timeframe: '5m' });
+  d.links.green.timeframe = '1h';
+  assertEquals(panelTimeframe(d.links, chart), '5m');
+  assertEquals(panelTimeframe(d.links, values), '1h');
+  assertEquals(panelTimeframe(d.links, { ...chart, link: null }), '5m');
+});
+
+Deno.test('a layout stored before charts kept their own timeframes stays as it showed, then each is its own', () => {
+  const d = defaultWorkspace();
+  const linked = Object.values(d.panels).find((p) => p.type === 'chart' && p.link)!;
+  linked.timeframe = '5m';
+  d.links.green.timeframe = '30m';
+  const { ownTimeframes: _, ...before } = d;
+  assertEquals(validate(before)?.panels[linked.id]?.timeframe, '30m', 'it was showing its group\'s');
+  assertEquals(validate(d)?.panels[linked.id]?.timeframe, '5m', 'once its own, the group does not touch it');
+  assertEquals(validate(validate(before))?.panels[linked.id]?.timeframe, '30m');
 });

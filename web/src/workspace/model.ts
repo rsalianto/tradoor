@@ -225,6 +225,8 @@ export interface WorkspaceDoc {
   /** The timeframes a chart's bar shows as buttons, shortest first; the rest are in its menu. */
   timeframes: string[];
   sync: SyncState;
+  /** Each chart's timeframe is its own, link or no link; stored documents from before read their group's once. */
+  ownTimeframes: true;
 }
 
 export type DropZone = 'center' | 'left' | 'right' | 'top' | 'bottom';
@@ -333,8 +335,16 @@ export function defaultWorkspace(): WorkspaceDoc {
     theme: {},
     timeframes: [...FAVORITE_TIMEFRAMES],
     sync: { symbol: false, interval: false, crosshair: false, time: false },
+    ownTimeframes: true,
   };
 }
+
+/**
+ * A link group shares a market. A chart keeps its own timeframe, the Interval
+ * switch alone putting every chart on one; a panel that reads a chart follows
+ * the timeframe last set in its group.
+ */
+export const panelTimeframe = (links: Record<LinkColor, LinkState>, p: Panel): string => (p.link && p.type !== 'chart' ? links[p.link].timeframe : p.timeframe);
 
 // ---------------------------------------------------------------- reading stored documents
 
@@ -457,6 +467,8 @@ export function validate(raw: unknown): WorkspaceDoc | null {
       timeframe: isObj(l) && isTimeframe(l.timeframe) ? l.timeframe : DEFAULT_TIMEFRAME,
     };
   }
+  // A linked chart showed its group's timeframe then: it stays on it, as its own from here on.
+  if (raw.ownTimeframes !== true) for (const p of Object.values(panels)) if (p.type === 'chart' && p.link) p.timeframe = links[p.link].timeframe;
   const theme: Record<string, string> = {};
   if (isObj(raw.theme)) for (const [k, v] of Object.entries(raw.theme)) if (typeof v === 'string' && v.length <= 40) theme[k] = v;
   const savedAt = Number(raw.savedAt);
@@ -464,7 +476,7 @@ export function validate(raw: unknown): WorkspaceDoc | null {
   const timeframes = Array.isArray(raw.timeframes) ? TIMEFRAMES.map((t) => t.value).filter((tf) => (raw.timeframes as unknown[]).includes(tf)) : [...FAVORITE_TIMEFRAMES];
   const on = (key: keyof SyncState): boolean => isObj(raw.sync) && raw.sync[key] === true;
   const sync = { symbol: on('symbol'), interval: on('interval'), crosshair: on('crosshair'), time: on('time') };
-  return { v: 1, name: str(raw.name, '').slice(0, 120) || 'Default', savedAt: Number.isFinite(savedAt) ? savedAt : 0, root, panels, links, theme, timeframes, sync };
+  return { v: 1, name: str(raw.name, '').slice(0, 120) || 'Default', savedAt: Number.isFinite(savedAt) ? savedAt : 0, root, panels, links, theme, timeframes, sync, ownTimeframes: true };
 }
 
 // ---------------------------------------------------------------- the tree

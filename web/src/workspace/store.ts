@@ -9,7 +9,7 @@ import { createStore, reconcile, unwrap } from 'solid-js/store';
 import { api, ApiError } from '../lib/api';
 import { identity } from '../lib/owner';
 import { readJson, readPref, writePref } from '../lib/prefs';
-import { defaultWorkspace, tabsOf, validate, type ChartPanelState, type LinkColor, type Panel, type SyncState, type WorkspaceDoc } from './model';
+import { defaultWorkspace, panelTimeframe, tabsOf, validate, type ChartPanelState, type LinkColor, type Panel, type SyncState, type WorkspaceDoc } from './model';
 import { TIMEFRAMES } from '../lib/timeframes';
 
 const LOCAL_KEY = 'workspace';
@@ -91,7 +91,7 @@ export function targetChart(): ChartPanelState | null {
 }
 
 export const marketOf = (p: Panel): string => (p.link ? doc.links[p.link].market : p.market);
-export const timeframeOf = (p: Panel): string => (p.link ? doc.links[p.link].timeframe : p.timeframe);
+export const timeframeOf = (p: Panel): string => panelTimeframe(doc.links, p);
 
 // ---------------------------------------------------------------- changes
 
@@ -197,17 +197,15 @@ export function toggleFavoriteTimeframe(timeframe: string): void {
   });
 }
 
-/** Joining a group adopts the group's market and timeframe. */
+/** Joining a group adopts its market, and leaving keeps it; a chart keeps its timeframe, any other panel goes by the group's. */
 export function setPanelLink(id: string, color: LinkColor | null): void {
   const p = doc.panels[id];
   if (!p) return;
+  const held = color ?? p.link;
   batch(() => {
-    if (color) {
-      setDoc('panels', id, 'market', doc.links[color].market);
-      setDoc('panels', id, 'timeframe', doc.links[color].timeframe);
-    } else if (p.link) {
-      setDoc('panels', id, 'market', doc.links[p.link].market);
-      setDoc('panels', id, 'timeframe', doc.links[p.link].timeframe);
+    if (held) {
+      setDoc('panels', id, 'market', doc.links[held].market);
+      if (p.type !== 'chart') setDoc('panels', id, 'timeframe', doc.links[held].timeframe);
     }
     setDoc('panels', id, 'link', color);
   });

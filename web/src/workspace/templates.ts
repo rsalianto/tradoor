@@ -113,7 +113,7 @@ export function applyTemplate(doc: WorkspaceDoc, template: Template): number {
   const closed = charts.slice(template.count);
   for (const id of closed) delete doc.panels[id];
   const first = kept[0] ? (doc.panels[kept[0]] as ChartPanelState) : null;
-  const timeframe = first ? (first.link ? doc.links[first.link].timeframe : first.timeframe) : DEFAULT_TIMEFRAME;
+  const timeframe = first ? first.timeframe : DEFAULT_TIMEFRAME;
   const shown = new Set(kept.map((id) => marketOf(doc.panels[id]!)));
   const listed = Object.values(doc.panels).flatMap((p) => (p.type === 'watchlist' ? p.markets : []));
   const next = [...new Set([...listed, ...DEFAULT_WATCHLIST, ...POPULAR])].filter((m) => !isSection(m) && !shown.has(m));
