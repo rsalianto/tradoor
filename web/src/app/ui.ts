@@ -1,6 +1,7 @@
 /** Page-wide UI state that is not part of the saved workspace. */
 import { createSignal } from 'solid-js';
 import type { MagnetMode } from '../engine/protocol';
+import type { ChartKind, Drawing } from '../lib/api';
 import { readPref, writePref } from '../lib/prefs';
 
 export type Overlay =
@@ -40,8 +41,21 @@ export interface ChartController {
 }
 
 export const chartControllers = new Map<string, ChartController>();
-/** A market whose drawings changed somewhere else — a position moved from the journal — for its charts to read again. */
-export const [drawingsChanged, setDrawingsChanged] = createSignal<{ market: string } | null>(null, { equals: false });
+/**
+ * A market's drawings changed somewhere else: on another chart of it, which says
+ * what became of one and which it was, or in the journal, whose word is to read
+ * them again. Charts of a market all show its drawings, on every timeframe.
+ */
+export interface DrawingNews {
+  market: string;
+  /** Candles and TPO keep their drawings apart; left out, either. */
+  chart?: ChartKind;
+  /** The panel it happened on, which has it already. */
+  from?: string;
+  saved?: Drawing;
+  gone?: number;
+}
+export const [drawingsChanged, setDrawingsChanged] = createSignal<DrawingNews | null>(null, { equals: false });
 /** Bumped as charts come and go, so a rail looking a chart up finds it. */
 export const [controllersChanged, setControllersChanged] = createSignal(0);
 

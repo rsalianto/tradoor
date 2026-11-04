@@ -4,7 +4,7 @@
  * pointer input.
  */
 import { batch, createEffect, createMemo, createSignal, For, type JSX, lazy, on, onCleanup, onMount, Show, untrack } from 'solid-js';
-import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
+import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
 import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, ReplayState, StudyMeta, TpoHover } from '../engine/protocol';
@@ -860,7 +860,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       const res = await api.drawings(market(), timeframe(), chartKind());
       if (req !== drawingsRequest) return;
       batch(() => {
-        setDrawings(res.drawings);
+        // One still on its way to the server stays: read as gone, its answer would delete it.
+        setDrawings((list) => [...res.drawings, ...list.filter((d) => d.id < 0)]);
         setOffline(null);
       });
     } catch (e) {
@@ -891,16 +892,33 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       }
     }),
   );
-  // A position moved from the journal: read this market's drawings again.
+  // Changed on another chart of this market, or from the journal.
   createEffect(
     on(
       drawingsChanged,
       (c) => {
-        if (c && c.market === market() && chartKind() !== 'training') void loadDrawings();
+        if (!c || c.from === id || c.market !== market() || chartKind() === 'training' || (c.chart && c.chart !== chartKind())) return;
+        const { saved, gone } = c;
+        if (saved) setDrawings((list) => (list.some((d) => d.id === saved.id) ? list.map((d) => (d.id === saved.id ? saved : d)) : [...list, saved]));
+        else if (gone !== undefined) setDrawings((list) => list.filter((d) => d.id !== gone));
+        else void loadDrawings();
       },
       { defer: true },
     ),
   );
+  // Deleted on another chart from under this one: nothing left to select or edit.
+  createEffect(() => {
+    const list = drawings();
+    untrack(() => {
+      const [s, e] = [selected(), editing()];
+      if (s !== null && s >= 0 && !list.some((d) => d.id === s)) setSelected(null);
+      if (e !== null && !list.some((d) => d.id === e)) setEditing(null);
+    });
+  });
+  /** Tells the other charts of this market. A training chart has none. */
+  const tellCharts = (m: string, kind: ChartKind, news: { saved?: Drawing; gone?: number }) => {
+    if (kind !== 'training') setDrawingsChanged({ market: m, chart: kind, from: id, ...news });
+  };
 
   /* Every change is applied here first and sent afterwards, so a drawing appears
      under the pointer the moment it is placed rather than a round trip later. A
@@ -932,6 +950,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       }
       history.rekey(r, drawing.id);
       setDrawings((list) => list.map((d) => (d.id === temporary.id ? drawing : d)));
+      tellCharts(m, kind, { saved: drawing });
     } catch (e) {
       setDrawError(errorText(e));
       history.forget(r);
@@ -946,13 +965,16 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     const m = market();
     const kind = chartKind();
     const current = drawings().find((d) => d.id === drawingId);
-    if (record && current) history.record({ kind: 'change', ref: history.ref(drawingId), before: previous ?? before(current, patch), after: patch });
+    // An undo of a step on one deleted since, on another chart.
+    if (!current) return;
+    if (record) history.record({ kind: 'change', ref: history.ref(drawingId), before: previous ?? before(current, patch), after: patch });
     setDrawings((list) => list.map((d) => (d.id === drawingId ? { ...d, ...patch } : d)));
     if (drawingId < 0) return; // still being created; its own request carries the points
     try {
       const { drawing } = await api.updateDrawing(drawingId, patch);
       setDrawError(null);
       if (onSameChart(m, kind)) setDrawings((list) => list.map((d) => (d.id === drawingId ? drawing : d)));
+      tellCharts(m, kind, { saved: drawing });
     } catch (e) {
       setDrawError(errorText(e));
       if (onSameChart(m, kind)) void loadDrawings();
@@ -961,17 +983,22 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
 
   async function deleteDrawing(drawingId: number, record = true): Promise<void> {
     const current = drawings().find((d) => d.id === drawingId);
-    if (record && current) history.record({ kind: 'delete', ref: history.ref(drawingId), drawing: current });
+    if (!current) return;
+    if (record) history.record({ kind: 'delete', ref: history.ref(drawingId), drawing: current });
     setDrawings((list) => list.filter((d) => d.id !== drawingId));
     if (selected() === drawingId) setSelected(null);
     if (editing() === drawingId) setEditing(null);
     if (drawingId < 0) return;
+    // Off the other charts with it, at once; should the server refuse, they read it back.
+    const [m, kind] = [market(), chartKind()];
+    tellCharts(m, kind, { gone: drawingId });
     try {
       await api.deleteDrawing(drawingId);
       setDrawError(null);
     } catch (e) {
       setDrawError(errorText(e));
       void loadDrawings();
+      tellCharts(m, kind, {});
     }
   }
 
@@ -1038,9 +1065,11 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     if (record) history.record({ kind: 'clear', items: list.map((d) => ({ ref: history.ref(d.id), drawing: d })) });
     setDrawings([]);
     setSelected(null);
+    const [m, kind] = [market(), chartKind()];
     try {
-      await api.clearDrawings(market(), timeframe(), chartKind());
+      await api.clearDrawings(m, timeframe(), kind);
       setDrawError(null);
+      tellCharts(m, kind, {});
     } catch (e) {
       setDrawError(errorText(e));
       void loadDrawings();
