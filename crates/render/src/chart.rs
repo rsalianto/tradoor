@@ -166,6 +166,8 @@ pub struct Legend {
     pub cursor: Option<(f32, f64)>,
     /// Where the price axis starts.
     pub axis_x: f32,
+    /// Where the bar under the pointer stands, for a line the page holds on it.
+    pub bar_x: Option<f32>,
     /// The alert line under the pointer, and its y.
     pub alert: Option<(i64, f32)>,
     /// The flow mark under the pointer: which one, and where it sits.
@@ -323,6 +325,10 @@ pub struct Chart {
     /// Whether the rows are fitted to the zoom, grouping the grid as it needs;
     /// otherwise each covers the grid as the reader set it.
     footprint_fitted: bool,
+    /// A bar replay is under way.
+    replay: bool,
+    /// A bar's time, and where on the plot the next layout puts it back.
+    view_pin: Option<(i64, f64)>,
     /// Whether those columns stand in for the candles.
     footprint_shown: bool,
     /// How a level reads, and what else a column carries.
@@ -406,6 +412,8 @@ impl Chart {
             footprint: Vec::new(),
             footprint_grid: 0.0,
             footprint_fitted: true,
+            replay: false,
+            view_pin: None,
             footprint_shown: false,
             footprint_options: footprint::Options::default(),
             precision: 2,
@@ -845,7 +853,8 @@ impl Chart {
         }
         let step = self.footprint_step(pane);
         let price = pane.scale.price(f64::from(y));
-        for bar in &self.footprint {
+        let newest = self.newest_time();
+        for bar in self.footprint.iter().filter(|bar| bar.time <= newest) {
             let Some(logical) = time_to_logical(&self.times, bar.time as f64) else { continue };
             let s = footprint::slot(self.time.x(logical) as f32, self.time.bar_spacing as f32);
             if x < s.left || x > s.left + s.width {
@@ -1072,6 +1081,47 @@ impl Chart {
     }
 
     /// Back to the opening view: the last bars, and every axis autoscaling.
+    /// A bar replay is under way: the newest bar shown is no bar closing on the clock.
+    pub fn set_replay(&mut self, on: bool) {
+        if self.replay != on {
+            self.replay = on;
+            self.touch();
+        }
+    }
+
+    /// When the bar nearest `x` opened, for a replay to start from.
+    pub fn bar_time_at(&self, x: f32) -> Option<i64> {
+        self.bar(self.time.nearest_bar(f64::from(x))?).map(|b| b.time)
+    }
+
+    /// Holds the bar at `time` where it stands on screen through the changes to
+    /// come. Put back at the next layout, by which a TPO chart's warp is settled too.
+    pub fn pin_view(&mut self, time: i64) {
+        if self.view_pin.is_none() {
+            self.view_pin = time_to_logical(&self.times, time as f64).map(|logical| (time, self.time.x(logical)));
+            self.touch();
+        }
+    }
+
+    /// Columns free right of the newest bar; below zero, it is scrolled off the plot.
+    pub fn right_room(&self) -> f64 {
+        self.time.right_offset
+    }
+
+    /// When the newest bar shown opened: past it nothing has a candle to stand on.
+    fn newest_time(&self) -> i64 {
+        self.total_bars().checked_sub(1).and_then(|i| self.bar(i)).map_or(i64::MAX, |b| b.time)
+    }
+
+    /// Back at the newest bars, at the zoom they are being read at.
+    pub fn show_newest(&mut self) {
+        self.time.bars = self.total_bars();
+        self.time.right_offset = RIGHT_MARGIN_BARS;
+        self.time.clamp();
+        self.view_ready = true;
+        self.touch();
+    }
+
     pub fn reset_view(&mut self) {
         self.view_ready = false;
         let was = self.auto_scale();
@@ -1229,6 +1279,13 @@ impl Chart {
             self.note_auto(was);
         } else {
             self.time.clamp();
+            // Bars and warp settled: the bar held goes back where it stood.
+            if let Some((time, x)) = self.view_pin.take() {
+                if let Some(logical) = time_to_logical(&self.times, time as f64) {
+                    self.time.right_offset += (self.time.x(logical) - x) / self.time.bar_spacing;
+                    self.time.clamp();
+                }
+            }
         }
 
         // A TPO chart opens on square blocks, as MMT's do: the fewest of the newest
@@ -1627,8 +1684,9 @@ impl Chart {
             let view = footprint::View { plot: price.plot, bar_spacing: self.time.bar_spacing as f32, char_width: self.char_width, theme: t, x: &x, y: &y };
             // Each column at the place its own time sits, so a minute the
             // server never recorded leaves a gap rather than shifting the rest.
+            let newest = self.newest_time();
             let placed: Vec<(f64, &footprint::Bar)> =
-                self.footprint.iter().filter_map(|bar| time_to_logical(&self.times, bar.time as f64).map(|l| (l, bar))).collect();
+                self.footprint.iter().filter(|bar| bar.time <= newest).filter_map(|bar| time_to_logical(&self.times, bar.time as f64).map(|l| (l, bar))).collect();
             footprint::paint(f, &view, &placed, self.footprint_options, self.footprint_step(&price));
         }
         if !tpo && !foot && !self.hidden.contains("ema200") {
@@ -1790,7 +1848,7 @@ impl Chart {
         let mut badges: Vec<Badge> = Vec::new();
         let p = self.precision();
         badges.push(Badge { pane: 0, y: last_y, text: format_price(last.close, Some(p)), bg: last_color, fg: last_color.contrast_text() });
-        if self.timeframe.source().interval.ms().is_some() || self.timeframe.source().interval == Interval::Mo1 {
+        if !self.replay && (self.timeframe.source().interval.ms().is_some() || self.timeframe.source().interval == Interval::Mo1) {
             let close_at = self.timeframe.end(self.timeframe.align(now));
             badges.push(Badge { pane: 0, y: last_y + badge_h, text: format_countdown(close_at - now), bg: t.countdown_background, fg: t.countdown_text });
         }
@@ -2053,6 +2111,7 @@ impl Chart {
                 .filter(|(x, y)| matches!(self.drag, Drag::None) && *x >= 0.0 && *x < pane.plot.w && *y >= pane.plot.y && *y <= pane.plot.bottom())
                 .map(|(_, y)| (y, pane.scale.price(f64::from(y)))),
             axis_x: pane.plot.w,
+            bar_x: hovered.map(|i| self.time.x(i as f64) as f32),
             alert: self.crosshair.filter(|_| self.tool.is_none() && matches!(self.drag, Drag::None)).and_then(|(x, y)| self.alert_handle_at(x, y)),
             flow: self.crosshair.filter(|_| self.tool.is_none() && matches!(self.drag, Drag::None)).and_then(|(x, y)| self.flow_at(x, y)),
             footprint: self.crosshair.filter(|_| self.tool.is_none() && matches!(self.drag, Drag::None)).and_then(|(x, y)| self.footprint_at(x, y)),
@@ -4021,6 +4080,60 @@ mod tests {
         assert_eq!(c.legend().index, Some(500));
         c.set_live(Some(LiveBar { open_time: last.open_time, open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 1.0, closed: false }));
         assert!(c.live.is_none(), "a bar that is already stored is not forming");
+    }
+
+    #[test]
+    fn a_pinned_bar_stands_where_it_stood_as_the_bars_after_it_go() {
+        let mut c = chart();
+        c.render(1_800_000_000_000);
+        let i = c.candles().len() - 25;
+        let x = c.time.x(i as f64);
+        assert!((0.0..c.time.width).contains(&x), "on the plot to begin with");
+        c.pin_view(c.candles()[i].open_time);
+        c.set_candles(c.candles()[..=i].to_vec());
+        c.render(1_800_000_000_000);
+        assert!((c.time.x(i as f64) - x).abs() < 0.01, "held at {x}");
+        assert!(c.right_room() > 20.0, "the bars gone leave their room");
+    }
+
+    #[test]
+    fn back_at_the_newest_bars_the_zoom_stays() {
+        let mut c = chart();
+        c.render(1_800_000_000_000);
+        c.time.pan(600.0);
+        let spacing = c.time.bar_spacing;
+        c.show_newest();
+        c.render(1_800_000_000_000);
+        assert_eq!(c.right_room(), RIGHT_MARGIN_BARS);
+        assert_eq!(c.time.bar_spacing, spacing);
+    }
+
+    #[test]
+    fn a_bar_is_found_by_where_it_stands() {
+        let mut c = chart();
+        c.render(1_800_000_000_000);
+        let i = c.candles().len() - 10;
+        assert_eq!(c.bar_time_at(c.time.x(i as f64) as f32), Some(c.candles()[i].open_time));
+        c.pointer_move(c.time.x(i as f64) as f32, 100.0);
+        assert_eq!(c.legend().bar_x.map(f64::from).map(f64::round), Some(c.time.x(i as f64).round()));
+        c.pointer_leave();
+        assert_eq!(c.legend().bar_x, None, "no line with no pointer");
+    }
+
+    #[test]
+    fn a_footprint_bar_past_the_newest_candle_is_not_read() {
+        let mut c = chart();
+        c.set_footprint_shown(true);
+        let n = c.candles().len();
+        let last = c.candles()[n - 1];
+        let level = last.close.floor();
+        let levels = vec![(level, 1.0, 2.0)];
+        let bar = |time: i64| footprint::Bar { time, levels: levels.clone(), ..Default::default() };
+        c.set_footprint(vec![bar(last.open_time), bar(last.open_time + HOUR)], 1.0, false);
+        c.render(1_800_000_000_000);
+        let y = c.panes[0].scale.y(level + 0.5) as f32;
+        assert!(c.footprint_at(c.time.x((n - 1) as f64) as f32, y).is_some(), "the newest bar's own");
+        assert_eq!(c.footprint_at(c.time.x(n as f64) as f32, y), None, "no candle under this one yet");
     }
 
     #[test]

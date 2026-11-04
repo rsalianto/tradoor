@@ -7,7 +7,7 @@ import { batch, createEffect, createMemo, createSignal, For, type JSX, lazy, on,
 import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
-import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, StudyMeta, TpoHover } from '../engine/protocol';
+import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, ReplayState, StudyMeta, TpoHover } from '../engine/protocol';
 import { api, catalog, errorText, type AlertStyle, type ChartKind, type Drawing, type Product } from '../lib/api';
 import type { DrawingPatch } from '../components/DrawingSettings';
 import { defaultStyle, visibleOn, type Style } from '../lib/drawing-style';
@@ -17,6 +17,7 @@ import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
 import { fetchFootprint, flatten, foldMinutes, fromHours, recordedMarkets, type Levels, type Minute } from '../lib/footprint';
 import { MinuteBook, toMinute } from '../lib/fp-minutes';
+import { replayFootprint, REPLAY_SPEEDS, REPLAY_STEPS } from '../lib/replay';
 import { listenPrints } from '../lib/orderflow';
 import { onRecorded, recordable, recordedFootprint, recorderSettings, recordStatus, want as wantRecorded } from '../lib/fp-recorder';
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
@@ -93,6 +94,10 @@ const LIVE: Record<LiveStatus, { label: string; tone: string; title: string }> =
   stalled: { label: 'NO TICKS', tone: 'warn', title: 'Connected and subscribed, but the exchange has pushed nothing. Closed candles are unaffected.' },
   retrying: { label: 'RECONNECTING', tone: 'warn', title: 'The stream dropped; reconnecting. Bars that close meanwhile are fetched when it returns.' },
 };
+
+/** How far a press may wander and still pick a bar, rather than pan to another. */
+const REPLAY_CLICK_SLOP = 5;
+const REPLAY_BADGE = { label: 'REPLAY', tone: 'warn', title: 'A bar replay: this chart stands in the past, and every bar after its cursor is hidden.' };
 
 const splitList = (s: string): string[] =>
   s
@@ -198,6 +203,19 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   let box!: HTMLDivElement;
   let tpoButton!: HTMLButtonElement;
 
+  /** A bar replay, as the worker last said it stands. */
+  const [replayState, setReplayState] = createSignal<ReplayState>({ at: null, ended: false, base: 0 });
+  const replayAt = () => replayState().at;
+  const replaying = createMemo(() => replayAt() !== null);
+  /** The replay's bar of controls is up. */
+  const [replayOpen, setReplayOpen] = createSignal(false);
+  /** A line follows the pointer, and the next click starts the replay at its bar. */
+  const [replayPicking, setReplayPicking] = createSignal(false);
+  const [replayPlaying, setReplayPlaying] = createSignal(false);
+  const [replaySpeed, setReplaySpeed] = createSignal(1);
+  /** How far a step goes; 0 for one of the chart's own bars. */
+  const [replayStepMs, setReplayStepMs] = createSignal(0);
+
   // The panel's canvases and engine slot outlive this mount: see holdChart.
   const chart = holdChart(id, {
     cursor: setCursor,
@@ -205,6 +223,12 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     studies: setStudies,
     status: setStatus,
     event: (e) => onEvent(e),
+    replay: (value) => {
+      setReplayState(value);
+      // Mounted afresh on a chart still in one: its controls come back with it.
+      if (value.at !== null) setReplayOpen(true);
+      if (value.ended) setReplayPlaying(false);
+    },
   });
   const sid = chart.id;
   const price = () => {
@@ -222,7 +246,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   });
   createEffect(() => {
     const list = flowOn() ? flowMarks(market()) : [];
-    send({ t: 'flow', id: sid, marks: list.map((m) => ({ at: m.at, price: m.price, usd: m.deltaUsd })) });
+    const at = replayAt();
+    send({ t: 'flow', id: sid, marks: list.filter((m) => at === null || m.at < at).map((m) => ({ at: m.at, price: m.price, usd: m.deltaUsd })) });
   });
   /** The row under the pointer, with the numbers that made it. */
   const hoveredCell = () => {
@@ -264,6 +289,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   );
   /** The footprint is being fetched or read, and nothing of it is on the chart yet. */
   const [fpLoading, setFpLoading] = createSignal(false);
+  /** A replay stands where there is no footprint at all. */
+  const [fpNone, setFpNone] = createSignal(false);
   /** The oldest bar this browser's recordings reach, once read. */
   const [fpSince, setFpSince] = createSignal<number | null>(null);
   /**
@@ -272,6 +299,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
    */
   const fpNote = (): { text: string; tip: string; progress: number | 'busy' | null } | null => {
     if (!footprintOn() && !tpoFlow()) return null;
+    if (replaying() && fpNone() && !fpLoading()) return { text: 'no footprint this far back', tip: 'The server keeps footprint minutes for a month, and hours for good only where they were archived. These bars replay as candles.', progress: null };
     const venue = venueLabel(market());
     if (!browserFootprint()) return fpLoading() ? { text: 'loading footprint…', tip: "The server's recorded footprint for these bars", progress: 'busy' } : null;
     const status = recordStatus(market());
@@ -303,20 +331,59 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   };
   /** A TPO chart's volume profiles split by who took the volume: the footprint's trades, where they are recorded. */
   const tpoFlow = () => tpoShown() && footprintable() && tpoValue(props.panel.tpoSettings, 'vp') === '1' && tpoValue(props.panel.tpoSettings, 'vpMode') !== 'total';
+  /** The bars and settings the footprint on the chart is of. */
+  let fpDrawn = '';
   createEffect(() => {
     const flow = tpoFlow();
     if (!footprintOn() && !flow) {
       send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
       setFpLoading(false);
+      fpDrawn = '';
       return;
     }
     setFpLoading(true);
     setFpSince(null);
-    // What was drawn is another market's or timeframe's: gone until this one's lands.
-    send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
+    setFpNone(false);
     const market_ = market();
     const barMs = tfMs(timeframe());
     const settings = flow ? { ticks: 0, unit: 'coins' as const } : { ticks: props.panel.footprintTicks, unit: props.panel.footprintUnit === 'usd' ? ('usd' as const) : ('coins' as const) };
+    // What was drawn is another market's or timeframe's: gone until this one's
+    // lands. Going in or out of a replay it is the same bars, and stays.
+    const drawing = `${market_}|${barMs}|${settings.ticks}|${settings.unit}|${flow}`;
+    if (drawing !== fpDrawn) send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
+    fpDrawn = drawing;
+    if (replaying()) {
+      // Bars either side of the cursor, asked for ahead of it: a replay's next
+      // bar is drawn at once, and none past the cursor ever reach the chart.
+      const browser = browserFootprint();
+      const hours = fromHours(barMs);
+      const days = flow ? 30 : Math.min(7, Math.max(1, Math.round((barMs * 400) / 86_400_000)));
+      const feed = replayFootprint(
+        {
+          back: browser ? Infinity : hours ? (flow ? 1_000 : 400) * barMs : days * 86_400_000,
+          ahead: browser ? Infinity : hours ? 200 * barMs : 86_400_000,
+          bars: browser
+            ? () => recordedFootprint(market_, barMs, Date.now() - recorderSettings().days * 86_400_000, settings)
+            : (from, to) => fetchFootprint(market_, barMs, from, to, settings, Math.ceil((to - from) / 86_400_000) + 1),
+          tick: browser ? 0 : (recorded().get(market_) ?? 0),
+          minutes: (from, to) => api.footprint(market_, from, to).then((a) => a.bars.map((b) => ({ at: b.at, levels: b.levels }))),
+        },
+        barMs,
+        settings,
+        (bars, grid, fitted, any) => {
+          send({ t: 'footprint', id: sid, flat: flatten(bars), grid, fitted });
+          setFpNone(!any);
+          setFpLoading(false);
+          setFpSince(bars.find((b) => b.levels.length > 0)?.time ?? null);
+        },
+      );
+      createEffect(() => {
+        const at = replayAt();
+        if (at !== null) feed.moveTo(at);
+      });
+      onCleanup(feed.stop);
+      return;
+    }
     if (browserFootprint()) {
       // This browser's recordings, every day kept, folded again as minutes are
       // written: the last bar alone, or all of it when a gap was filled.
@@ -445,6 +512,58 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     });
   });
 
+  // ---------------------------------------------------------------- replay
+  // Each step is asked for once the last has come back: a chart too slow for
+  // the speed set falls behind it rather than queueing steps up.
+  createEffect(() => {
+    replayState();
+    if (!replayPlaying() || !replaying()) return;
+    const timer = setTimeout(() => send({ t: 'replayStep', id: sid, ms: replayStepMs() }), 1_000 / replaySpeed());
+    onCleanup(() => clearTimeout(timer));
+  });
+  /** The steps shorter than the chart's bar that its base bars can show. */
+  const replaySteps = () => {
+    const base = replayState().base;
+    const bar = tfMs(timeframe());
+    return REPLAY_STEPS.filter((s) => base > 0 && s.ms >= base && s.ms < bar && s.ms % base === 0);
+  };
+  createEffect(() => {
+    if (replayStepMs() !== 0 && !replaySteps().some((s) => s.ms === replayStepMs())) setReplayStepMs(0);
+  });
+  /** Where a replay stood when its bar was picked again: esc goes back there. */
+  let replayWas: number | null = null;
+  const pickReplayBar = () => {
+    setTool('');
+    setReplayPlaying(false);
+    setReplayOpen(true);
+    if (replayPicking()) return;
+    replayWas = replayAt();
+    // Every bar back on the chart, scrolled where it was, to pick from.
+    if (replayWas !== null) send({ t: 'replayAt', id: sid, at: null, keepView: true });
+    setReplayPicking(true);
+  };
+  const replayFrom = (x: number) => {
+    setReplayPicking(false);
+    replayWas = null;
+    send({ t: 'replayPick', id: sid, x });
+  };
+  const cancelReplayPick = () => {
+    setReplayPicking(false);
+    if (replayWas !== null) send({ t: 'replayAt', id: sid, at: replayWas, keepView: true });
+    else if (!replaying()) setReplayOpen(false);
+    replayWas = null;
+  };
+  /** To the bars forming now; the controls stay for another go, unless `close`. */
+  const replayToRealTime = (close: boolean) => {
+    setReplayPlaying(false);
+    setReplayPicking(false);
+    if (replaying() || replayWas !== null) send({ t: 'replayAt', id: sid, at: null });
+    replayWas = null;
+    if (close) setReplayOpen(false);
+  };
+  /** Where the press that may pick a bar began: moved on from there, it was a pan. */
+  let replayPress: { x: number; y: number } | null = null;
+
   // ---------------------------------------------------------------- alerts
   // The market's active alerts, drawn by the engine as levels. The style is
   // copied out: an alert's own is a store proxy, which a worker cannot be sent.
@@ -462,7 +581,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const axisX = () => legend()?.axisX ?? 0;
   // Not over an alert's line: its own label is there, with its own delete.
   // A ratio is no market an alert can watch: no clock on its axis.
-  const clock = () => (isRatio(market()) ? null : (overClock() ?? (tool() === '' && !legend()?.alert && !overAlert() ? (legend()?.cursor ?? null) : null)));
+  const clock = () => (isRatio(market()) || replayPicking() ? null : (overClock() ?? (tool() === '' && !legend()?.alert && !overAlert() ? (legend()?.cursor ?? null) : null)));
   const hoveredAlert = () => {
     const h = overAlert() ?? legend()?.alert ?? null;
     const a = h && alertState.alerts.find((x) => x.id === h.id && x.active);
@@ -565,7 +684,13 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     // `?liqdemo=30` invents thirty liquidations a minute, for judging the feed.
     if (demoRate() > 0) send({ t: 'demoLiquidations', id: sid, perMinute: demoRate() });
     chartControllers.set(id, {
-      key: (key) => call('key', { id: sid, key }),
+      key: (key) => {
+        if (key === 'Escape' && replayPicking()) {
+          cancelReplayPick();
+          return Promise.resolve(true);
+        }
+        return call('key', { id: sid, key });
+      },
       tool: (kind) => {
         if (offline() === null) setTool(tool() === kind ? '' : kind);
       },
@@ -1067,6 +1192,18 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           </Show>
         </button>
         <Show when={!props.training}>
+          <button
+            class="tb replay-btn"
+            classList={{ on: replayOpen() }}
+            aria-label="Bar replay"
+            data-tip="Bar replay — pick a bar, hide what came after it, and play the market forward from there"
+            onClick={() => (replayOpen() ? replayToRealTime(true) : pickReplayBar())}
+          >
+            <Icon name="replay" size={13} />
+            <span>Replay</span>
+          </button>
+        </Show>
+        <Show when={!props.training}>
         <span class="sep" />
         <select
           data-tip="Candles, the footprint's own volume by price, or TPO profiles — the candles are the brackets, the split is how long a profile runs"
@@ -1149,7 +1286,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           </button>
         </Show>
         <span class="spacer" />
-        <LiveBadge market={market()} live={status().live} relayed={status().relayed} price={price()} />
+        <LiveBadge market={market()} live={status().live} relayed={status().relayed} price={price()} replay={replaying()} />
       </div>
 
       <Show when={tpoMenu()} keyed>
@@ -1257,9 +1394,11 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         <div
           ref={box}
           class="canvasbox"
+          classList={{ 'replay-picking': replayPicking() }}
           style={{ cursor: cursor() }}
           onPointerDown={(e) => {
             if (e.button === 2) return;
+            replayPress = local(e);
             box.setPointerCapture(e.pointerId);
             fingerLast = e.pointerType === 'touch';
             dropHold();
@@ -1319,6 +1458,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
             dropHold();
             if (e.pointerType === 'touch' && lift(e)) return;
             if (e.button !== 2) pointer('up', e);
+            const p = local(e);
+            if (replayPicking() && e.button === 0 && replayPress && Math.hypot(p.x - replayPress.x, p.y - replayPress.y) <= REPLAY_CLICK_SLOP && p.x < axisX()) replayFrom(p.x);
           }}
           onPointerCancel={(e) => {
             dropHold();
@@ -1363,9 +1504,57 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               {(tick(), `${sid} · panel ${market()} ${timeframe()} · engine ${status().market ?? '–'} ${status().timeframe ?? ''} ${status().loading ? 'loading' : 'ready'} ${status().bars} bars${status().error ? ` · ${status().error}` : ''} · sent ${marketSends} · worker ${((Date.now() - heardAt) / 1000).toFixed(1)}s ago · ${ping()}`)}
             </div>
           </Show>
-          <Show when={tool() !== '' || selected() !== null || drawError()}>
-            <div class="hint">
-              {tool() ? TOOL_STEPS[tool()] : selected() !== null ? 'Drawing selected · double-click for settings · Delete removes it, esc deselects' : ''}
+          <Show when={replayPicking() && legend()?.barX}>
+            {(x) => (
+              <>
+                <div class="replay-after" style={{ left: `${x()}px`, width: `${Math.max(0, axisX() - x())}px` }} />
+                <div class="replay-line" style={{ left: `${x()}px` }} />
+              </>
+            )}
+          </Show>
+          <Show when={replayOpen()}>
+            <div class="replay-bar" classList={{ top: footprintOn() && props.panel.footprintStats === true }} onPointerDown={(e) => e.stopPropagation()}>
+              <button class="tb" classList={{ on: replayPicking() }} data-tip="Pick the bar to replay from" onClick={pickReplayBar}>
+                <Icon name="replay" size={13} />
+                <span class="label">Select bar</span>
+              </button>
+              <span class="sep" />
+              <button
+                class="tb"
+                aria-label={replayPlaying() ? 'Pause' : 'Play'}
+                data-tip={replayPlaying() ? 'Pause' : 'Play'}
+                disabled={!replaying() || replayState().ended}
+                onClick={() => setReplayPlaying((v) => !v)}
+              >
+                <Icon name={replayPlaying() ? 'pause' : 'play'} size={13} />
+              </button>
+              <button class="tb" aria-label="Forward one step" data-tip="Forward one step" disabled={!replaying() || replayState().ended} onClick={() => send({ t: 'replayStep', id: sid, ms: replayStepMs() })}>
+                <Icon name="stepForward" size={13} />
+              </button>
+              <select class="box num" aria-label="Replay speed" data-tip="Steps a second" value={String(replaySpeed())} onChange={(e) => setReplaySpeed(Number(e.currentTarget.value))}>
+                <For each={REPLAY_SPEEDS}>{(speed) => <option value={String(speed)} selected={speed === replaySpeed()}>{speed}x</option>}</For>
+              </select>
+              <Show when={replaySteps().length > 0}>
+                <select class="box num" aria-label="Replay step" data-tip="How far a step goes: a whole bar of the chart, or part of one" onChange={(e) => setReplayStepMs(Number(e.currentTarget.value))}>
+                  <option value="0" selected={replayStepMs() === 0}>
+                    {tfLabel(timeframe())}
+                  </option>
+                  <For each={replaySteps()}>{(step) => <option value={String(step.ms)} selected={step.ms === replayStepMs()}>{step.label}</option>}</For>
+                </select>
+              </Show>
+              <Show when={replayAt()}>{(at) => <span class="num when">{formatDateTime(at()).slice(0, 16)}</span>}</Show>
+              <span class="sep" />
+              <button class="tb" data-tip="Jump to real-time" aria-label="Jump to real-time" disabled={!replaying()} onClick={() => replayToRealTime(false)}>
+                <Icon name="realTime" size={13} />
+              </button>
+              <button class="iconbtn" aria-label="Close replay" data-tip="Close the replay and go back to real-time" onClick={() => replayToRealTime(true)}>
+                <Icon name="close" size={11} />
+              </button>
+            </div>
+          </Show>
+          <Show when={tool() !== '' || selected() !== null || drawError() || replayPicking()}>
+            <div class="hint" classList={{ 'over-replay': replayOpen() && !(footprintOn() && props.panel.footprintStats === true) }}>
+              {replayPicking() ? `${mobile() ? 'Tap' : 'Click'} the bar to replay from: every bar after it is hidden${mobile() ? '' : ' · esc cancels'}` : tool() ? TOOL_STEPS[tool()] : selected() !== null ? 'Drawing selected · double-click for settings · Delete removes it, esc deselects' : ''}
               <Show when={drawError()}>{(err) => <span class="warn"> ▲ {err()}</span>}</Show>
             </div>
           </Show>
@@ -1807,7 +1996,7 @@ function LayerRow(props: {
  * keeps its width as prints land on round prices, and it holds the colour of
  * the last change through unchanged prints.
  */
-function LiveBadge(props: { market: string; live: LiveStatus; relayed: boolean; price: LastPrice | null }) {
+function LiveBadge(props: { market: string; live: LiveStatus; relayed: boolean; price: LastPrice | null; replay: boolean }) {
   let digits = 0;
   createEffect(
     on(
@@ -1826,7 +2015,7 @@ function LiveBadge(props: { market: string; live: LiveStatus; relayed: boolean; 
     digits = Math.max(p.precision, Math.min(MAX_PRICE_DECIMALS, Math.max(digits, decimalsOf(p.price))));
     return formatPrice(p.price, digits);
   };
-  const state = () => LIVE[props.live];
+  const state = () => (props.replay ? REPLAY_BADGE : LIVE[props.live]);
   return (
     <span class="live" data-tip={props.relayed ? `${state().title} Through the tradoor server, because this network blocks the exchange.` : state().title}>
       <span class={`state ${state().tone}`} classList={{ pulse: props.live === 'connecting' || props.live === 'retrying' }}>

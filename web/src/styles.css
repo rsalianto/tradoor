@@ -339,7 +339,7 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .chartcol { container-type: inline-size; }
 .chartcol .tf-now { display: none; gap: 3px; }
 @container (max-width: 760px) {
-  .chartcol .toolbar .venue-name, .chartcol .toolbar .venue .kind { display: none; }
+  .chartcol .toolbar .venue-name, .chartcol .toolbar .venue .kind, .chartcol .toolbar .replay-btn span { display: none; }
 }
 @container (max-width: 600px) {
   .chartcol .toolbar .tf-fav, .chartcol .toolbar .tf-more { display: none; }
@@ -370,6 +370,16 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .pattern-bar .bull { color: var(--bull); }
 .pattern-bar .tb { border: 1px solid var(--border); }
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) { .pattern-bar { gap: 6px; padding-left: 8px; } .pattern-bar .dim { display: none; } }
+/* A bar replay: the line a bar is picked with, what would be hidden, and the controls. */
+.canvasbox.replay-picking { cursor: col-resize !important; }
+.replay-line { position: absolute; top: 0; bottom: 0; z-index: 4; width: 1px; margin-left: -0.5px; background: var(--primary); pointer-events: none; }
+.replay-after { position: absolute; top: 0; bottom: 22px; z-index: 4; background: color-mix(in oklab, var(--bg) 62%, transparent); pointer-events: none; }
+.replay-bar { position: absolute; left: 50%; bottom: 30px; z-index: 7; display: flex; align-items: center; gap: 4px; max-width: calc(100% - 20px); padding: 3px 4px; transform: translateX(-50%); border: 1px solid var(--border); background: color-mix(in oklab, var(--surface) 94%, transparent); box-shadow: 0 6px 20px #0008; font-size: 11px; white-space: nowrap; }
+.replay-bar.top { top: 8px; bottom: auto; }
+.replay-bar .when { padding: 0 4px; color: var(--muted); }
+.hint.over-replay { bottom: 62px; }
+.replay-bar .tb:disabled { opacity: 0.4; }
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) { .replay-bar .label, .replay-bar .when { display: none; } }
 .chartwrap { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .rail { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 0 38px; padding: 4px 0; scrollbar-width: none; border-right: 1px solid var(--border); background: var(--surface-2); overflow-y: auto; overflow-x: hidden; }
 .rail button { display: flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; color: var(--muted); }

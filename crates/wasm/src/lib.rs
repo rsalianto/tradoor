@@ -340,6 +340,26 @@ impl ChartEngine {
         self.chart.set_edge_time(time as i64);
     }
 
+    pub fn set_replay(&mut self, on: bool) {
+        self.chart.set_replay(on);
+    }
+
+    pub fn bar_time_at(&self, x: f32) -> Option<f64> {
+        self.chart.bar_time_at(x).map(|t| t as f64)
+    }
+
+    pub fn show_newest(&mut self) {
+        self.chart.show_newest();
+    }
+
+    pub fn pin_view(&mut self, time: f64) {
+        self.chart.pin_view(time as i64);
+    }
+
+    pub fn right_room(&self) -> f64 {
+        self.chart.right_room()
+    }
+
     pub fn double_click(&mut self, x: f32, y: f32) {
         self.chart.double_click(x, y);
     }
@@ -460,6 +480,7 @@ impl ChartEngine {
             None => set(&o, "cursor", JsValue::NULL),
         }
         set(&o, "axisX", f64::from(l.axis_x));
+        set(&o, "barX", opt(l.bar_x.map(f64::from)));
         match l.alert {
             Some((id, y)) => {
                 let a = obj();

@@ -17,6 +17,8 @@ export interface Legend {
   cursor: { y: number; price: number } | null;
   /** Where the price axis starts, in CSS pixels from the chart's left. */
   axisX: number;
+  /** Where the bar under the pointer stands, in the same pixels. */
+  barX: number | null;
   /** The alert line under the pointer. */
   alert: { id: number; y: number } | null;
   /** The flow mark under the pointer: which one, and where it sits. */
@@ -150,6 +152,15 @@ export interface DailyBars {
   precision: number;
 }
 
+/** Where a bar replay stands: bars opening from `at` on are hidden, and none are when it is null. */
+export interface ReplayState {
+  at: number | null;
+  /** Nothing closed is left to show. */
+  ended: boolean;
+  /** The length of the bars the chart is folded from: the shortest step there is. */
+  base: number;
+}
+
 /** Request/response calls, answered by `reply`. */
 export interface Calls {
   studyCatalog: { args: Record<string, never>; result: StudyDefinition[] };
@@ -206,6 +217,12 @@ export type ToWorker =
   | { t: 'footprint'; id: string; flat: Float64Array; grid: number; fitted: boolean }
   | { t: 'footprintShown'; id: string; value: boolean }
   | { t: 'footprintOptions'; id: string; value: string }
+  /** A bar replay from the bar at `x` on the chart: it is the last one shown. */
+  | { t: 'replayPick'; id: string; x: number }
+  /** A replay forward by `ms`, or with 0 to where the next bar opens. Always answered. */
+  | { t: 'replayStep'; id: string; ms: number }
+  /** A replay at a moment already known, or null for the present: at the newest bars, or left where it is scrolled. */
+  | { t: 'replayAt'; id: string; at: number | null; keepView?: boolean }
   | { t: 'selected'; id: string; value: number | null }
   | { t: 'resetView'; id: string }
   | { t: 'autoScale'; id: string }
@@ -237,4 +254,5 @@ export type FromWorker =
   | { t: 'event'; id: string; event: ChartEvent }
   | { t: 'status'; id: string; value: ChartStatus }
   | { t: 'price'; id: string; market: string; price: number; precision: number }
+  | { t: 'replay'; id: string; value: ReplayState }
   | { t: 'reply'; req: number; value?: unknown; error?: string };

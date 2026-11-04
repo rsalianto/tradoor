@@ -4,7 +4,7 @@
  */
 import { createStore } from 'solid-js/store';
 import { nextPrice, type LastPrice } from '../lib/last-price';
-import type { CallName, Calls, ChartEvent, ChartStatus, FromWorker, Legend, StudyDefinition, StudyMeta, ToWorker } from './protocol';
+import type { CallName, Calls, ChartEvent, ChartStatus, FromWorker, Legend, ReplayState, StudyDefinition, StudyMeta, ToWorker } from './protocol';
 
 export interface SlotHandlers {
   cursor(value: string): void;
@@ -12,6 +12,7 @@ export interface SlotHandlers {
   studies(value: StudyMeta[]): void;
   event(event: ChartEvent): void;
   status(value: ChartStatus): void;
+  replay(value: ReplayState): void;
 }
 
 
@@ -71,6 +72,7 @@ function dispatch(msg: FromWorker): void {
       else if (msg.t === 'legend') h.legend(msg.value);
       else if (msg.t === 'studies') h.studies(msg.value);
       else if (msg.t === 'event') h.event(msg.event);
+      else if (msg.t === 'replay') h.replay(msg.value);
       else h.status(msg.value);
     }
   }

@@ -115,6 +115,10 @@ Volume bought and sold at each price inside every bar, beside a thin candle — 
 
 The server records BTC and ETH; every other coin's footprint is recorded in your own browser while a chart shows it, off the exchange's own socket, and kept there, never on the server: seven days by default. On Binance the hours tradoor was closed are filled from its trade history, and the chart says what it is doing — loading, filling and how far back, or recording since when — with a thin line across the top while it works. The bar under way moves trade by trade, here and on the server's coins alike. Settings shows how much it takes, per coin, and deletes any of it.
 
+### Bar replay
+
+Pick any bar and everything after it is hidden, then play the market forward from there, as fast as you like or a step at a time. It works on candles, footprints and TPO profiles alike: indicators, key levels and profiles are worked out only from the bars reached, a footprint shows only what had traded by then, and a chart can change timeframe mid-replay without losing its place. Steps can be shorter than the chart's own bar where the bars it is folded from allow, so a bar forms in front of you. Each chart replays on its own; the rest of the workspace stays live.
+
 ### Liquidations
 
 <p align="center">
@@ -200,6 +204,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 - Clear all of it or one part, above or below a row, or on the clock
 - A tape of every trade, the big ones lit
 - Footprints, TPO profiles, and net taker flow per exchange
+- Bar replay on candles, footprints and TPO profiles
 
 #### Workspace
 

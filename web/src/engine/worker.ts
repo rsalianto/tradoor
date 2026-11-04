@@ -33,6 +33,8 @@ const WINDOW_MAX_BAR_MS = 15 * 60_000;
 const WINDOW_BARS = 6_000;
 /** How far the window widens each time the reader nears its oldest bar. */
 const WIDEN_BARS = 4_000;
+/** How near a replay's newest bar comes to the chart's right edge before the chart moves along with it. */
+const REPLAY_EDGE_BARS = 3;
 const WEEK_MS = 7 * 86_400_000;
 /** 1970-01-05 was a Monday: weeks open counted from it. */
 const MONDAY_MS = 4 * 86_400_000;
@@ -206,6 +208,8 @@ class Slot {
   private live: Bar | null = null;
   /** A trade moved the forming bar since the last frame: it goes to the engine once a frame. */
   private liveDue = false;
+  /** A bar replay's cursor: bars opening from here on are hidden. Null when live. */
+  private replayAt: number | null = null;
   /** The bars the engine holds, newest last, and what it holds at rest (see WINDOW_BARS). */
   private window = Number.POSITIVE_INFINITY;
   private rest = Number.POSITIVE_INFINITY;
@@ -317,6 +321,7 @@ class Slot {
     this.metaDirty = true;
     this.priceDirty = true;
     post({ t: 'status', id: this.id, value: this.status });
+    if (this.replayAt !== null) this.postReplay();
   }
 
   markMeta(): void {
@@ -388,7 +393,7 @@ class Slot {
     let direct = false;
     this.liquidationOff.push(
       followLiquidations(ticker, {
-        hit: (h) => this.engine.push_liquidation(h.usd, h.long, markIndex(h.venue), Date.now()),
+        hit: (h) => this.liquidated(h.usd, h.long, markIndex(h.venue)),
         venues: () => {},
         unavailable: () => {
           if (direct || this.liquidationMarkets !== markets) return;
@@ -397,6 +402,11 @@ class Slot {
         },
       }),
     );
+  }
+
+  /** One just now: no part of a chart in a replay, which stands in the past. */
+  private liquidated(usd: number, long: boolean, mark: number): void {
+    if (this.replayAt === null) this.engine.push_liquidation(usd, long, mark, Date.now());
   }
 
   private watchDirectly(markets: string[]): void {
@@ -410,7 +420,7 @@ class Slot {
           { kind: 'liquidations', symbol: ref.symbol },
           {
             message: (m: StreamMsg) => {
-              if (m.kind === 'liquidation') this.engine.push_liquidation(m.price * m.qty, m.long, mark, Date.now());
+              if (m.kind === 'liquidation') this.liquidated(m.price * m.qty, m.long, mark);
             },
             state: () => {},
           },
@@ -497,9 +507,10 @@ class Slot {
       const early = this.liveEarly(tf);
       if (early) this.startLive(gen, tf);
       this.seed(gen, tf);
-      await series.ensure(baseBars(series, tf, bars));
+      await series.ensure(baseBars(series, tf, bars) + this.replayBack(series));
       if (gen !== this.gen) return;
       this.refold();
+      if (this.replayAt !== null) this.postReplay();
       if (!early) this.startLive(gen, tf);
     } catch (e) {
       if (gen === this.gen) this.fail(message(e));
@@ -587,7 +598,7 @@ class Slot {
   /** The bars the engine holds at rest: see WINDOW_BARS. */
   private restWindow(tf: TfInfo): number {
     if (tf.barMs > WINDOW_MAX_BAR_MS) return Number.POSITIVE_INFINITY;
-    const sinceMonday = Math.ceil(((Date.now() - MONDAY_MS) % WEEK_MS) / tf.barMs);
+    const sinceMonday = Math.ceil((((this.replayAt ?? Date.now()) - MONDAY_MS) % WEEK_MS) / tf.barMs);
     return Math.max(WINDOW_BARS, this.bars, sinceMonday + 100);
   }
 
@@ -598,7 +609,8 @@ class Slot {
   private tail(series: CandleSeries): Cols {
     const c = series.cols;
     const n = c.time.length;
-    if (!Number.isFinite(this.window)) return c;
+    // A replay folds every bar once: stepping then only moves where they are cut.
+    if (!Number.isFinite(this.window) || this.replayAt !== null) return c;
     // Counted, not timed: across a gap in the bars a stretch of time holds
     // fewer, and widening by time could add none.
     const barMs = info(this.timeframe).barMs;
@@ -611,7 +623,7 @@ class Slot {
 
   /** Back about the newest bars, the window lets the older ones go again. */
   private narrow(): void {
-    if (this.window <= this.rest) return;
+    if (this.window <= this.rest || this.replayAt !== null) return;
     const held = Math.min(this.window, this.closed.time.length);
     if (this.engine.visible_from() < held - this.rest + WIDEN_BARS) return;
     this.window = this.rest = this.restWindow(info(this.timeframe));
@@ -619,7 +631,7 @@ class Slot {
   }
 
   private pushCandles(): void {
-    const all = this.closed;
+    const all = this.replayAt === null ? this.closed : sliceCols(this.closed, 0, this.replayEnd());
     const k = all.time.length > this.window ? sliceCols(all, all.time.length - this.window) : all;
     this.engine.set_candles(k.time, k.open, k.high, k.low, k.close, k.volume);
     if (this.fresh && k.time.length > 0) {
@@ -631,9 +643,10 @@ class Slot {
     }
     // A bar longer than a day opens before the week, month or year it sits in,
     // so key levels read the daily bars it was folded from where there are any.
-    const days = this.series?.interval === '1d' && info(this.timeframe).barMs > intervalMs('1d') ? this.series.cols : null;
+    let days = this.series?.interval === '1d' && info(this.timeframe).barMs > intervalMs('1d') ? this.series.cols : null;
+    if (days && this.replayAt !== null) days = sliceCols(days, 0, lowerBound(days.time, this.replayAt));
     this.engine.set_days(days?.time ?? EMPTY, days?.open ?? EMPTY, days?.high ?? EMPTY, days?.low ?? EMPTY, days?.close ?? EMPTY);
-    this.engine.set_message(k.time.length > 0 ? '' : 'No closed candles for this market and timeframe yet.');
+    this.engine.set_message(k.time.length > 0 ? '' : this.replayAt === null ? 'No closed candles for this market and timeframe yet.' : 'No bars this far back on this market and timeframe.');
     this.candlesIn = true;
     this.pushLive();
     this.metaDirty = true;
@@ -743,14 +756,14 @@ class Slot {
         this.extra.push(done);
         if (this.candlesIn) {
           this.closed = concatCols([this.closed, barCols([done])]);
-          this.pushCandles();
+          if (this.replayAt === null) this.pushCandles();
         }
       }
       if (this.candlesIn) this.confirm(prev.time);
     }
     // Before the closed bars are in, the chart drawn is the last market's: the
     // bar and its price wait, to go out with them.
-    if (!this.candlesIn) return;
+    if (!this.candlesIn || this.replayAt !== null) return;
     this.liveDue = true;
     this.setPrice(bar.close);
   }
@@ -794,13 +807,120 @@ class Slot {
   }
 
   private pushLive(): void {
+    if (this.replayAt !== null) {
+      const r = this.replayBar();
+      if (r) this.engine.set_live(r.time, r.open, r.high, r.low, r.close, r.volume);
+      else this.engine.clear_live();
+      return;
+    }
     const b = this.live;
     if (b && b.time > this.lastClosedTime()) this.engine.set_live(b.time, b.open, b.high, b.low, b.close, b.volume);
   }
 
+  /** How many of the closed bars a replay has reached: those whole before its cursor. */
+  private replayEnd(): number {
+    return lowerBound(this.closed.time, bar_start(this.timeframe, this.replayAt!));
+  }
+
+  /** The bar a replay's cursor stands inside, as far as its base bars have come. */
+  private replayBar(): Bar | null {
+    const c = this.series?.cols;
+    if (!c || this.replayAt === null) return null;
+    const time = bar_start(this.timeframe, this.replayAt);
+    const from = lowerBound(c.time, time);
+    const to = lowerBound(c.time, this.replayAt);
+    if (from >= to) return null;
+    let [high, low, volume] = [c.high[from]!, c.low[from]!, 0];
+    for (let i = from; i < to; i += 1) {
+      high = Math.max(high, c.high[i]!);
+      low = Math.min(low, c.low[i]!);
+      volume += c.volume[i]!;
+    }
+    return { time, open: c.open[from]!, high, low, close: c.close[to - 1]!, volume, closed: false };
+  }
+
+  /** The base bars a chart must also hold to reach back to a replay's cursor: a market or timeframe chosen during one. */
+  private replayBack(series: CandleSeries): number {
+    if (this.replayAt === null) return 0;
+    const back = Math.ceil((Date.now() - this.replayAt) / intervalMs(series.interval));
+    return series.source === 'archive' ? back : Math.min(MAX_BASE_BARS, back);
+  }
+
+  /** Where the next bar after `time` opens: the bar forming now, past the last closed one. */
+  private nextBar(time: number): number {
+    const t = this.closed.time;
+    const i = lowerBound(t, time + 1);
+    return i < t.length ? t[i]! : bar_start(this.timeframe, Date.now());
+  }
+
+  private postReplay(): void {
+    const at = this.replayAt;
+    post({
+      t: 'replay',
+      id: this.id,
+      value: { at, ended: at !== null && at >= bar_start(this.timeframe, Date.now()), base: this.series ? intervalMs(this.series.interval) : 0 },
+    });
+  }
+
+  /** The bar at `x` becomes the last one shown; where it stood on screen, it stands. */
+  replayPick(x: number): void {
+    const time = this.engine.bar_time_at(x);
+    if (time !== undefined) this.replayTo(this.nextBar(time), true);
+    else this.postReplay();
+  }
+
+  /** The newest bar shown with a replay's cursor at `at`. */
+  private newestAt(at: number): number {
+    const start = bar_start(this.timeframe, at);
+    return start < at ? start : (this.closed.time[lowerBound(this.closed.time, start) - 1] ?? start);
+  }
+
+  /** Into a replay, out of one, or back to where one stood. Every bar is folded on the way in and let go on the way out. */
+  replayTo(at: number | null, keepView: boolean): void {
+    const was = this.replayAt;
+    const anchor = at ?? was;
+    if (keepView && anchor !== null) this.engine.pin_view(this.newestAt(anchor));
+    this.replayAt = at;
+    this.engine.set_replay(at !== null);
+    if (at === null) {
+      this.engine.clear_live();
+      if (was !== null && Number.isFinite(this.window)) this.window = this.rest = this.restWindow(info(this.timeframe));
+    } else {
+      // What came in on its own from now is not this chart's: the ones sliding up it now go too.
+      this.engine.clear_liquidations();
+    }
+    this.closed = emptyCols();
+    this.refold();
+    if (at === null && !keepView) this.engine.show_newest();
+    this.postReplay();
+  }
+
+  /** Forward: to where the next bar opens, or by `ms`, never past the bar forming now. */
+  replayStep(ms: number): void {
+    const at = this.replayAt;
+    if (at !== null && this.closed.time.length > 0) {
+      const next = Math.min(bar_start(this.timeframe, Date.now()), ms > 0 ? (Math.floor(at / ms) + 1) * ms : this.nextBar(at));
+      if (next > at) this.replayMove(at, next);
+    }
+    this.postReplay();
+  }
+
+  private replayMove(at: number, next: number): void {
+    // Bars come in with the chart standing still until the newest nears its edge,
+    // and from there it moves along, as it does live. Scrolled back, it stays there.
+    const room = this.engine.right_room();
+    if (room < 0 || room > REPLAY_EDGE_BARS) this.engine.pin_view(this.newestAt(at));
+    const reached = this.replayEnd();
+    this.replayAt = next;
+    if (this.replayEnd() !== reached) this.pushCandles();
+    else this.pushLive();
+  }
+
   private setPrice(price: number): void {
-    if (price === this.price) return;
-    this.price = price;
+    // A replay's price is the past's: the toolbar and the tab's title say none rather than that one.
+    const shown = this.replayAt === null ? price : Number.NaN;
+    if (Object.is(shown, this.price)) return;
+    this.price = shown;
     this.markPrice();
   }
 
@@ -864,6 +984,12 @@ class Slot {
   }
 
   private async loadOlder(): Promise<void> {
+    // A replay has every bar folded: the window is only how many of them the engine is given.
+    if (this.replayAt !== null && this.replayEnd() > this.window) {
+      this.window += WIDEN_BARS;
+      this.pushCandles();
+      return;
+    }
     // Bars already held come into the window before any are fetched.
     const held = this.series?.cols.time;
     if (held && held.length > 0 && this.closed.time.length > 0 && held[0]! < this.closed.time[0]!) {
@@ -1220,6 +1346,15 @@ function handle(msg: ToWorker): void {
       break;
     case 'flow':
       slot.engine.set_flow(Float64Array.from(msg.marks.flatMap((m) => [m.at, m.price, m.usd])));
+      break;
+    case 'replayPick':
+      slot.replayPick(msg.x);
+      break;
+    case 'replayStep':
+      slot.replayStep(msg.ms);
+      break;
+    case 'replayAt':
+      slot.replayTo(msg.at, msg.keepView ?? false);
       break;
     case 'selected':
       slot.engine.set_selected(msg.value ?? Number.NaN);
