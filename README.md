@@ -117,6 +117,12 @@ The server records BTC and ETH; every other coin's footprint is recorded in your
 
 ### Bar replay
 
+<p align="center">
+  <img src="docs/screenshots/replay.webp" alt="A one-hour BTCUSDT chart with a line on the bar to replay from: the bars after it are dimmed, and the replay's controls sit below: select bar, play, forward one step, speed, jump to real-time and close" width="100%">
+  <br>
+  <sub>Picking the bar to replay from: everything after the line is hidden until the replay reaches it.</sub>
+</p>
+
 Pick any bar and everything after it is hidden, then play the market forward from there, as fast as you like or a step at a time. It works on candles, footprints and TPO profiles alike: indicators, key levels and profiles are worked out only from the bars reached, a footprint shows only what had traded by then, and a chart can change timeframe mid-replay without losing its place. Steps can be shorter than the chart's own bar where the bars it is folded from allow, so a bar forms in front of you. Each chart replays on its own; the rest of the workspace stays live.
 
 ### Liquidations
