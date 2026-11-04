@@ -441,6 +441,10 @@ impl ChartEngine {
                         set(&o, "type", "paneWeights");
                         set(&o, "value", value);
                     }
+                    Event::FootprintTableChanged(row) => {
+                        set(&o, "type", "footprintTable");
+                        set(&o, "value", f64::from(row));
+                    }
                     Event::AlertMoved { id, price } => {
                         set(&o, "type", "alertMoved");
                         set(&o, "id", id as f64);
@@ -586,7 +590,7 @@ impl ChartEngine {
         self.chart.set_footprint_shown(shown);
     }
 
-    /// `mode;valueArea;stats;profile` — the mode by name, the rest 0 or 1.
+    /// `mode;valueArea;stats;profile;tableRow` — the mode by name, then 0 or 1, then a row's height.
     pub fn set_footprint_options(&mut self, raw: &str) {
         self.chart.set_footprint_options(raw);
     }

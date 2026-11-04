@@ -276,17 +276,6 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     onCleanup(wantRecorded(market()));
   });
   const footprintOn = () => !props.training && props.panel.footprint === true && footprintable() && !tpoShown();
-  createEffect(() => send({ t: 'footprintShown', id: sid, value: footprintOn() }));
-  // The mode and what else a column carries, as the engine reads them.
-  createEffect(() =>
-    send({
-      t: 'footprintOptions',
-      id: sid,
-      value: [props.panel.footprintMode, props.panel.footprintValueArea, props.panel.footprintStats, props.panel.footprintProfile]
-        .map((v) => (v === true ? '1' : v === false ? '0' : v))
-        .join(';'),
-    }),
-  );
   /** The footprint is being fetched or read, and nothing of it is on the chart yet. */
   const [fpLoading, setFpLoading] = createSignal(false);
   /** A replay stands where there is no footprint at all. */
@@ -793,6 +782,17 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const tpoSet = (key: string, value: string) => patchPanel(id, { tpoSettings: withTpoValue(props.panel.tpoSettings, key, value) });
   const tpoOn = (key: string) => tpoValue(props.panel.tpoSettings, key) === '1';
   createEffect(() => send({ t: 'paneWeights', id: sid, value: props.panel.paneWeights }));
+  createEffect(() => send({ t: 'footprintShown', id: sid, value: footprintOn() }));
+  // The mode and what else a column carries, as the engine reads them.
+  createEffect(() =>
+    send({
+      t: 'footprintOptions',
+      id: sid,
+      value: [props.panel.footprintMode, props.panel.footprintValueArea, props.panel.footprintStats, props.panel.footprintProfile, props.panel.footprintStatsRow ?? '']
+        .map((v) => (v === true ? '1' : v === false ? '0' : v))
+        .join(';'),
+    }),
+  );
   createEffect(() => send({ t: 'tool', id: sid, value: offline() === null ? tool() : '', style: tool() ? defaultStyle(tool()) : {} }));
   createEffect(() => send({ t: 'magnet', id: sid, value: magnet() }));
   createEffect(() => send({ t: 'selected', id: sid, value: selected() }));
@@ -1068,6 +1068,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         break;
       case 'paneWeights':
         patchPanel(id, { paneWeights: e.value });
+        break;
+      case 'footprintTable':
+        patchPanel(id, { footprintStatsRow: e.value });
         break;
       case 'autoScale':
         setAutoScale(e.value);

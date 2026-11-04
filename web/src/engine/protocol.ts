@@ -98,6 +98,7 @@ export type ChartEvent =
   | { type: 'toolFinished' }
   | { type: 'needHistory'; before: number }
   | { type: 'paneWeights'; value: string }
+  | { type: 'footprintTable'; value: number }
   | { type: 'autoScale'; value: boolean }
   | { type: 'alertMoved'; id: number; price: number };
 

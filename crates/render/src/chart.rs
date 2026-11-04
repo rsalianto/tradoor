@@ -24,6 +24,8 @@ const TIME_AXIS_HEIGHT: f32 = 22.0;
 const MIN_AXIS_WIDTH: f32 = 56.0;
 const MIN_PANE_HEIGHT: f32 = 40.0;
 const SEPARATOR_GRAB: f32 = 4.0;
+/// A finger takes the footprint table's top edge from further off.
+const TABLE_EDGE_TOUCH: f32 = 12.0;
 /// A chart opens on this many bars: all of them at once makes every candle a
 /// hairline, which shows the trend and nothing about any setup.
 const DEFAULT_VISIBLE_BARS: f64 = 150.0;
@@ -90,6 +92,8 @@ pub enum Event {
     /// The view is near the oldest bar held.
     NeedHistory { before: i64 },
     PaneWeightsChanged(String),
+    /// The footprint's table was dragged: how tall a row of it now stands.
+    FootprintTableChanged(f32),
     /// Every pane follows the bars on screen again, or one stopped doing so.
     AutoScaleChanged(bool),
     /// A price alert's line was dragged to a new price.
@@ -236,6 +240,8 @@ enum Drag {
     PriceAxis { pane: usize, last_y: f32 },
     TimeAxis { last_x: f32 },
     Separator { upper: usize, last_y: f32 },
+    /// The footprint table's top edge, held `grab` below or above where it stands.
+    Table { grab: f32 },
     Brush { last: (f32, f32) },
     /// Moving a whole drawing, or one of its anchors.
     Shape { id: i64, last: (f32, f32), moved: bool },
@@ -333,6 +339,8 @@ pub struct Chart {
     footprint_shown: bool,
     /// How a level reads, and what else a column carries.
     footprint_options: footprint::Options,
+    /// How tall a row of the footprint's table stands.
+    footprint_table_row: f32,
     precision: usize,
     precision_override: Option<usize>,
     engine: EngineSeries,
@@ -416,6 +424,7 @@ impl Chart {
             view_pin: None,
             footprint_shown: false,
             footprint_options: footprint::Options::default(),
+            footprint_table_row: footprint::TABLE_ROW,
             precision: 2,
             precision_override: None,
             engine: engine_series(&[]),
@@ -791,6 +800,23 @@ impl Chart {
         self.tpo().is_none() && self.footprint_shown && !self.footprint.is_empty()
     }
 
+    /// How tall the footprint's table stands on a plot `plot_h` tall: nothing with it off.
+    fn footprint_table(&self, plot_h: f32) -> f32 {
+        if self.footprint_options.stats { footprint::table_height(self.footprint_table_row, plot_h) } else { 0.0 }
+    }
+
+    /// Where the footprint's table starts, when one is drawn.
+    fn table_top(&self) -> Option<f32> {
+        let pane = self.panes.first()?;
+        (self.footprint_drawn() && self.footprint_options.stats).then(|| pane.plot.bottom() - self.footprint_table(pane.plot.h))
+    }
+
+    /// Whether `y` is on the top edge of the footprint's table, which drags.
+    fn on_table_edge(&self, y: f32) -> bool {
+        let grab = if self.touch_input { TABLE_EDGE_TOUCH } else { SEPARATOR_GRAB };
+        self.table_top().is_some_and(|top| (y - top).abs() <= grab)
+    }
+
     /// The price one footprint row covers on this pane as it is zoomed: read at
     /// the middle of the plot, so every bar and the pointer agree on it.
     fn footprint_step(&self, pane: &PaneView) -> f64 {
@@ -813,7 +839,7 @@ impl Chart {
     }
 
     /// How a level reads — `split`, `delta`, `total`, `cluster`, `ladder` —
-    /// and what else a column carries, as `mode;va;stats;profile`.
+    /// and what else a column carries, as `mode;va;stats;profile;tableRow`.
     pub fn set_footprint_options(&mut self, raw: &str) {
         let mut parts = raw.split(';');
         let on = |part: Option<&str>| part != Some("0");
@@ -823,8 +849,10 @@ impl Chart {
             stats: on(parts.next()),
             profile: on(parts.next()),
         };
-        if self.footprint_options != options {
+        let row = parts.next().and_then(|v| v.parse().ok()).map_or(footprint::TABLE_ROW, footprint::table_row);
+        if self.footprint_options != options || self.footprint_table_row != row {
             self.footprint_options = options;
+            self.footprint_table_row = row;
             self.touch();
         }
     }
@@ -848,7 +876,7 @@ impl Chart {
         if x < 0.0 || x >= pane.plot.w || y < pane.plot.y || y > pane.plot.bottom() {
             return None;
         }
-        if self.footprint_options.stats && y >= pane.plot.bottom() - footprint::table_height() {
+        if self.table_top().is_some_and(|top| y >= top) {
             return None;
         }
         let step = self.footprint_step(pane);
@@ -1243,7 +1271,7 @@ impl Chart {
                 // The footprint's table stands along the price pane's foot: the bars keep above it,
                 // with a row's room besides, since a bar's lowest row reaches down past its low.
                 if self.footprint_options.stats {
-                    margins.1 = margins.1.max(f64::from(footprint::table_height() + 24.0) / f64::from(h.max(1.0)));
+                    margins.1 = margins.1.max(f64::from(self.footprint_table(h.max(1.0)) + 24.0) / f64::from(h.max(1.0)));
                 }
             }
             panes.push(PaneView { group: *g, plot: Rect { x: 0.0, y, w: plot_w, h: h.max(1.0) }, scale: PriceScale::new(mode, f64::from(y), f64::from(h.max(1.0)), margins) });
@@ -1681,13 +1709,17 @@ impl Chart {
             }
             let x = |l: f64| self.time.x(l) as f32;
             let y = |p: f64| price.scale.y(p) as f32;
-            let view = footprint::View { plot: price.plot, bar_spacing: self.time.bar_spacing as f32, char_width: self.char_width, theme: t, x: &x, y: &y };
+            let view = footprint::View { plot: price.plot, bar_spacing: self.time.bar_spacing as f32, table: self.footprint_table(price.plot.h), char_width: self.char_width, theme: t, x: &x, y: &y };
             // Each column at the place its own time sits, so a minute the
             // server never recorded leaves a gap rather than shifting the rest.
             let newest = self.newest_time();
             let placed: Vec<(f64, &footprint::Bar)> =
                 self.footprint.iter().filter(|bar| bar.time <= newest).filter_map(|bar| time_to_logical(&self.times, bar.time as f64).map(|l| (l, bar))).collect();
             footprint::paint(f, &view, &placed, self.footprint_options, self.footprint_step(&price));
+            // Its top edge lights up when it is about to be taken, or is held.
+            if let Some(top) = self.table_top().filter(|_| matches!(self.drag, Drag::Table { .. }) || self.crosshair.is_some_and(|(x, y)| x < price.plot.w && self.tool.is_none() && self.on_table_edge(y))) {
+                f.hline(price.plot.x, price.plot.right(), top, 1.0, t.text.with_alpha(170));
+            }
         }
         if !tpo && !foot && !self.hidden.contains("ema200") {
             self.paint_series(f, &price.scale, &self.engine.ema200, i0, i1, t.ema200, 1.0, LineStyle::Solid);
@@ -1812,7 +1844,7 @@ impl Chart {
         }
 
         // ---- crosshair
-        let hover = self.crosshair.filter(|(x, y)| *x >= 0.0 && *x < plot_w && *y >= 0.0 && *y < avail && !matches!(self.drag, Drag::Separator { .. }));
+        let hover = self.crosshair.filter(|(x, y)| *x >= 0.0 && *x < plot_w && *y >= 0.0 && *y < avail && !matches!(self.drag, Drag::Separator { .. } | Drag::Table { .. }));
         // Another chart's crosshair, in a layout keeping them in step, stands where this one's is not.
         let hover_slot = match hover {
             Some((x, _)) => self.slot_at(x),
@@ -2327,9 +2359,10 @@ impl Chart {
             Drag::Held => Cursor::Crosshair,
             Drag::PriceAxis { .. } => Cursor::NsResize,
             Drag::TimeAxis { .. } => Cursor::ColResize,
-            Drag::Separator { .. } => Cursor::RowResize,
+            Drag::Separator { .. } | Drag::Table { .. } => Cursor::RowResize,
             _ => match self.zone(x, y) {
                 Zone::Separator(_) => Cursor::RowResize,
+                Zone::Plot(0) if self.on_table_edge(y) => Cursor::RowResize,
                 Zone::PriceAxis(0) if self.alert_badge_at(x, y).is_some_and(|id| self.selected_alert != Some(id)) && !self.touch_input => Cursor::Pointer,
                 Zone::PriceAxis(_) => Cursor::NsResize,
                 Zone::TimeAxis => Cursor::ColResize,
@@ -2391,6 +2424,12 @@ impl Chart {
                 self.drag = Drag::Separator { upper, last_y: y };
             }
             // The crosshair, set above, is all a held finger moves.
+            Drag::Table { grab } => {
+                if let Some(pane) = self.panes.first() {
+                    self.footprint_table_row = footprint::table_row_for(pane.plot.bottom() - (y - grab), pane.plot.h);
+                    self.touch();
+                }
+            }
             Drag::Held => {}
             Drag::Alert { id, .. } => {
                 if let Some(pane) = self.panes.first() {
@@ -2453,6 +2492,7 @@ impl Chart {
         let grab_alerts = !self.touch_input;
         self.drag = match self.zone(x, y) {
             Zone::Separator(i) if free => Drag::Separator { upper: i, last_y: y },
+            Zone::Plot(0) if free && self.on_table_edge(y) => Drag::Table { grab: y - self.table_top().unwrap_or(y) },
             // An alert's badge on the axis picks the alert, and moves it once
             // picked; the bare axis scales.
             Zone::PriceAxis(0) if free => match self.alert_badge_at(x, y).filter(|_| grab_alerts) {
@@ -2574,6 +2614,7 @@ impl Chart {
                 }
             }
             Drag::Separator { .. } => self.events.push(Event::PaneWeightsChanged(self.pane_weights())),
+            Drag::Table { .. } => self.events.push(Event::FootprintTableChanged(self.footprint_table_row)),
             _ => {}
         }
         self.cursor = self.cursor_for(x, y);
@@ -4149,5 +4190,54 @@ mod tests {
         c.render(1_800_000_000_000);
         assert!((c.panes[1].plot.h - (before + 40.0)).abs() < 2.0);
         assert!(c.take_events().iter().any(|e| matches!(e, Event::PaneWeightsChanged(_))));
+    }
+
+    #[test]
+    fn the_footprint_table_is_as_tall_as_its_top_edge_is_dragged() {
+        let mut c = chart();
+        let i = c.candles().len() - 2;
+        let bar = c.candles()[i];
+        c.set_footprint(vec![footprint::Bar { time: bar.open_time, levels: vec![(bar.low, 1.0, 2.0)], ..Default::default() }], 0.5, false);
+        c.set_footprint_options("delta;1;1;1");
+        c.set_footprint_shown(true);
+        c.render(1_800_000_000_000);
+        let pane = c.panes[0];
+        let top = c.table_top().expect("a table");
+        assert_eq!(pane.plot.bottom() - top, footprint::table_height(footprint::TABLE_ROW, pane.plot.h));
+
+        c.pointer_down(300.0, top, 0);
+        c.pointer_move(300.0, top - 30.0);
+        c.pointer_up(300.0, top - 30.0);
+        c.render(1_800_000_000_000);
+        let taller = c.table_top().expect("a table");
+        assert!((top - taller - 30.0).abs() < 0.01, "the edge follows the pointer: {top} to {taller}");
+        let row = c.take_events().iter().find_map(|e| if let Event::FootprintTableChanged(row) = e { Some(*row) } else { None }).expect("the page is told");
+        assert_eq!(row, c.footprint_table_row);
+
+        // What the page saved comes back as it left, and a chart saved before this has the default.
+        c.set_footprint_options(&format!("delta;1;1;1;{row}"));
+        assert_eq!(c.footprint_table_row, row);
+        c.set_footprint_options("delta;1;1;1");
+        assert_eq!(c.footprint_table_row, footprint::TABLE_ROW);
+
+        // It stops at half the plot, however far it is pulled.
+        c.render(1_800_000_000_000);
+        let top = c.table_top().expect("a table");
+        c.pointer_down(300.0, top, 0);
+        c.pointer_move(300.0, pane.plot.y);
+        c.pointer_up(300.0, pane.plot.y);
+        c.render(1_800_000_000_000);
+        assert!(pane.plot.bottom() - c.table_top().expect("a table") <= pane.plot.h * 0.5 + 0.01);
+
+        // A press well clear of the edge is a press on the chart.
+        let top = c.table_top().expect("a table");
+        c.pointer_down(300.0, top - 60.0, 0);
+        assert!(!matches!(c.drag, Drag::Table { .. }));
+        c.pointer_up(300.0, top - 60.0);
+
+        // With a drawing tool armed the edge is chart too: the tool's next point goes there.
+        c.set_tool(Some(DrawingKind::Horizontal));
+        c.pointer_down(300.0, top, 0);
+        assert!(!matches!(c.drag, Drag::Table { .. }));
     }
 }

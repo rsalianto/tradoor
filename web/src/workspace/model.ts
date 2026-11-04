@@ -27,7 +27,7 @@ export const FOOTPRINT_MODES: readonly { value: string; label: string }[] = [
 /** What a footprint column carries besides its cells. */
 export const FOOTPRINT_EXTRAS: readonly { key: 'footprintValueArea' | 'footprintStats' | 'footprintProfile'; label: string; tip: string }[] = [
   { key: 'footprintValueArea', label: 'Value area', tip: 'Outline the rows holding 70% of a bar’s volume' },
-  { key: 'footprintStats', label: 'Stats', tip: 'A table under the bars: each one’s volume, delta, delta %, and the most and least its delta reached, read at each minute’s close' },
+  { key: 'footprintStats', label: 'Stats', tip: 'A table under the bars: each one’s volume, delta, delta %, and the most and least its delta reached, read at each minute’s close. Drag its top edge to make it taller or shorter' },
   { key: 'footprintProfile', label: 'Profile', tip: 'Every visible bar summed by price, against the right edge' },
 ];
 
@@ -90,6 +90,8 @@ export interface ChartPanelState extends PanelBase {
   footprintValueArea: boolean;
   /** The bar's volume and delta, written under it. */
   footprintStats: boolean;
+  /** How tall a row of that table stands, once its top edge has been dragged. */
+  footprintStatsRow?: number;
   /** Every visible bar summed by price, against the right edge. */
   footprintProfile: boolean;
   /** TPO options changed from MMT's defaults; see lib/tpo-settings. */
@@ -367,6 +369,8 @@ function readPanel(id: string, raw: unknown): Panel | null {
         const on = raw[extra.key];
         if (typeof on === 'boolean') p[extra.key] = on;
       }
+      const row = Number(raw.footprintStatsRow);
+      if (Number.isFinite(row) && row >= 12 && row <= 40) p.footprintStatsRow = row;
     }
     else p.tpo = '1w';
     if (isObj(raw.tpoSettings)) {

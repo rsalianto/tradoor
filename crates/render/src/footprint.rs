@@ -112,20 +112,36 @@ const PROFILE_SHARE: f32 = 0.12;
 /// The table under the bars, a row a figure. The extremes are read at each
 /// minute's close, so they are near the true ones, not the true ones.
 pub const TABLE_ROWS: [&str; 5] = ["Volume", "Delta", "Delta %", "Max Δ ≈", "Min Δ ≈"];
-/// How tall one row of that table stands.
-pub const TABLE_ROW: f32 = 15.0;
-/// The column the table's names sit in, at its left.
-const TABLE_NAMES: f32 = 64.0;
+/// How tall one row of that table stands, until the reader drags its top edge.
+pub const TABLE_ROW: f32 = 18.0;
+/// How short and how tall the reader can make a row.
+const TABLE_ROW_RANGE: (f32, f32) = (12.0, 40.0);
+/// The most of the plot the table takes: the bars are what it stands under.
+const TABLE_SHARE: f32 = 0.5;
+/// The biggest its figures are written, however tall the row.
+const TABLE_TEXT: f32 = 15.0;
+
+/// A row height as the reader may have it.
+pub fn table_row(row: f32) -> f32 {
+    row.clamp(TABLE_ROW_RANGE.0, TABLE_ROW_RANGE.1)
+}
+
+/// The row height that makes the table `height` tall on a plot `plot_h` tall, as near as it goes.
+pub fn table_row_for(height: f32, plot_h: f32) -> f32 {
+    table_row(height.min(plot_h * TABLE_SHARE) / TABLE_ROWS.len() as f32)
+}
 
 /// How tall the table under the bars stands, which the price scale keeps clear.
-pub fn table_height() -> f32 {
-    TABLE_ROWS.len() as f32 * TABLE_ROW
+pub fn table_height(row: f32, plot_h: f32) -> f32 {
+    (row * TABLE_ROWS.len() as f32).min(plot_h * TABLE_SHARE)
 }
 
 /// What the chart lends the painter: where things go, and what they look like.
 pub struct View<'a> {
     pub plot: Rect,
     pub bar_spacing: f32,
+    /// How tall the table stands, when the options ask for one.
+    pub table: f32,
     pub char_width: f32,
     pub theme: &'a Theme,
     /// Logical bar index to x, and price to y.
@@ -252,6 +268,9 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
     if !rows.iter().flat_map(|(_, bar)| bar.levels.iter()).any(|(_, buy, sell)| weight(*buy, *sell) > 0.0) {
         return;
     }
+    // Numbers are written after every fill, so the table's background would not
+    // hide what the bars write: they stop at its top themselves.
+    let above = Rect { h: view.plot.h - if options.stats { view.table } else { 0.0 }, ..view.plot };
 
     for (x, bar) in &rows {
         // A cell is filled against the loudest level of ITS OWN bar. Against
@@ -275,7 +294,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
             let full = full_at(price);
             (full - if full >= 6.0 { 1.0 } else { 0.5 }).max(MIN_ROW)
         };
-        let on_screen = |price: f64| top_of(price) + full_at(price) >= view.plot.y && top_of(price) <= view.plot.bottom();
+        let on_screen = |price: f64| top_of(price) + full_at(price) >= above.y && top_of(price) <= above.bottom();
 
         // The delta added up from the foot of the bar, for the ladder.
         let mut running = 0.0;
@@ -297,10 +316,10 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                     f.rect(s.cells + half + 0.5, top, half - 0.5, drawn, t.bull.with_alpha(alpha(*buy)));
                     let (sold, bought) = (short(*sell), short(*buy));
                     if let Some(size) = fit(&sold, half - pad) {
-                        f.text(s.cells + half - pad, middle, sold, ink(t.bear, alpha(*sell)), Align::Right, Baseline::Middle, size, None, Some(view.plot));
+                        f.text(s.cells + half - pad, middle, sold, ink(t.bear, alpha(*sell)), Align::Right, Baseline::Middle, size, None, Some(above));
                     }
                     if let Some(size) = fit(&bought, half - pad) {
-                        f.text(s.cells + half + pad, middle, bought, ink(t.bull, alpha(*buy)), Align::Left, Baseline::Middle, size, None, Some(view.plot));
+                        f.text(s.cells + half + pad, middle, bought, ink(t.bull, alpha(*buy)), Align::Left, Baseline::Middle, size, None, Some(above));
                     }
                 }
                 Mode::Cluster => {
@@ -313,7 +332,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                     let text = short(total);
                     if let Some((on, size)) = on_or_past(view, &text, bar, s.cells_width, row) {
                         let (from, color) = if on { (s.cells, ink(side, fill)) } else { (s.cells + bar, t.background.ink()) };
-                        f.text(from + pad, middle, text, color, Align::Left, Baseline::Middle, size, None, Some(view.plot));
+                        f.text(from + pad, middle, text, color, Align::Left, Baseline::Middle, size, None, Some(above));
                     }
                 }
                 Mode::Delta | Mode::Total | Mode::Ladder => {
@@ -326,7 +345,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                     f.rect(s.cells, top, s.cells_width, drawn, color.with_alpha(alpha(value.abs())));
                     let text = if mode == Mode::Total { short(value) } else { signed(value) };
                     if let Some(size) = fit(&text, s.cells_width) {
-                        f.text(s.cells + s.cells_width / 2.0, middle, text, ink(color, alpha(value.abs())), Align::Center, Baseline::Middle, size, None, Some(view.plot));
+                        f.text(s.cells + s.cells_width / 2.0, middle, text, ink(color, alpha(value.abs())), Align::Center, Baseline::Middle, size, None, Some(above));
                     }
                 }
             }
@@ -404,7 +423,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
         let room = view.plot.w * PROFILE_SHARE;
         for (price, buy, sell) in &summed {
             let (top, drawn) = ((view.y)(price + step), (row_height(view, *price, step) - 0.5).max(MIN_ROW));
-            if top + drawn < view.plot.y || top > view.plot.bottom() || loudest <= 0.0 {
+            if top + drawn < above.y || top > above.bottom() || loudest <= 0.0 {
                 continue;
             }
             let w = (room * ((buy + sell) / loudest) as f32).max(1.0);
@@ -414,7 +433,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
             let text = short(buy + sell);
             if let Some((on, size)) = on_or_past(view, &text, w, room, row_height(view, *price, step)) {
                 let (to, ink) = if on { (view.plot.right(), color.with_alpha(90).over(t.background).ink()) } else { (view.plot.right() - w, t.background.ink()) };
-                f.text(to - 3.0, top + drawn / 2.0, text, ink, Align::Right, Baseline::Middle, size, None, Some(view.plot));
+                f.text(to - 3.0, top + drawn / 2.0, text, ink, Align::Right, Baseline::Middle, size, None, Some(above));
             }
         }
     }
@@ -428,10 +447,18 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
 /// as big as the row allows, small enough to fit across — or none, where it
 /// would be too small to read.
 fn fitted(view: &View<'_>, text: &str, room: f32, row: f32) -> Option<f32> {
-    // The font's character width for its size, as the chart measured it.
-    let per_px = if view.theme.font_px > 0.0 { view.char_width / view.theme.font_px } else { 0.6 };
-    let size = (row * 0.62).min(11.0).min((room - 4.0) / (text.chars().count().max(1) as f32 * per_px));
+    fitted_up_to(view, text, room, row, (row * 0.62).min(11.0))
+}
+
+/// The same, with the biggest it may be written at given.
+fn fitted_up_to(view: &View<'_>, text: &str, room: f32, row: f32, largest: f32) -> Option<f32> {
+    let size = largest.min((room - 4.0) / (text.chars().count().max(1) as f32 * char_share(view)));
     (row >= NUMBER_HEIGHT && size >= SMALLEST_NUMBER).then_some(size)
+}
+
+/// The font's character width for its size, as the chart measured it.
+fn char_share(view: &View<'_>) -> f32 {
+    if view.theme.font_px > 0.0 { view.char_width / view.theme.font_px } else { 0.6 }
 }
 
 /// Where a volume is written against its bar, `bar` wide in a space `room`
@@ -450,12 +477,17 @@ fn on_or_past(view: &View<'_>, text: &str, bar: f32, room: f32, row: f32) -> Opt
 /// against its own loudest on screen, so a big bar stands out of its row.
 fn table(f: &mut Frame, view: &View<'_>, rows: &[(f32, Bar)]) {
     let t = view.theme;
-    let top = view.plot.bottom() - table_height();
-    f.rect(view.plot.x, top, view.plot.w, table_height(), t.background);
+    let row = view.table / TABLE_ROWS.len() as f32;
+    let top = view.plot.bottom() - view.table;
+    f.rect(view.plot.x, top, view.plot.w, view.table, t.background);
     f.hline(view.plot.x, view.plot.right(), top, 1.0, t.border);
+    // A grip in the middle of the top edge: it is there to be dragged.
+    f.rect(view.plot.x + view.plot.w / 2.0 - 14.0, top - 1.0, 28.0, 3.0, t.text.with_alpha(110));
+    let size = (row * 0.66).min(TABLE_TEXT);
     // A bar's figures: volume, delta, delta %, the most and the least the delta reached.
     // None for a bar under the names: their column holds it, and numbers are written over every fill.
-    let names_end = view.plot.x + TABLE_NAMES;
+    let longest = TABLE_ROWS.iter().map(|name| name.chars().count()).max().unwrap_or(0);
+    let names_end = view.plot.x + 12.0 + longest as f32 * char_share(view) * size;
     let figures: Vec<(f32, [f64; 5])> = rows
         .iter()
         .filter(|(x, _)| slot(*x, view.bar_spacing).left >= names_end)
@@ -467,31 +499,32 @@ fn table(f: &mut Frame, view: &View<'_>, rows: &[(f32, Bar)]) {
             (*x, [volume, delta, share, bar.max_delta.max(0.0), bar.min_delta.min(0.0)])
         })
         .collect();
-    let size = 9.5;
     for (r, _) in TABLE_ROWS.iter().enumerate() {
         let loudest = figures.iter().map(|(_, v)| v[r].abs()).fold(0.0_f64, f64::max);
-        let y = top + r as f32 * TABLE_ROW;
+        let y = top + r as f32 * row;
         for (x, values) in &figures {
             let s = slot(*x, view.bar_spacing);
             let v = values[r];
             let strength = if loudest > 0.0 { (v.abs() / loudest).clamp(0.0, 1.0).sqrt() } else { 0.0 };
             let color = if r == 0 { t.text } else if v >= 0.0 { t.bull } else { t.bear };
             let alpha = (if r == 0 { 12.0 + 60.0 * strength } else { 25.0 + 160.0 * strength }) as u8;
-            f.rect(s.left, y + 0.5, s.width, TABLE_ROW - 1.0, color.with_alpha(alpha));
+            f.rect(s.left, y + 0.5, s.width, row - 1.0, color.with_alpha(alpha));
             let text = match r {
                 0 => short(v),
                 2 => format!("{}{:.0}%", if v > 0.0 { "+" } else { "" }, v),
                 _ => signed(v),
             };
-            if let Some(size) = fitted(view, &text, s.width, TABLE_ROW).map(|s| s.min(size)) {
+            if let Some(size) = fitted_up_to(view, &text, s.width, row, size) {
                 let ink = color.with_alpha(alpha).over(t.background).ink();
-                f.text(s.left + s.width / 2.0, y + TABLE_ROW / 2.0, text, ink, Align::Center, Baseline::Middle, size, None, Some(view.plot));
+                f.text(s.left + s.width / 2.0, y + row / 2.0, text, ink, Align::Center, Baseline::Middle, size, None, Some(view.plot));
             }
         }
     }
     // The names, in a column of their own at the left.
-    for (r, name) in TABLE_ROWS.iter().enumerate() {
-        f.text(view.plot.x + 6.0, top + r as f32 * TABLE_ROW + TABLE_ROW / 2.0, (*name).to_string(), t.text.with_alpha(150), Align::Left, Baseline::Middle, size, None, Some(view.plot));
+    if row >= NUMBER_HEIGHT {
+        for (r, name) in TABLE_ROWS.iter().enumerate() {
+            f.text(view.plot.x + 6.0, top + r as f32 * row + row / 2.0, (*name).to_string(), t.text.with_alpha(190), Align::Left, Baseline::Middle, size, None, Some(view.plot));
+        }
     }
 }
 
@@ -617,7 +650,7 @@ mod tests {
         // A logarithmic scale over prices around 84,000, as a chart of BTC has.
         let y = |p: f64| 300.0 - ((p.ln() - 84_000f64.ln()) * 100_000.0) as f32;
         let bar = Bar { time: 0, levels: vec![(84_000.0, 1.0, 2.0), (84_001.0, 3.0, 1.0), (84_002.0, 2.0, 2.0)], ..Default::default() };
-        let view = View { plot, bar_spacing: 30.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let view = View { plot, bar_spacing: 30.0, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
         paint(&mut f, &view, &[(0.0, &bar)], Options { mode: Mode::Split, value_area: false, stats: false, profile: false }, 1.0);
         // A dollar at 84,000 is about a pixel on this scale, so every vertex
         // sits within a few pixels of the levels — not spread over the plot.
@@ -634,7 +667,7 @@ mod tests {
         f.begin(400.0, 300.0, 1.0, theme.background);
         let x = |l: f64| 200.0 + l as f32;
         let y = |p: f64| 300.0 - (p as f32 - 99.0) * 100.0;
-        let view = View { plot, bar_spacing: 30.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let view = View { plot, bar_spacing: 30.0, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
         // One row, because the grid the screen shares is coarser than the
         // minute's own range. It is still a minute that traded.
         let bar = Bar { time: 0, levels: vec![(100.0, 2.0, 1.0)], ..Default::default() };
@@ -650,7 +683,7 @@ mod tests {
         f.begin(400.0, 300.0, 1.0, theme.background);
         let x = |l: f64| 200.0 + l as f32;
         let y = |p: f64| 300.0 - (p as f32 - 99.0) * 100.0;
-        let view = View { plot, bar_spacing: 80.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let view = View { plot, bar_spacing: 80.0, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
         // One level traded a hundred coins, the next a fiftieth of that.
         let bar = Bar { time: 0, levels: vec![(100.0, 100.0, 0.02), (101.0, 0.02, 0.02)], ..Default::default() };
         paint(&mut f, &view, &[(0.0, &bar)], Options { mode: Mode::Split, value_area: false, stats: false, profile: false }, 1.0);
@@ -703,7 +736,7 @@ mod tests {
         f.begin(400.0, 300.0, 1.0, theme.background);
         let x = |l: f64| 100.0 + l as f32 * 100.0;
         let y = |p: f64| 300.0 - (p as f32 - 99.0) * 100.0;
-        let view = View { plot, bar_spacing: 60.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let view = View { plot, bar_spacing: 60.0, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
         // One bar trades in hundreds, the next in tenths.
         let busy = Bar { time: 0, levels: vec![(100.0, 400.0, 100.0), (101.0, 50.0, 200.0)], ..Default::default() };
         let quiet = Bar { time: 60_000, levels: vec![(100.0, 0.4, 0.1), (101.0, 0.05, 0.2)], ..Default::default() };
@@ -726,7 +759,7 @@ mod tests {
             f.begin(400.0, 300.0, 1.0, theme.background);
             let x = |l: f64| 200.0 + l as f32;
             let y = |p: f64| 300.0 - (p as f32 - 99.0) * 100.0;
-            let view = View { plot, bar_spacing: 80.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+            let view = View { plot, bar_spacing: 80.0, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
             paint(&mut f, &view, &[(0.0, &bar())], Options { mode, value_area: false, stats: false, profile: false }, 1.0);
             f.texts.iter().map(|t| t.text.clone()).collect::<Vec<_>>()
         };
@@ -746,7 +779,7 @@ mod tests {
         let x = |l: f64| 100.0 + l as f32 * 80.0;
         // Seventy pixels to the price, so all three rows are on screen.
         let y = |p: f64| 300.0 - (p as f32 - 99.0) * 70.0;
-        let view = View { plot, bar_spacing: 80.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let view = View { plot, bar_spacing: 80.0, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
         let (one, two) = (bar(), bar());
         paint(&mut f, &view, &[(0.0, &one), (1.0, &two)], Options { mode: Mode::Delta, value_area: false, stats: false, profile: true }, 1.0);
         // Both bars summed: 10, 6 and 17 by price, against the right edge.
@@ -764,7 +797,7 @@ mod tests {
         f.begin(400.0, 300.0, 1.0, theme.background);
         let x = |l: f64| 200.0 + l as f32;
         let y = |p: f64| 300.0 - (p as f32 - 99.0) * 100.0;
-        let view = View { plot, bar_spacing: 80.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let view = View { plot, bar_spacing: 80.0, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
         paint(&mut f, &view, &[(0.0, &bar())], Options { mode: Mode::Cluster, value_area: false, stats: false, profile: false }, 1.0);
         let s = slot(200.0, 80.0);
         let loudest = bar().levels.iter().map(|(_, b, s)| b + s).fold(0.0_f64, f64::max);
@@ -789,7 +822,7 @@ mod tests {
             let x = |l: f64| 200.0 + l as f32;
             // A hundred pixels to the price, so the rows are tall.
             let y = |p: f64| 300.0 - (p as f32 - 99.0) * 100.0;
-            let view = View { plot, bar_spacing: spacing, char_width: 6.0, theme: &theme, x: &x, y: &y };
+            let view = View { plot, bar_spacing: spacing, table: 0.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
             paint(&mut f, &view, &[(0.0, &bar())], Options { mode: Mode::Split, value_area: false, stats: false, profile: false }, 1.0);
             f
         };
@@ -847,7 +880,7 @@ mod tests {
         f.begin(400.0, 300.0, 1.0, theme.background);
         let x = |l: f64| 200.0 + l as f32;
         let y = |p: f64| 200.0 - (p as f32 - 99.0) * 40.0;
-        let view = View { plot, bar_spacing: 80.0, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let view = View { plot, bar_spacing: 80.0, table: table_height(TABLE_ROW, plot.h), char_width: 6.0, theme: &theme, x: &x, y: &y };
         // Eleven bought and five and a half sold; on the way the delta reached six and fell to minus one.
         let bar = Bar { max_delta: 6.0, min_delta: -1.0, ..bar() };
         paint(&mut f, &view, &[(0.0, &bar)], Options { mode: Mode::Delta, value_area: false, stats: true, profile: false }, 1.0);
@@ -858,5 +891,54 @@ mod tests {
         for figure in ["16.5", "+5.50", "+33%", "+6.00", "-1.00"] {
             assert!(texts.contains(&figure), "{figure} is written: {texts:?}");
         }
+    }
+
+    #[test]
+    fn nothing_the_bars_write_reaches_into_the_table() {
+        let theme = Theme::default();
+        let plot = Rect { x: 0.0, y: 0.0, w: 400.0, h: 300.0 };
+        let table = table_height(TABLE_ROW, plot.h);
+        let top = plot.bottom() - table;
+        let mut f = Frame::default();
+        f.begin(400.0, 300.0, 1.0, theme.background);
+        let x = |l: f64| 100.0 + l as f32;
+        // A row 24 tall, the bar's rows reaching from above the table's top to under it.
+        let y = |p: f64| top - (p as f32 - 101.0) * 24.0;
+        let view = View { plot, bar_spacing: 80.0, table, char_width: 6.0, theme: &theme, x: &x, y: &y };
+        let bar = Bar { levels: vec![(98.0, 7.0, 1.0), (99.0, 6.0, 1.0), (100.0, 5.0, 1.0), (101.0, 4.0, 1.0), (102.0, 3.0, 1.0)], ..Default::default() };
+        paint(&mut f, &view, &[(0.0, &bar)], Options { mode: Mode::Total, value_area: false, stats: true, profile: true }, 1.0);
+        let table_text = |t: &&crate::paint::TextCmd| t.clip == Some(plot);
+        assert_eq!(f.texts.iter().filter(table_text).count(), TABLE_ROWS.len() * 2, "a name and a figure a row, in the table");
+        for text in f.texts.iter().filter(|t| !table_text(t)) {
+            assert_eq!(text.clip.map(|c| c.bottom()), Some(top), "{} stops at the table", text.text);
+            assert!(text.y < top + 24.0, "{} is of a row above the table", text.text);
+        }
+        // The rows wholly under its top are not written at all, in the bar or in the profile.
+        let written: Vec<&str> = f.texts.iter().filter(|t| !table_text(t)).map(|t| t.text.as_str()).collect();
+        assert!(!written.contains(&"8.00") && !written.contains(&"7.00"), "{written:?}");
+        assert!(written.contains(&"5.00"), "the rows above it still are: {written:?}");
+    }
+
+    #[test]
+    fn the_table_stays_within_half_the_plot_and_its_figures_grow_with_it() {
+        assert_eq!(table_height(40.0, 1000.0), 200.0);
+        assert_eq!(table_height(40.0, 300.0), 150.0, "half the plot at most");
+        assert_eq!(table_row_for(10.0, 1000.0), 12.0, "a row as short as still reads");
+        assert_eq!(table_row_for(5000.0, 1000.0), 40.0, "and no taller than this");
+        assert_eq!(table_row_for(5000.0, 300.0), 30.0, "what half the plot allows is what is kept");
+
+        let theme = Theme::default();
+        let plot = Rect { x: 0.0, y: 0.0, w: 400.0, h: 1000.0 };
+        let sizes = |row: f32| {
+            let mut f = Frame::default();
+            f.begin(400.0, 1000.0, 1.0, theme.background);
+            let x = |l: f64| 200.0 + l as f32;
+            let y = |p: f64| 200.0 - (p as f32 - 99.0) * 40.0;
+            let view = View { plot, bar_spacing: 90.0, table: table_height(row, plot.h), char_width: 6.0, theme: &theme, x: &x, y: &y };
+            paint(&mut f, &view, &[(0.0, &bar())], Options { mode: Mode::Delta, value_area: false, stats: true, profile: false }, 1.0);
+            f.texts.iter().find(|t| t.text == "Volume").map(|t| t.size).expect("the row is named")
+        };
+        assert!(sizes(30.0) > sizes(TABLE_ROW) && sizes(TABLE_ROW) > sizes(12.0));
+        assert_eq!(sizes(40.0), TABLE_TEXT, "however tall the row");
     }
 }

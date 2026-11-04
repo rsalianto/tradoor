@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 /** Moving panels: onto a group, beside it, and among a strip's tabs. */
 import { assertEquals } from 'jsr:@std/assert@1';
-import { defaultWorkspace, movePanel, tabsOf, type LayoutNode, type WorkspaceDoc } from './model.ts';
+import { defaultWorkspace, movePanel, tabsOf, validate, type ChartPanelState, type LayoutNode, type WorkspaceDoc } from './model.ts';
 
 const types = (doc: WorkspaceDoc, n: LayoutNode): string => (n.kind === 'tabs' ? `[${n.panels.map((p) => doc.panels[p]!.type).join(',')}]` : `${n.dir}(${n.children.map((c) => types(doc, c)).join(' ')})`);
 const idOf = (doc: WorkspaceDoc, type: string) => Object.values(doc.panels).find((p) => p.type === type)!.id;
@@ -26,4 +26,17 @@ Deno.test('two tabs of one group set side by side, either way round', () => {
   assertEquals(types(doc, doc.root).endsWith('row([values] [liquidations])))'), true, types(doc, doc.root));
   movePanel(doc, idOf(doc, 'values'), liq(), 'right');
   assertEquals(types(doc, doc.root).endsWith('row([liquidations] [values])))'), true, types(doc, doc.root));
+});
+
+Deno.test('the height dragged on a footprint table comes back with the layout, if it is one the chart can draw', () => {
+  const row = (saved: unknown) => {
+    const doc = defaultWorkspace();
+    const chart = Object.values(doc.panels).find((p) => p.type === 'chart')!;
+    const back = validate(JSON.parse(JSON.stringify({ ...doc, panels: { ...doc.panels, [chart.id]: { ...chart, footprintStatsRow: saved } } })))!;
+    return (back.panels[chart.id] as ChartPanelState).footprintStatsRow;
+  };
+  assertEquals(row(34), 34);
+  assertEquals(row(undefined), undefined, 'a chart saved before there was one has none');
+  assertEquals(row(500), undefined);
+  assertEquals(row('tall'), undefined);
 });
