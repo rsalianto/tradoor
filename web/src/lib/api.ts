@@ -4,6 +4,7 @@ import type { DrawingPoint } from '../engine/protocol';
 import type { Style } from './drawing-style';
 import { listing, type Listing } from './catalog-wire';
 import { authHeaders, SIGNED_OUT, startOver } from './owner';
+import { read } from './read';
 
 export class ApiError extends Error {
   constructor(
@@ -17,14 +18,14 @@ export class ApiError extends Error {
 
 export const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-async function request<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: T | null }> {
+async function request<T>(path: string, init: { method?: string; body?: unknown; once?: boolean } = {}): Promise<{ status: number; body: T | null }> {
   const method = init.method ?? 'GET';
   // Drawings and layouts are this browser's own, or its account's: the server scopes them by this.
   const headers = authHeaders();
   if (init.body !== undefined) headers['content-type'] = 'application/json';
   let res: Response;
   try {
-    res = await fetch(path, { method, headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
+    res = method === 'GET' && !init.once ? await read(path, headers) : await fetch(path, { method, headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
   } catch {
     throw new ApiError(0, 'the tradoor server is not reachable');
   }
@@ -536,7 +537,8 @@ export interface TelegramStatus {
 
 export const api = {
   async health(): Promise<{ ok: boolean; db: boolean }> {
-    const { body } = await request<{ ok: boolean; db: boolean }>('/api/health');
+    // Asked once: this is the one read whose job is to tell of a bad moment.
+    const { body } = await request<{ ok: boolean; db: boolean }>('/api/health', { once: true });
     return body ?? { ok: false, db: false };
   },
   drawings: (market: string, timeframe: string, chart: ChartKind) => json<{ count: number; drawings: Drawing[] }>(`/api/drawings?${scope(market, timeframe, chart)}`),

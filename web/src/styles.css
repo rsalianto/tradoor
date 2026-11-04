@@ -1063,6 +1063,10 @@ table.venues tr.off td { color: var(--dim); }
 /* ---------------------------------------------------------------- journal */
 .journal .grow { flex: 1; min-width: 0; }
 .journal { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.opening { position: absolute; top: 48px; left: 0; right: 0; z-index: 1; margin: 0; font-size: 12px; text-align: center; }
+.not-loaded { position: fixed; top: 64px; left: 50%; translate: -50% 0; z-index: 90; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; width: max-content; max-width: calc(100vw - 32px); padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; }
+.jr-fail { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.jr-fail .tb, .not-loaded .tb { flex: none; border: 1px solid var(--border); color: var(--text); }
 .jr-head { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--surface); font-size: 11px; }
 .jr-title { font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
 .jr-tabs { padding-left: 6px; }

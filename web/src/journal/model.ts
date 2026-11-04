@@ -6,6 +6,7 @@
  */
 import { ApiError, isSignedOut, json } from '../lib/api';
 import { authHeaders, SIGNED_OUT, startOver } from '../lib/owner';
+import { read } from '../lib/read';
 
 export type Side = 'long' | 'short';
 export type Status = 'planned' | 'open' | 'win' | 'loss' | 'closed' | 'breakeven' | 'cancelled';
@@ -97,13 +98,13 @@ let held: { tag: string; trades: Trade[] } | null = null;
 async function trades(): Promise<Trade[]> {
   const headers = authHeaders();
   if (held) headers['if-none-match'] = held.tag;
-  const res = await fetch('/api/journal', { headers }).catch(() => {
+  const res = await read('/api/journal', headers).catch(() => {
     throw new ApiError(0, 'the tradoor server is not reachable');
   });
   if (res.status === 304 && held) return held.trades;
   const body = (await res.json().catch(() => null)) as { trades?: Trade[]; error?: unknown } | null;
   if (isSignedOut(res.status, body)) startOver(SIGNED_OUT);
-  if (!res.ok || !body?.trades) throw new ApiError(res.status, typeof body?.error === 'string' ? body.error : `request failed (${res.status})`);
+  if (!res.ok || !body?.trades) throw new ApiError(res.status, typeof body?.error === 'string' ? body.error : res.status >= 500 ? 'the tradoor server is not reachable' : `request failed (${res.status})`);
   const tag = res.headers.get('etag');
   held = tag ? { tag, trades: body.trades } : null;
   return body.trades;

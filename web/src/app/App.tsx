@@ -2,7 +2,8 @@
  * The shell: a command bar, the workspace, a status line, and the dialogs.
  * Keyboard shortcuts go to the focused panel.
  */
-import { createEffect, createSignal, For, lazy, onCleanup, onMount, Show } from 'solid-js';
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { lazy } from '../lib/lazy';
 import type { Command } from '../components/CommandPalette';
 import { NoteInput } from '../components/NoteInput';
 import { lastPrice, onEngineFailure, send } from '../engine/client';
@@ -43,7 +44,7 @@ import {
   toggleMaximized,
   update,
 } from '../workspace/store';
-import { CAPTURE_KEY, chartControllers, closeOverlay, cycleMagnet, isTypingTarget, journalOpen, MAGNET_KEY, mobile, mobileMenu, overlay, panelSteps, setJournalOpen, setOverlay, setTrainingOpen, TOOL_KEYS, TRAINING_CHART, trainingOpen } from './ui';
+import { CAPTURE_KEY, chartControllers, closeOverlay, covered, cycleMagnet, isTypingTarget, journalOpen, MAGNET_KEY, mobile, mobileMenu, overlay, panelSteps, setJournalOpen, setOverlay, setTrainingOpen, TOOL_KEYS, TRAINING_CHART, trainingOpen } from './ui';
 
 // Dialogs opened now and then load when first opened: nobody needs them to see a chart.
 const SymbolSearch = lazy(() => import('../components/SymbolSearch').then((m) => ({ default: m.SymbolSearch })));
@@ -559,6 +560,10 @@ export function App() {
       <main style={{ display: 'flex', 'flex-direction': 'column', 'min-height': '0', overflow: 'hidden', position: 'relative' }}>
         <Show when={engineError()}>{(message) => <div class="banner">▲ Charts cannot be drawn: {message()}</div>}</Show>
         <Layout />
+        {/* Under the journal or training, which cover it the moment their code has arrived. */}
+        <Show when={covered()}>
+          <p class="opening muted">Opening…</p>
+        </Show>
         <Show when={journalOpen()}>
           <Journal />
         </Show>

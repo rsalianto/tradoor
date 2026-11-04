@@ -3,7 +3,8 @@
  * by dragging a tab onto another group's centre or edge — or onto a tab
  * strip, between its tabs, which reorders them.
  */
-import { createEffect, createSignal, For, lazy, Match, on, onCleanup, Show, Switch, type JSX } from 'solid-js';
+import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch, type JSX } from 'solid-js';
+import { lazy } from '../lib/lazy';
 import { chartControllers, controllersChanged, covered, dragging, mobileMenu, setDragging, setJournalOpen, setMobile, setMobileMenu, setOverlay, setSharedRail, setTrainingOpen } from '../app/ui';
 import { DrawingRail } from '../panels/DrawingRail';
 import { useDismiss } from '../lib/dismiss';

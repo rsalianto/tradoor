@@ -89,10 +89,10 @@ export function Journal() {
     try {
       setTrades(await journalApi.trades());
       setError(null);
+      // Only a list actually read can say there are no trades.
+      setLoaded(true);
     } catch (e) {
       setError(errorText(e));
-    } finally {
-      setLoaded(true);
     }
   };
   const readAccount = async () => {
@@ -104,15 +104,17 @@ export function Journal() {
     }
     await load();
   };
+  /** Whatever is still to be read: the account while that is unknown, then the trades. */
+  const refresh = () => (account() ? load() : readAccount());
   onMount(() => {
     void readAccount();
-    // Asked again only while the page is in view and price still has a trade
-    // to decide; back in view, at once.
+    // Asked again only while the page is in view, and either a first read has
+    // yet to answer or price still has a trade to decide; back in view, at once.
     const timer = setInterval(() => {
-      if (!document.hidden && trades().some((t) => t.auto && t.tracked && isLive(t))) void load();
+      if (!document.hidden && (!account() || (signedIn() && !loaded()) || trades().some((t) => t.auto && t.tracked && isLive(t)))) void refresh();
     }, REFRESH_MS);
     const shown = () => {
-      if (!document.hidden) void load();
+      if (!document.hidden) void refresh();
     };
     document.addEventListener('visibilitychange', shown);
     onCleanup(() => {
@@ -138,6 +140,7 @@ export function Journal() {
   const price = (market: string, v: number | null) => formatPrice(v, decimals().get(market));
   const replace = (t: Trade) => setTrades((list) => list.map((x) => (x.id === t.id ? t : x)));
   const current = () => trades().find((t) => t.id === selected());
+  const waiting = () => <p class="jr-empty muted">{error() ? 'Not read yet. Asking again shortly…' : 'Reading…'}</p>;
 
   return (
     <section class="journal">
@@ -165,10 +168,20 @@ export function Journal() {
           <Icon name="close" size={15} />
         </button>
       </header>
-      <Show when={error()}>{(e) => <div class="banner">▲ {e()}</div>}</Show>
+      <Show when={error()}>
+        {(e) => (
+          <div class="banner jr-fail">
+            <span>▲ {e()}</span>
+            <button class="tb" onClick={() => void refresh()}>
+              Try again
+            </button>
+          </div>
+        )}
+      </Show>
       <div class="jr-body">
-        <Show when={account()} fallback={<p class="jr-empty muted">Reading…</p>}>
+        <Show when={account()} fallback={waiting()}>
           <Show when={signedIn()} fallback={<SignInFirst onSignedIn={() => void readAccount()} />}>
+            <Show when={!loaded() && tab() !== 'review'}>{waiting()}</Show>
             <Show when={loaded() && trades().length === 0 && tab() !== 'review'}>
               <div class="jr-empty">
                 <p>No trades yet.</p>

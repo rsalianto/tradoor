@@ -9,7 +9,8 @@
  * trades too: a click on a bid or an ask rests an order there (panels/DomTrade).
  * Kept for an account: until the browser signs in with Telegram, it shows how.
  */
-import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, untrack } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js';
+import { lazy } from '../lib/lazy';
 import { createStore } from 'solid-js/store';
 import { setTrainingOpen, TRAINING_CHART } from '../app/ui';
 import { AccountCard } from '../components/Account';
@@ -57,7 +58,8 @@ const DOM_SHOWN_KEY = 'trainingDomShown';
 // Fetched when Training shows it, not with Training itself.
 const DomPanel = lazy(() => import('../panels/DomPanel').then((m) => ({ default: m.DomPanel })));
 /** How often the account is read while the view is in sight: fills and liquidations land within this. */
-const REFRESH_MS = 1_000;
+/** How often the account is read from the server. The chart's coin moves with the chart, every tick. */
+const REFRESH_MS = 3_000;
 /** Price decimals per coin, as Binance quotes them. */
 const DECIMALS: Record<string, number> = { BTCUSDT: 1, ETHUSDT: 2, SOLUSDT: 3 };
 const SIZE_STEPS = [0.1, 0.25, 0.5, 1];
@@ -170,8 +172,16 @@ export function Training(props: { chart: typeof ChartPanel }) {
   };
   /** The positions and orders as a shape, so a change made by price shows. */
   const shape = (s: State | null) => (s ? [...s.positions.map((p) => `${p.symbol}:${p.side}:${p.qty}`), ...s.orders.map((o) => o.id)].join('|') : '');
+  // One read at a time: a slow answer must not have the next ones pile up behind it.
+  let reading = false;
+  let readAgain = false;
   const load = async () => {
     if (!signedIn()) return;
+    if (reading) {
+      readAgain = true;
+      return;
+    }
+    reading = true;
     try {
       const next = await trainingApi.state();
       const changed = shape(untrack(state)) !== shape(next);
@@ -180,23 +190,37 @@ export function Training(props: { chart: typeof ChartPanel }) {
       if (changed || untrack(history) === null) await loadHistory(true);
     } catch (e) {
       setError(errorText(e));
+    } finally {
+      reading = false;
+      if (readAgain) {
+        readAgain = false;
+        void load();
+      }
     }
   };
+  let asking = false;
   const readAccount = async () => {
+    if (asking) return;
+    asking = true;
     try {
       setAccount(await api.account());
     } catch (e) {
       setError(errorText(e));
+    } finally {
+      asking = false;
     }
     await load();
   };
   onMount(() => {
     void readAccount();
-    const timer = setInterval(() => {
-      setNow(Date.now());
-      if (!document.hidden) void load();
+    const clock = setInterval(() => setNow(Date.now()), 1_000);
+    const reader = setInterval(() => {
+      if (!document.hidden) void (account() ? load() : readAccount());
     }, REFRESH_MS);
-    onCleanup(() => clearInterval(timer));
+    onCleanup(() => {
+      clearInterval(clock);
+      clearInterval(reader);
+    });
   });
 
   /** Do it, then read the account again; a refusal shows where the ticket is. */
@@ -354,7 +378,24 @@ export function Training(props: { chart: typeof ChartPanel }) {
           <Icon name="close" size={15} />
         </button>
       </header>
-      <Show when={account()} fallback={<p class="jr-empty muted">Reading…</p>}>
+      <Show
+        when={account()}
+        fallback={
+          <>
+            <Show when={error()}>
+              {(e) => (
+                <div class="banner jr-fail">
+                  <span>▲ {e()}</span>
+                  <button class="tb" onClick={() => void readAccount()}>
+                    Try again
+                  </button>
+                </div>
+              )}
+            </Show>
+            <p class="jr-empty muted">{error() ? 'Not read yet. Asking again shortly…' : 'Reading…'}</p>
+          </>
+        }
+      >
         <Show
           when={signedIn()}
           fallback={
