@@ -62,6 +62,24 @@ export function focusedPanel(): Panel | null {
   return (id && doc.panels[id]) || null;
 }
 
+/**
+ * The panel whose tab group fills the workspace, the layout kept as it is behind
+ * it: where this browser is looking for now, and no part of the layout saved.
+ */
+export const [maximized, setMaximized] = createSignal<string | null>(null);
+
+/** One chart at full size, and the same again back to the layout. */
+export function toggleMaximized(id: string): void {
+  focusPanel(id);
+  setMaximized((m) => (m !== null && tabsOf(doc.root, m)?.panels.includes(id) ? null : id));
+}
+
+/** Out of sight behind a maximized group. */
+export function behindMaximized(id: string): boolean {
+  const m = maximized();
+  return m !== null && !tabsOf(doc.root, m)?.panels.includes(id);
+}
+
 /** The chart a watchlist that is not linked should drive: the last one used. */
 export function targetChart(): ChartPanelState | null {
   const id = lastChart();

@@ -40,9 +40,10 @@ import {
   syncWithServer,
   targetChart,
   timeframeOf,
+  toggleMaximized,
   update,
 } from '../workspace/store';
-import { CAPTURE_KEY, chartControllers, closeOverlay, cycleMagnet, isTypingTarget, journalOpen, MAGNET_KEY, mobileMenu, overlay, panelSteps, setJournalOpen, setOverlay, setTrainingOpen, TOOL_KEYS, TRAINING_CHART, trainingOpen } from './ui';
+import { CAPTURE_KEY, chartControllers, closeOverlay, cycleMagnet, isTypingTarget, journalOpen, MAGNET_KEY, mobile, mobileMenu, overlay, panelSteps, setJournalOpen, setOverlay, setTrainingOpen, TOOL_KEYS, TRAINING_CHART, trainingOpen } from './ui';
 
 // Dialogs opened now and then load when first opened: nobody needs them to see a chart.
 const SymbolSearch = lazy(() => import('../components/SymbolSearch').then((m) => ({ default: m.SymbolSearch })));
@@ -168,6 +169,15 @@ function onKeyDown(e: KeyboardEvent): void {
     const kind = TOOL_KEYS[code];
     const focus = focusedPanel();
     const control = inUse(focus?.type === 'chart' ? focus : targetChart());
+    // The chart in use alone, and back; with one thing on screen there is nothing to fill.
+    if (code === 'Enter' || code === 'NumpadEnter') {
+      const chart = focus?.type === 'chart' ? focus : targetChart();
+      if (chart && !mobile() && doc.root.kind === 'split') {
+        e.preventDefault();
+        toggleMaximized(chart.id);
+      }
+      return;
+    }
     // A picture of the chart in use: shift saves the file instead of copying.
     if (code === CAPTURE_KEY && control) {
       e.preventDefault();

@@ -188,6 +188,13 @@ Drawings and workspaces are scoped by the `x-tradoor-owner` header, the browser'
 
 ## Workspace
 
+Any chart in a split can be maximized (under the chart, or Alt+Enter): its tab
+group fills the workspace, the layout stays as it is behind it with its charts
+live and not drawing, and going back takes no redraw. That is this browser's view
+for now, not part of the layout. A chart's toolbar folds to what its width holds,
+measured rather than guessed from a breakpoint, because what is on it changes with
+the favourite timeframes and the footprint's options; past the last fold it scrolls.
+
 A tree of splits and tab groups, the panels in it, four link groups and theme
 overrides, stored as one JSON document: in localStorage so the page opens
 instantly and offline, and on the server so it follows the reader. Whichever

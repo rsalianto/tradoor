@@ -34,9 +34,9 @@ import { isRatio, symbolOf, venueLabel } from '../lib/markets';
 import { alertState, createAlert, deleteAlert, digitsFor, editAlert, styleAlert, titleOf } from '../lib/alerts';
 import { toast } from '../lib/toasts';
 import { TIMEFRAMES, tfLabel, tfMs, tfName } from '../lib/timeframes';
-import { TPO_SPLITS, tpoFits, type ChartPanelState } from '../workspace/model';
+import { tabsOf, TPO_SPLITS, tpoFits, type ChartPanelState } from '../workspace/model';
 import { canSplit, mergeLeft, mergeRight, splitProfile, toggleExpanded } from '../lib/tpo-edits';
-import { doc, marketOf, patchPanel, setPanelTimeframe, timeframeOf, toggleFavoriteTimeframe } from '../workspace/store';
+import { behindMaximized, doc, marketOf, maximized, patchPanel, setPanelTimeframe, timeframeOf, toggleFavoriteTimeframe, toggleMaximized } from '../workspace/store';
 
 // Drawing settings load when a drawing is first selected: nobody needs them to see a chart.
 const DrawingSettings = lazy(() => import('../components/DrawingSettings').then((m) => ({ default: m.DrawingSettings })));
@@ -71,6 +71,8 @@ const LAYERS = [
   { id: 'liquidations', label: 'Liquidations', candles: false },
 ];
 
+/** How far a chart's toolbar can fold before it scrolls instead (styles.css, `.fold1` on). */
+const TOOLBAR_FOLDS = 5;
 const RANGES: { label: string; days: number | 'ytd' | null }[] = [
   { label: '1D', days: 1 },
   { label: '5D', days: 5 },
@@ -196,6 +198,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   /** The TPO quick access menu, open at this x in the toolbar. */
   const [tpoMenu, setTpoMenu] = createSignal<number | null>(null);
   useDismiss(tpoMenu, () => setTpoMenu(null));
+  /** A folded toolbar's footprint options, open at this x in it. */
+  const [footprintMenu, setFootprintMenu] = createSignal<number | null>(null);
+  useDismiss(footprintMenu, () => setFootprintMenu(null));
   useDismiss(menu, () => setMenu(null));
   useDismiss(alertMenu, () => setAlertMenu(null));
   useDismiss(tfMenu, () => setTfMenu(null));
@@ -639,8 +644,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     const t = hoverTime();
     return t === null ? null : props.training!.hover(t);
   });
-  // Under the journal or training a workspace chart keeps its market live and draws nothing until it is seen again.
-  const paused = () => !props.training && covered();
+  // Under the journal or training, or behind a maximized chart, a workspace chart keeps its market live and draws nothing until it is seen again.
+  const paused = createMemo(() => !props.training && (covered() || behindMaximized(id)));
   createEffect(on(paused, (p) => chart.created && send({ t: 'visible', id: sid, value: !p }), { defer: true }));
   onMount(() => {
     box.prepend(chart.gl, chart.text, chart.feed);
@@ -1140,9 +1145,97 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   /** The timeframe menu, under the button that asked for it. */
   const openTfMenu = (b: HTMLElement) => setTfMenu((v) => (v === null ? b.offsetLeft - (b.parentElement?.scrollLeft ?? 0) : null));
 
+  /**
+   * The toolbar folds as far as it has to and no further, however wide its
+   * chart and however much it holds this minute: the exchange to its mark, the
+   * timeframes into the one shown, a footprint's options into a menu, the
+   * labels to their icons (styles.css). Past that it scrolls, under the wheel
+   * or a finger, so nothing on it is ever out of reach.
+   */
+  let bar!: HTMLDivElement;
+  const fitToolbar = () => {
+    let folds = 0;
+    for (let n = 0; n <= TOOLBAR_FOLDS; n += 1) {
+      folds = n;
+      for (let i = 1; i <= TOOLBAR_FOLDS; i += 1) bar.classList.toggle(`fold${i}`, i <= n);
+      if (bar.scrollWidth <= bar.clientWidth) break;
+    }
+    if (folds < 3) setFootprintMenu(null);
+  };
+  onMount(() => {
+    const observer = new ResizeObserver(fitToolbar);
+    observer.observe(bar);
+    onCleanup(() => observer.disconnect());
+  });
+  // What it holds changed, with the width it had.
+  createEffect(
+    on(
+      [() => doc.timeframes.length, timeframe, market, footprintOn, tpoShown, studyCount, () => status().live, () => status().relayed, () => price() !== null, replaying],
+      () => queueMicrotask(fitToolbar),
+      { defer: true },
+    ),
+  );
+  /** A footprint's options: on the toolbar while there is room, else in a menu under a button. */
+  const footprintOptions = () => (
+    <>
+      <select
+        class="tb"
+        value={props.panel.footprintMode}
+        data-tip="How a level reads: the two sides apart, their difference, or everything that traded there"
+        onChange={(e) => patchPanel(id, { footprintMode: e.currentTarget.value })}
+      >
+        <For each={FOOTPRINT_MODES}>
+          {(m) => (
+            <option value={m.value} selected={props.panel.footprintMode === m.value}>
+              {m.label}
+            </option>
+          )}
+        </For>
+      </select>
+      <select
+        class="tb"
+        value={props.panel.footprintUnit}
+        data-tip="Counted in coins, or in dollars at the price each level traded at"
+        onChange={(e) => patchPanel(id, { footprintUnit: e.currentTarget.value })}
+      >
+        <option value="coins" selected={props.panel.footprintUnit !== 'usd'}>
+          Coins
+        </option>
+        <option value="usd" selected={props.panel.footprintUnit === 'usd'}>
+          USD
+        </option>
+      </select>
+      <For each={FOOTPRINT_EXTRAS}>
+        {(extra) => (
+          <button class="tb" classList={{ on: props.panel[extra.key] }} data-tip={extra.tip} onClick={() => patchPanel(id, { [extra.key]: !props.panel[extra.key] })}>
+            {extra.label}
+          </button>
+        )}
+      </For>
+      <input
+        class="box num"
+        style={{ width: '58px' }}
+        data-tip={`Ticks a row covers — empty fits the rows to the zoom, so every row carries its number. One tick is ${recorded().get(market()) ?? 1}`}
+        value={props.panel.footprintTicks || ''}
+        placeholder="auto"
+        onChange={(e) => {
+          const ticks = Number(e.currentTarget.value);
+          patchPanel(id, { footprintTicks: Number.isFinite(ticks) && ticks >= 0 ? Math.min(1_000, Math.round(ticks)) : 0 });
+        }}
+      />
+    </>
+  );
+  const isMaximized = () => tabsOf(doc.root, id)?.panels.includes(maximized() ?? '') === true;
+
   return (
     <div class="panelcol chartcol" style={{ position: 'relative' }}>
-      <div class="toolbar">
+      <div
+        class="toolbar"
+        ref={bar}
+        onWheel={(e) => {
+          bar.scrollLeft += e.deltaY;
+        }}
+      >
         {/* On a phone this row is the whole top of the app, so it carries the
             menu the rest of the workspace waits behind. */}
         <Show when={mobile()}>
@@ -1189,9 +1282,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           <Icon name="camera" size={13} />
         </button>
         <span class="sep" />
-        <button class="tb" data-tip="Add an indicator" onClick={() => setOverlay({ kind: 'indicators', panelId: id })}>
+        <button class="tb" aria-label="Add an indicator" data-tip="Add an indicator" onClick={() => setOverlay({ kind: 'indicators', panelId: id })}>
           <Icon name="indicators" size={13} />
-          <span>Indicators</span>
+          <span class="tb-word">Indicators</span>
           <Show when={studyCount() > 0}>
             <span class="dim">{studyCount()}</span>
           </Show>
@@ -1233,51 +1326,19 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         </Show>
         <Show when={footprintOn()}>
           <span class="sep" />
-          <select
-            class="tb"
-            value={props.panel.footprintMode}
-            data-tip="How a level reads: the two sides apart, their difference, or everything that traded there"
-            onChange={(e) => patchPanel(id, { footprintMode: e.currentTarget.value })}
-          >
-            <For each={FOOTPRINT_MODES}>
-              {(m) => (
-                <option value={m.value} selected={props.panel.footprintMode === m.value}>
-                  {m.label}
-                </option>
-              )}
-            </For>
-          </select>
-          <select
-            class="tb"
-            value={props.panel.footprintUnit}
-            data-tip="Counted in coins, or in dollars at the price each level traded at"
-            onChange={(e) => patchPanel(id, { footprintUnit: e.currentTarget.value })}
-          >
-            <option value="coins" selected={props.panel.footprintUnit !== 'usd'}>
-              Coins
-            </option>
-            <option value="usd" selected={props.panel.footprintUnit === 'usd'}>
-              USD
-            </option>
-          </select>
-          <For each={FOOTPRINT_EXTRAS}>
-            {(extra) => (
-              <button class="tb" classList={{ on: props.panel[extra.key] }} data-tip={extra.tip} onClick={() => patchPanel(id, { [extra.key]: !props.panel[extra.key] })}>
-                {extra.label}
-              </button>
-            )}
-          </For>
-          <input
-            class="box num"
-            style={{ width: '58px' }}
-            data-tip={`Ticks a row covers — empty fits the rows to the zoom, so every row carries its number. One tick is ${recorded().get(market()) ?? 1}`}
-            value={props.panel.footprintTicks || ''}
-            placeholder="auto"
-            onChange={(e) => {
-              const ticks = Number(e.currentTarget.value);
-              patchPanel(id, { footprintTicks: Number.isFinite(ticks) && ticks >= 0 ? Math.min(1_000, Math.round(ticks)) : 0 });
+          <span class="fp-inline">{footprintOptions()}</span>
+          <button
+            class="tb fp-fold"
+            data-tip="The footprint's options"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              const left = e.currentTarget.offsetLeft - bar.scrollLeft;
+              setFootprintMenu((v) => (v === null ? left : null));
             }}
-          />
+          >
+            <span>Options</span>
+            <Icon name="chevron" size={10} />
+          </button>
         </Show>
         <Show when={tpoShown()}>
           <button
@@ -1285,7 +1346,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
             class="tb"
             data-tip="TPO quick settings"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => setTpoMenu((v) => (v === null ? tpoButton.offsetLeft : null))}
+            onClick={() => setTpoMenu((v) => (v === null ? tpoButton.offsetLeft - bar.scrollLeft : null))}
           >
             <Icon name="chevron" size={11} />
           </button>
@@ -1293,6 +1354,14 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         <span class="spacer" />
         <LiveBadge market={market()} live={status().live} relayed={status().relayed} price={price()} replay={replaying()} />
       </div>
+
+      <Show when={footprintMenu()} keyed>
+        {(left) => (
+          <div class="menu fp-menu" ref={fitMenu} style={{ left: `${left}px`, top: '25px' }} onPointerDown={(e) => e.stopPropagation()}>
+            <div class="group">{footprintOptions()}</div>
+          </div>
+        )}
+      </Show>
 
       <Show when={tpoMenu()} keyed>
         {(left) => (
@@ -1913,17 +1982,30 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       <div class="rangebar">
         <For each={RANGES}>
           {(r) => (
-            <button class="tb num" data-tip={r.days === null ? 'Every loaded bar' : `Zoom to the last ${r.label}`} onClick={() => showRange(r.days)}>
+            <button class="tb num range" data-tip={r.days === null ? 'Every loaded bar' : `Zoom to the last ${r.label}`} onClick={() => showRange(r.days)}>
               {r.label}
             </button>
           )}
         </For>
         <span class="spacer" />
         <Show when={status().error}>{(err) => <span class="warn" data-tip={err()}>▲ {err()} · </span>}</Show>
-        <span class="dim num" data-tip={status().source === 'archive' ? 'Stored history, with the exchange filling the newest bars' : status().source === 'ratio' ? 'One market priced in the other: each bar of the first divided by the same bar of the second' : 'Candles from the exchange; this market is not archived here'}>
+        <span class="dim num bars-info" data-tip={status().source === 'archive' ? 'Stored history, with the exchange filling the newest bars' : status().source === 'ratio' ? 'One market priced in the other: each bar of the first divided by the same bar of the second' : 'Candles from the exchange; this market is not archived here'}>
           {status().loading ? 'loading… · ' : ''}
           {status().bars.toLocaleString('en-US')} bars{status().source ? ` · ${status().source}` : ''} · {zoneLabel()}
         </span>
+        {/* With more than one thing on screen: this chart alone, and back. */}
+        <Show when={!props.training && !mobile() && doc.root.kind === 'split'}>
+          <button
+            class="tb maxbtn"
+            classList={{ on: isMaximized() }}
+            aria-label={isMaximized() ? 'Minimize, back to the layout' : 'Maximize this chart'}
+            data-tip={isMaximized() ? 'Back to the layout · alt ↵' : 'This chart alone, filling the workspace · alt ↵'}
+            onClick={() => toggleMaximized(id)}
+          >
+            <Icon name={isMaximized() ? 'minimize' : 'maximize'} size={11} />
+            <span>{isMaximized() ? 'Minimize' : 'Maximize'}</span>
+          </button>
+        </Show>
         <span class="sep" />
         <button
           class="tb"

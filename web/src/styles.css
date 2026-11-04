@@ -94,6 +94,12 @@ button:has(> svg) > span, .venue-name, .sig-score .div { text-box: trim-both cap
 .workspace { position: relative; flex: 1; min-height: 0; min-width: 0; padding: 3px; display: flex; }
 /* Under the journal or training: kept as it is, sized, but not styled, laid out or painted. */
 .workspace.covered { content-visibility: hidden; }
+/* One tab group over the whole layout. The rest stays laid out behind it at its size, so going
+   back is instant and nothing redraws for a new width; its charts stop drawing (ChartPanel). */
+.wsroot { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.has-max .cell { position: static; }
+.has-max .gutter, .has-max .tabs:not(.maximized) { visibility: hidden; }
+.tabs.maximized { position: absolute; inset: 0; z-index: 4; }
 
 /* ------------------------------------------------------------ layout */
 .split { display: flex; flex: 1; min-width: 0; min-height: 0; }
@@ -333,18 +339,28 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 /* ------------------------------------------------------------ panels */
 .panelcol { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .toolbar { display: flex; align-items: center; gap: 1px; flex: 0 0 26px; height: 26px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--surface-2); overflow: hidden; white-space: nowrap; }
-/* A chart narrower than its toolbar keeps the symbol and timeframe in reach:
-   first the exchange shows its mark alone, then the timeframes fold into the
-   one shown, which opens them all. */
+/* A chart's toolbar folds as far as it has to (ChartPanel, `fitToolbar`): the
+   exchange to its mark; the timeframes into the one shown, which opens them all;
+   a footprint's options into a menu; the words to their icons. Past that it
+   scrolls sideways rather than cutting its end off. */
 .chartcol { container-type: inline-size; }
-.chartcol .tf-now { display: none; gap: 3px; }
-@container (max-width: 760px) {
-  .chartcol .toolbar .venue-name, .chartcol .toolbar .venue .kind, .chartcol .toolbar .replay-btn span { display: none; }
-}
-@container (max-width: 600px) {
-  .chartcol .toolbar .tf-fav, .chartcol .toolbar .tf-more { display: none; }
-  .chartcol .toolbar .tf-now { display: inline-flex; align-items: center; }
-}
+.chartcol .toolbar { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.chartcol .toolbar::-webkit-scrollbar { display: none; }
+.chartcol .toolbar > * { flex-shrink: 0; }
+.chartcol .tf-now, .chartcol .fp-fold { display: none; gap: 3px; }
+.fp-inline { display: inline-flex; align-items: center; gap: 1px; }
+.toolbar.fold1 .venue-name, .toolbar.fold1 .venue .kind, .toolbar.fold1 .replay-btn span { display: none; }
+.toolbar.fold2 .tf-fav, .toolbar.fold2 .tf-more { display: none; }
+.toolbar.fold2 .tf-now { display: inline-flex; align-items: center; }
+.toolbar.fold3 .fp-inline { display: none; }
+.toolbar.fold3 .fp-fold { display: inline-flex; align-items: center; }
+.toolbar.fold4 .tb-word { display: none; }
+.toolbar.fold4 > select { max-width: 78px; }
+.toolbar.fold5 .sep, .toolbar.fold5 .live .state { display: none; }
+.menu.fp-menu { min-width: 0; width: 214px; max-width: calc(100% - 8px); }
+.fp-menu .group { align-items: center; gap: 4px; padding: 6px; }
+.fp-menu .group .tb { width: auto; }
+.fp-menu .group .tb.on { background: var(--primary); color: var(--bg); }
 .tb { display: inline-flex; align-items: center; gap: 4px; padding: 2px 5px; font-size: 11px; color: var(--muted); }
 .tb:hover:not(:disabled) { color: var(--primary); background: var(--surface-3); }
 .tb.on { background: var(--primary); color: var(--bg); }
@@ -421,6 +437,13 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .layer .val { font-variant-numeric: tabular-nums; }
 .rangebar { display: flex; align-items: center; gap: 1px; flex: 0 0 22px; height: 22px; padding: 0 4px; border-top: 1px solid var(--border); background: var(--surface-2); font-size: 11px; white-space: nowrap; overflow: hidden; }
 .rangebar .tb { padding: 1px 5px; font-size: 10px; color: var(--dim); }
+/* Beside the bars' count, and meant to be found: a frame and its word. */
+.rangebar .maxbtn { flex: none; margin-left: 6px; padding: 0 6px; height: 16px; border: 1px solid var(--muted); color: var(--text); }
+.rangebar .maxbtn.on { border-color: var(--primary); color: var(--bg); }
+.rangebar .sep { flex: none; }
+@container (max-width: 660px) { .rangebar .bars-info { display: none; } }
+@container (max-width: 470px) { .rangebar .maxbtn span { display: none; } }
+@container (max-width: 400px) { .rangebar .range { display: none; } }
 
 /* The symbol takes what the numbers leave; narrow panels drop the tag, then the change. */
 .wl { container-type: inline-size; }

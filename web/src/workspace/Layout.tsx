@@ -14,7 +14,7 @@ import { tfLabel } from '../lib/timeframes';
 import { ChartPanel } from '../panels/ChartPanel';
 import { WatchlistPanel } from '../panels/WatchlistPanel';
 import { activate, addPanel, bareChart, LINK_COLORS, movePanel, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, setSizes, tabsOf, type DropZone, type LayoutNode, type Panel, type PanelType, type SplitNode, type TabsNode } from './model';
-import { doc, focusedPanelId, focusPanel, marketOf, setPanelLink, targetChart, timeframeOf, update } from './store';
+import { doc, focusedPanelId, focusPanel, marketOf, maximized, setMaximized, setPanelLink, targetChart, timeframeOf, update } from './store';
 
 // Side panels, fetched when a layout shows one: the chart and watchlist come first.
 const ValuesPanel = lazy(() => import('../panels/ValuesPanel').then((m) => ({ default: m.ValuesPanel })));
@@ -67,12 +67,24 @@ export function Layout() {
   const shared = () => !narrow() && shownCharts(doc.root) > 1;
   createEffect(() => setSharedRail(shared()));
   onCleanup(() => setSharedRail(false));
+  // Nothing left to fill the workspace over: its panel closed, another layout opened, or a phone.
+  createEffect(() => {
+    const m = maximized();
+    if (m !== null && (narrow() || doc.root.kind !== 'split' || !tabsOf(doc.root, m))) setMaximized(null);
+  });
   return (
-    <div class="workspace" classList={{ mobile: narrow(), covered: covered() }}>
+    <div class="workspace" classList={{ mobile: narrow(), covered: covered(), 'has-max': maximized() !== null }}>
       <Show when={shared()}>
         <DrawingRail target={() => (controllersChanged(), chartControllers.get(targetChart()?.id ?? ''))} />
       </Show>
-      <Show when={narrow()} fallback={<NodeView node={doc.root} />}>
+      <Show
+        when={narrow()}
+        fallback={
+          <div class="wsroot">
+            <NodeView node={doc.root} />
+          </div>
+        }
+      >
         <MobileShell />
       </Show>
     </div>
@@ -346,6 +358,8 @@ function TabsView(props: { node: TabsNode }) {
 
   const addHere = (type: PanelType, where: DropZone) => {
     setAdding(false);
+    // A new split is the layout changing: back to it, to see where it went.
+    setMaximized(null);
     const from = active();
     // A new chart starts on its own, on the ticker it came from: many charts
     // are many tickers, and a link would turn them all with the first one
@@ -358,7 +372,7 @@ function TabsView(props: { node: TabsNode }) {
   };
 
   return (
-    <div class="tabs" classList={{ focused: focused() }} onPointerDown={() => focusPanel(props.node.active)}>
+    <div class="tabs" classList={{ focused: focused(), maximized: props.node.panels.includes(maximized() ?? '') }} onPointerDown={() => focusPanel(props.node.active)}>
       <div
         class="tabstrip"
         onDragOver={(e) => {

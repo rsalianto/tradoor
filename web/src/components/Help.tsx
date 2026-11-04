@@ -22,6 +22,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ['drag', 'Pan time; up or down moves price'],
       ['wheel or drag price axis', 'Scale price'],
       ['AUTO', 'Price follows the bars again'],
+      ['Alt ↵', 'This chart alone over the layout, and back; or Maximize, under the chart'],
       ['double-click price axis', 'Auto scale that pane'],
       ['right-click', 'Chart menu'],
     ],

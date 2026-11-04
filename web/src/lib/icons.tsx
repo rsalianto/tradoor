@@ -25,6 +25,8 @@ const PATHS = {
   section: 'M4 6h16M4 6v12M9 12h11M9 18h11',
   search: 'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM20 20l-4.8-4.8',
   chevron: 'M6 9l6 6 6-6',
+  maximize: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  minimize: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
   splitRight: 'M4 5h16v14H4zM12 5v14',
   splitDown: 'M4 5h16v14H4zM4 12h16',
   layout: 'M4 5h16v14H4zM12 5v14M4 12h16',
