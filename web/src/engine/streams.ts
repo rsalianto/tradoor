@@ -1,7 +1,7 @@
 /**
  * Exchange WebSocket streams, shared: one socket per venue however many charts
  * and watchlist rows listen, each topic subscribed once and reference counted.
- * The worker uses it for candles and trades, the page for watchlist tickers;
+ * The worker uses it for candles and trades, the page for a watchlist's days;
  * nothing here touches the DOM.
  */
 import type { Venue } from '../lib/markets';
@@ -15,7 +15,6 @@ export type StreamSpec =
   /// outside their trading hours — so the exchange's answer is enough to be live.
   | { kind: 'kline'; symbol: string; interval: string; quiet?: boolean }
   | { kind: 'trades'; symbol: string }
-  | { kind: 'ticker'; symbol: string }
   /// Positions the exchange closed out — perpetuals only.
   | { kind: 'liquidations'; symbol: string }
   /// Every trade with the side that took it, and the order book: the DOM and
@@ -44,13 +43,6 @@ export interface TradeMsg {
   price: number;
   qty: number;
   lastTradeId: number;
-}
-
-export interface TickerMsg {
-  kind: 'ticker';
-  last: number;
-  changePct: number | null;
-  quoteVolume: number | null;
 }
 
 export interface LiquidationMsg {
@@ -87,7 +79,7 @@ export interface BookMsg {
   prev?: number;
 }
 
-export type StreamMsg = KlineMsg | TradeMsg | TickerMsg | LiquidationMsg | PrintMsg | BookMsg;
+export type StreamMsg = KlineMsg | TradeMsg | LiquidationMsg | PrintMsg | BookMsg;
 
 export interface StreamListener {
   message(msg: StreamMsg): void;
@@ -137,8 +129,7 @@ function binance(urls: string[]): Protocol {
     topic(spec) {
       const s = spec.symbol.toLowerCase();
       if (spec.kind === 'kline') return `${s}@kline_${spec.interval}`;
-      if (spec.kind === 'trades') return `${s}@aggTrade`;
-      return spec.kind === 'liquidations' ? `${s}@forceOrder` : `${s}@miniTicker`;
+      return `${s}@${spec.kind === 'trades' ? 'aggTrade' : 'forceOrder'}`;
     },
     // Every frame counts against a five-a-second limit, so topics travel in batches.
     frames: (op, topics) => chunks(topics, 100).map((params) => ({ method: op.toUpperCase(), params, id: ++id })),
@@ -174,10 +165,6 @@ function binance(urls: string[]): Protocol {
           qty: num(o.q),
           long: o.S === 'SELL',
         });
-      } else if (m.e === '24hrMiniTicker') {
-        const last = num(m.c);
-        const open = num(m.o);
-        emit(`${s}@miniTicker`, { kind: 'ticker', last, changePct: open > 0 ? ((last - open) / open) * 100 : null, quoteVolume: num(m.q) });
       }
     },
   };
@@ -190,19 +177,16 @@ const BYBIT_INTERVAL: Record<string, string> = {
 };
 
 /**
- * Bybit: a ping every 15 seconds against its 20-second idle timeout, and linear
- * tickers that arrive as a snapshot followed by deltas. Trades are not folded —
- * its trade ids are strings that cannot be compared with a kline, and its kline
- * already pushes often.
+ * Bybit: a ping every 15 seconds against its 20-second idle timeout. Trades are
+ * not folded — its trade ids are strings that cannot be compared with a kline,
+ * and its kline already pushes often.
  */
 function bybit(urls: string[]): Protocol {
-  const tickers = new Map<string, { last: number; pct: number | null; turnover: number | null }>();
   return {
     urls,
     topic(spec) {
       if (spec.kind === 'kline') return `kline.${BYBIT_INTERVAL[spec.interval] ?? spec.interval}.${spec.symbol}`;
-      if (spec.kind === 'liquidations') return `allLiquidation.${spec.symbol}`;
-      return spec.kind === 'ticker' ? `tickers.${spec.symbol}` : `publicTrade.${spec.symbol}`;
+      return `${spec.kind === 'liquidations' ? 'allLiquidation' : 'publicTrade'}.${spec.symbol}`;
     },
     // Spot accepts at most ten topics a frame. The id carries the batch back:
     // Bybit refuses the whole frame over one bad topic and names only that one.
@@ -225,16 +209,6 @@ function bybit(urls: string[]): Protocol {
           // Bybit reports the POSITION side: Buy means a long was liquidated.
           emit(topic, { kind: 'liquidation', time: num(l.T), price: num(l.p), qty: num(l.v), long: l.S === 'Buy' });
         }
-      } else if (topic.startsWith('tickers.') && m.data && typeof m.data === 'object') {
-        const d = m.data as Json;
-        const prev = m.type === 'delta' ? tickers.get(topic) : undefined;
-        const next = {
-          last: d.lastPrice !== undefined ? num(d.lastPrice) : (prev?.last ?? Number.NaN),
-          pct: d.price24hPcnt !== undefined ? num(d.price24hPcnt) * 100 : (prev?.pct ?? null),
-          turnover: d.turnover24h !== undefined ? num(d.turnover24h) : (prev?.turnover ?? null),
-        };
-        tickers.set(topic, next);
-        if (Number.isFinite(next.last)) emit(topic, { kind: 'ticker', last: next.last, changePct: next.pct, quoteVolume: next.turnover });
       }
     },
     heartbeat: { op: 'ping' },
@@ -268,7 +242,7 @@ export const loadOtherStreams = (): void => void loadMore();
 
 /** The socket a venue's spec travels on. */
 export function socketOf(venue: Venue, spec: StreamSpec): string {
-  if (venue.startsWith('okx')) return spec.kind === 'kline' ? 'okx-business' : 'okx-public';
+  if (venue.startsWith('okx')) return 'okx-business';
   if (venue.startsWith('bitget')) return 'bitget';
   if (venue === 'hyperliquid-perp') return 'hyperliquid';
   if (venue === 'lighter-perp') return 'lighter';
