@@ -109,6 +109,12 @@ export interface Protocol {
   heartbeat?: unknown;
   /** Sent once each time the socket opens, before the subscriptions. */
   open?: unknown[];
+  /** Any frame at all shows the exchange is there: its markets may push nothing for minutes. */
+  quiet?: boolean;
+  /** The answer to a frame of the exchange's own, such as its ping. */
+  reply?(msg: Json): unknown;
+  /** Text from a binary frame. */
+  inflate?(data: Blob): Promise<string>;
 }
 
 export const num = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : Number.NaN);
@@ -519,24 +525,8 @@ export class Connection {
 
     ws.onmessage = (event) => {
       this.lastHeard = Date.now();
-      let msg: unknown;
-      try {
-        msg = JSON.parse(String(event.data));
-      } catch {
-        return;
-      }
-      if (!msg || typeof msg !== 'object') return;
-      const refused = this.proto.refused?.(msg as Json);
-      if (refused) {
-        this.retryWithout(ws, refused.bad, refused.batch);
-        return;
-      }
-      if (!this.heard && this.quiet.size === this.topics.size) this.hear();
-      this.proto.read(msg as Json, (topic, m) => {
-        if (!this.heard) this.hear();
-        const set = this.topics.get(topic);
-        if (set) for (const listener of set) listener.message(m);
-      });
+      if (typeof event.data === 'string') this.take(ws, event.data);
+      else void this.proto.inflate?.(event.data as Blob).then((text) => this.take(ws, text));
     };
 
     ws.onclose = () => {
@@ -558,6 +548,29 @@ export class Connection {
       this.retryTimer = setTimeout(() => this.connect(), moving ? MOVE_MS : RETRY_MS[Math.min(this.attempt, RETRY_MS.length) - 1]);
     };
     ws.onerror = () => ws.close();
+  }
+
+  private take(ws: WebSocket, text: string): void {
+    let msg: unknown;
+    try {
+      msg = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg !== 'object') return;
+    const refused = this.proto.refused?.(msg as Json);
+    if (refused) {
+      this.retryWithout(ws, refused.bad, refused.batch);
+      return;
+    }
+    const answer = this.proto.reply?.(msg as Json);
+    if (answer) ws.send(JSON.stringify(answer));
+    if (!this.heard && (this.proto.quiet || this.quiet.size === this.topics.size)) this.hear();
+    this.proto.read(msg as Json, (topic, m) => {
+      if (!this.heard) this.hear();
+      const set = this.topics.get(topic);
+      if (set) for (const listener of set) listener.message(m);
+    });
   }
 
   private clearTimers(): void {
@@ -632,7 +645,7 @@ export class StreamHub {
     let conn = this.connections.get(socket);
     if (!conn) {
       const make = PROTOCOLS[socket] ?? this.extra?.PROTOCOLS[socket];
-      if (!make) return () => {};
+      if (!make) return this.extra!.later(socket, () => this.subscribe(venue, spec, listener));
       conn = new Connection(make());
       this.connections.set(socket, conn);
     }

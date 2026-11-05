@@ -180,6 +180,31 @@ export const PROTOCOLS: Record<string, () => Protocol> = {
   lighter: () => lighter(['wss://mainnet.zklighter.elliot.ai/stream', ...relay('lighter')]),
 };
 
+/**
+ * The newer exchanges' sockets are in a file of their own: `go` once it is here,
+ * and again a few seconds on if it could not be fetched. Nothing for a socket
+ * it does not have either.
+ */
+export function later(socket: string, go: () => () => void): () => void {
+  let off: (() => void) | null = null;
+  let dropped = false;
+  const fetchThem = () =>
+    void import('./venue-load')
+      .then(({ loadVenues }) => loadVenues())
+      .then((pack) => {
+        Object.assign(PROTOCOLS, pack.PROTOCOLS);
+        if (!dropped && PROTOCOLS[socket]) off = go();
+      })
+      .catch(() => {
+        if (!dropped) setTimeout(fetchThem, 5_000);
+      });
+  fetchThem();
+  return () => {
+    dropped = true;
+    off?.();
+  };
+}
+
 export const lighterResolution = (interval: string): string => INTERVALS['lighter-perp']?.[interval] ?? interval;
 
 export const lighterPoller = (): Poller => new Poller(lighterRead, 3_000);

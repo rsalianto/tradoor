@@ -139,7 +139,7 @@ The file format is described in [format.md](format.md).
 | Route | |
 |---|---|
 | `GET /api/health` | `{ok, db}` |
-| `GET /api/catalog` | every market on twelve venues (Binance, Bybit, OKX, Bitget, Hyperliquid with trade.xyz's, Kraken, Lighter) with 24h stats and each exchange's own name for it, and the server's own indices: each venue's markets as rows of `columns`, a row stopping at its last value, brotli-compressed once per refresh (some 135 KB) and read again in the background every half hour |
+| `GET /api/catalog` | every market on 24 venues (Binance, Bybit, OKX, Bitget, Hyperliquid with trade.xyz's, Kraken, Lighter, Gate, Aster, HTX, Bitfinex, Deribit, Coinbase, Bitstamp) with 24h stats and each exchange's own name for it, and the server's own indices: each venue's markets as rows of `columns`, a row stopping at its last value, brotli-compressed once per refresh (some 200 KB) and read again in the background every half hour |
 | `GET /api/markets` | the same as one object a market (2.4 MB, 350 KB gzipped), for pages loaded before `catalog` |
 | `GET /api/index/candles?symbol=&interval=&start=&end=&limit=` | an index's bars — TOTAL and its parts, the dominances, the VIX — as `[open, o, h, l, c, 0]`, oldest first, the forming one with them |
 | `GET /api/index/latest?symbols=&interval=` | the last two bars of each index named, by symbol: a watchlist's indices in one request |
@@ -664,6 +664,11 @@ that file a second time in the same worker on the first such import — the
 loaders of the exchanges past Binance and Bybit, or a liquidation feed reading
 one: the copy took the page's messages with no charts, while the first kept
 drawing what it had, a chart that no longer answered a touch or a market.
+The newest exchanges' sockets and loaders (Gate, Aster, HTX, Bitfinex, Deribit,
+Coinbase, Bitstamp: `engine/venue-pack.ts`) would so be in every visitor's worker, so they
+are built apart with `?worker&url` into one file that imports nothing back, and
+fetched with the first market on one of them. It hands itself over on
+`globalThis`, as a build of that kind keeps no exports.
 `?debug` shows, under every chart, what its engine holds, and which worker
 answers a ping, since when, and with how many charts.
 

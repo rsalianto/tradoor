@@ -18,14 +18,23 @@ export const INTERVALS: Partial<Record<Venue, Record<string, string>>> = {
 };
 INTERVALS['okx-perp'] = INTERVALS['okx-spot'];
 
+/** What the newer exchanges lack, or start somewhere other than on the chart's boundaries (their names are in venue-pack). */
+const LONG = ['6h', '12h', '1d', '1w', '1M'];
+const LACKS: Record<string, string[]> = { gate: ['1M'], htx: ['2h', ...LONG], bitfinex: ['2h'], deribit: ['4h', ...LONG], coinbase: ['30m', '2h', '4h', '12h', '1w', '1M'], bitstamp: ['1w', '1M'] };
+
 /** Shorter lengths a missing one is folded from, best first; each divides it on UTC boundaries. */
-const FALLBACK: Record<string, string[]> = { '2h': ['1h'], '6h': ['2h', '1h'], '12h': ['4h', '2h', '1h'], '1w': ['1d'], '1M': ['1d'] };
+const DAY = ['4h', '2h', '1h'];
+const FALLBACK: Record<string, string[]> = { '30m': ['15m'], '2h': ['1h'], '4h': ['2h', '1h'], '6h': ['2h', '1h'], '12h': ['6h', ...DAY], '1d': DAY, '1w': ['1d', ...DAY], '1M': ['1d', ...DAY] };
+
+const serves = (venue: Venue, interval: string): boolean => {
+  const names = INTERVALS[venue];
+  return names ? !!names[interval] : !LACKS[venue.split('-')[0]!]?.includes(interval);
+};
 
 /** The length to ask `venue` for when the chart wants `interval`. */
 export function restInterval(venue: Venue, interval: string): string {
-  const names = INTERVALS[venue];
-  if (!names || names[interval]) return interval;
-  return FALLBACK[interval]?.find((i) => names[i]) ?? interval;
+  if (serves(venue, interval)) return interval;
+  return FALLBACK[interval]?.find((i) => serves(venue, i)) ?? interval;
 }
 
 /** The lengths Bitget names by the UTC day, week or month. */

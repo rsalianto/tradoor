@@ -17,29 +17,24 @@ export type Venue =
   | 'kraken-spot'
   | 'kraken-perp'
   | 'lighter-perp'
+  | 'gate-spot'
+  | 'gate-perp'
+  | 'aster-spot'
+  | 'aster-perp'
+  | 'htx-spot'
+  | 'htx-perp'
+  | 'bitfinex-spot'
+  | 'bitfinex-perp'
+  | 'deribit-perp'
+  | 'coinbase-spot'
+  | 'bitstamp-spot'
+  | 'bitstamp-perp'
   /** Series the tradoor server works out: the crypto market cap and its parts, the VIX. */
   | 'index';
 
-export const VENUES: readonly Venue[] = [
-  'binance-spot',
-  'binance-perp',
-  'bybit-spot',
-  'bybit-perp',
-  'okx-spot',
-  'okx-perp',
-  'bitget-spot',
-  'bitget-perp',
-  'hyperliquid-perp',
-  'kraken-spot',
-  'kraken-perp',
-  'lighter-perp',
-  'index',
-];
+export const VENUES = [...['binance', 'bybit', 'okx', 'bitget', 'kraken', 'gate', 'aster', 'htx', 'bitfinex', 'bitstamp'].flatMap((e) => [`${e}-spot`, `${e}-perp`]), 'hyperliquid-perp', 'lighter-perp', 'deribit-perp', 'coinbase-spot', 'index'] as readonly Venue[];
 
-const EXCHANGE_NAME: Record<string, string> = { binance: 'Binance', bybit: 'Bybit', okx: 'OKX', bitget: 'Bitget', hyperliquid: 'Hyperliquid', kraken: 'Kraken', lighter: 'Lighter', index: 'Index' };
-
-/** `Binance` for spot, `Binance Perp` for the perpetuals. */
-export const VENUE_LABEL = Object.fromEntries(VENUES.map((v) => [v, EXCHANGE_NAME[v.split('-')[0]!] + (v.endsWith('perp') ? ' Perp' : '')])) as Record<Venue, string>;
+const EXCHANGE_NAME: Record<string, string> = { binance: 'Binance', bybit: 'Bybit', okx: 'OKX', bitget: 'Bitget', hyperliquid: 'Hyperliquid', kraken: 'Kraken', lighter: 'Lighter', gate: 'Gate', aster: 'Aster', htx: 'HTX', bitfinex: 'Bitfinex', deribit: 'Deribit', coinbase: 'Coinbase', bitstamp: 'Bitstamp', index: 'Index' };
 
 export interface MarketRef {
   venue: Venue;
@@ -88,7 +83,8 @@ export function venueLabel(ref: string): string {
   const legs = ratioLegs(ref);
   if (legs) return `${venueLabel(legs[0])} / ${venueLabel(legs[1])}`;
   const m = parseMarket(ref);
-  return m ? VENUE_LABEL[m.venue] : '';
+  // `Binance` for spot, `Binance Perp` for the perpetuals.
+  return m ? EXCHANGE_NAME[m.venue.split('-')[0]!] + (m.venue.endsWith('perp') ? ' Perp' : '') : '';
 }
 
 export const isPerp = (ref: string): boolean => parseMarket(ref)?.venue.endsWith('perp') ?? false;

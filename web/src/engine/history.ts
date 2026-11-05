@@ -115,7 +115,7 @@ const BYBIT_INTERVAL: Record<string, string> = {
 };
 
 /** Bars one request returns at most, per venue. */
-const PAGE_LIMIT: Record<Venue, number> = {
+const PAGE_LIMIT: Partial<Record<Venue, number>> = {
   'binance-spot': 1000,
   'binance-perp': 1500,
   'bybit-spot': 1000,
@@ -131,7 +131,12 @@ const PAGE_LIMIT: Record<Venue, number> = {
   index: 2000,
 };
 
-const pageLimit = (ref: MarketRef): number => PAGE_LIMIT[ref.venue];
+/**
+ * The newer exchanges': a bar under the thousand Gate takes, as a range may touch
+ * one more than it spans, and every one of them can do that. Bitfinex comes
+ * through the relay, where few pages count, and Coinbase serves three hundred.
+ */
+const pageLimit = ({ venue }: MarketRef): number => PAGE_LIMIT[venue] ?? (venue === 'coinbase-spot' ? 299 : venue.startsWith('bitfinex') ? 10000 : 999);
 
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -142,8 +147,9 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * names — a phone on an Indonesian carrier — and what one call learns, the
  * rest of the page and its next load are told (see reach).
  */
-// Kraken Futures answers with an empty Access-Control-Allow-Origin, which no browser accepts.
-const RELAYED = new Set(['futures.kraken.com']);
+// Kraken Futures answers with an empty Access-Control-Allow-Origin, which no browser
+// accepts; Bitfinex's candles and Deribit's chart data with none at all.
+const RELAYED = new Set(['futures.kraken.com', 'api-pub.bitfinex.com', 'www.deribit.com']);
 
 /**
  * A request that has not begun to answer by now is taken as refused: a

@@ -5,11 +5,11 @@
  * since spot itself has no positions to close out.
  */
 import type { Product } from './api';
-import { parseMarket, VENUES, type Venue } from './markets';
+import { parseMarket, type Venue } from './markets';
 
 /** Perpetual venues the page streams liquidations from itself, when the
  *  server does not follow the ticker. The server's feed covers every other. */
-export const PERP_VENUES: readonly Venue[] = VENUES.filter((v) => v === 'binance-perp' || v === 'bybit-perp');
+export const PERP_VENUES: readonly Venue[] = ['binance-perp', 'bybit-perp'];
 
 export interface LiquidationVenue {
   /** A chart venue, or any exchange the server's feed names. */

@@ -28,7 +28,7 @@ use crate::dns::Doh;
 /// REST calls a chart makes, by host and exact path — or by a prefix ending
 /// in `/`, where the market is part of the path (Kraken Futures' charts).
 /// Hyperliquid's are POSTs and are not relayed.
-const REST: [(&str, &[&str]); 9] = [
+const REST: [(&str, &[&str]); 18] = [
     // `depth`: the order book a DOM lays the stream's changes over.
     ("api.binance.com", &["/api/v3/klines", "/api/v3/ping", "/api/v3/depth"]),
     ("data-api.binance.vision", &["/api/v3/klines", "/api/v3/ping", "/api/v3/depth"]),
@@ -40,6 +40,16 @@ const REST: [(&str, &[&str]); 9] = [
     ("api.kraken.com", &["/0/public/OHLC"]),
     ("futures.kraken.com", &["/api/charts/v1/trade/"]),
     ("mainnet.zklighter.elliot.ai", &["/api/v1/candles"]),
+    ("api.gateio.ws", &["/api/v4/spot/candlesticks", "/api/v4/futures/usdt/candlesticks"]),
+    ("fapi.asterdex.com", &["/fapi/v1/klines"]),
+    ("sapi.asterdex.com", &["/api/v1/klines"]),
+    ("api.huobi.pro", &["/market/history/kline"]),
+    ("api.hbdm.com", &["/linear-swap-ex/market/history/kline"]),
+    // These two answer no browser, so their charts always come through here.
+    ("api-pub.bitfinex.com", &["/v2/candles/"]),
+    ("www.deribit.com", &["/api/v2/public/get_tradingview_chart_data"]),
+    ("api.exchange.coinbase.com", &["/products/"]),
+    ("www.bitstamp.net", &["/api/v2/ohlc/"]),
 ];
 /// Upstream responses larger than this are refused: a kline page is a few hundred kilobytes.
 const MAX_BODY: usize = 8 * 1024 * 1024;
@@ -67,6 +77,16 @@ fn stream_url(venue: &str) -> Option<&'static str> {
         "kraken-spot" => "wss://ws.kraken.com/v2",
         "kraken-perp" => "wss://futures.kraken.com/ws/v1",
         "lighter" => "wss://mainnet.zklighter.elliot.ai/stream",
+        "gate-spot" => "wss://api.gateio.ws/ws/v4/",
+        "gate-perp" => "wss://fx-ws.gateio.ws/v4/ws/usdt",
+        "aster-spot" => "wss://sstream.asterdex.com/ws",
+        "aster-perp" => "wss://fstream.asterdex.com/ws",
+        "htx-spot" => "wss://api.huobi.pro/ws",
+        "htx-perp" => "wss://api.hbdm.com/linear-swap-ws",
+        "bitfinex-spot" | "bitfinex-perp" => "wss://api-pub.bitfinex.com/ws/2",
+        "deribit-perp" => "wss://www.deribit.com/ws/api/v2",
+        "coinbase-spot" => "wss://ws-feed.exchange.coinbase.com",
+        "bitstamp-spot" | "bitstamp-perp" => "wss://ws.bitstamp.net",
         _ => return None,
     })
 }
@@ -109,7 +129,8 @@ pub async fn rest(State(state): State<AppState>, Query(q): Query<RestQuery>) -> 
         return Err(ApiError(StatusCode::FORBIDDEN, "only the exchanges' market data calls are relayed".into()));
     }
     // Everyone's relayed calls to one exchange together stay well under what it would ban this server for.
-    if !state.limits.take(limits::RELAY_HOST, url.host_str().unwrap_or_default()) {
+    let rate = if url.host_str() == Some("api-pub.bitfinex.com") { limits::RELAY_BITFINEX } else { limits::RELAY_HOST };
+    if !state.limits.take(rate, url.host_str().unwrap_or_default()) {
         return Ok(limits::too_many("relayed calls to this exchange"));
     }
     let upstream = state.relay.http.get(url).send().await.map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("the exchange could not be reached: {e}")))?;
@@ -262,6 +283,18 @@ mod tests {
         assert!(!ok("https://www.okx.com/api/v5/trade/order"));
         assert!(ok("https://fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=1000"));
         assert!(ok("https://www.okx.com/api/v5/public/instruments?instType=SWAP&instId=BTC-USDT-SWAP"));
+        assert!(ok("https://api-pub.bitfinex.com/v2/candles/trade:1m:tBTCF0:USTF0/hist?limit=100"));
+        assert!(!ok("https://api-pub.bitfinex.com/v2/auth/r/wallets"), "no account calls");
+        assert!(ok("https://www.deribit.com/api/v2/public/get_tradingview_chart_data?instrument_name=BTC-PERPETUAL&resolution=1"));
+        assert!(!ok("https://www.deribit.com/api/v2/private/buy"));
+        assert!(ok("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=60"));
+        assert!(!ok("https://api.exchange.coinbase.com/orders"));
+        assert!(ok("https://www.bitstamp.net/api/v2/ohlc/btcusd-perp/?step=60&limit=2"));
+        assert!(!ok("https://www.bitstamp.net/api/v2/balance/"), "no account calls");
+        assert!(ok("https://api.hbdm.com/linear-swap-ex/market/history/kline?contract_code=BTC-USDT&period=1min&size=1"));
+        assert_eq!(stream_url("bitfinex-perp"), Some("wss://api-pub.bitfinex.com/ws/2"));
+        assert_eq!(stream_url("bitstamp-perp"), Some("wss://ws.bitstamp.net"));
+        assert_eq!(stream_url("htx-perp"), Some("wss://api.hbdm.com/linear-swap-ws"));
         assert_eq!(stream_url("okx-business"), Some("wss://ws.okx.com/ws/v5/business"));
         assert_eq!(stream_url("bybit-perp"), Some("wss://stream.bybit.com/v5/public/linear"));
         assert_eq!(stream_url("binance-perp-book"), Some("wss://fstream.binance.com/public/ws"));

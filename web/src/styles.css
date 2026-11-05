@@ -638,8 +638,8 @@ table.venues tr.off td { color: var(--dim); }
   .dialog > header .title { display: none; }
   /* 16px is the size below which iOS zooms the page when a field is tapped. */
   .dialog input.q { flex: 1 0 100%; order: -1; padding: 8px 6px; font-size: 16px; }
-  .dialog > header .chips { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding-right: 0; }
-  .dialog > header .chips::-webkit-scrollbar { display: none; }
+  /* Fourteen exchanges and the filters beside them: two lines, every one in view. */
+  .dialog > header .chips { flex: 1; min-width: 0; flex-wrap: wrap; row-gap: 3px; padding-right: 0; }
   .dialog > header .x { margin-left: auto; padding: 4px 6px; }
   /* And a result keeps what names it: the exchange's mark without its name,
      the price and the change, but not the day's turnover. */

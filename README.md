@@ -225,7 +225,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 
 #### Markets
 
-- Spot and perpetuals on Binance, Bybit, OKX, Bitget, Kraken; perpetuals on Hyperliquid and Lighter
+- Spot and perpetuals on Binance, Bybit, OKX, Bitget, Kraken, Gate, Aster, HTX, Bitfinex and Bitstamp; perpetuals on Hyperliquid, Lighter and Deribit; spot on Coinbase
 - TOTAL, TOTAL2, TOTAL3, TOTALES, OTHERS, BTC.D, ETH.D, USDT.D, OTHERS.D and the VIX
 - The S&amp;P 500 and Nasdaq-100 as trade.xyz's perpetuals
 - One market priced in another, as a ratio

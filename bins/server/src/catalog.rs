@@ -1,15 +1,16 @@
 //! The market catalogue a symbol search offers: every tradable spot and
 //! perpetual market on Binance, Bybit, OKX, Bitget, Hyperliquid (trade.xyz's
-//! stocks and indices with its coins), Kraken and Lighter, with 24h stats, and
-//! each exchange's own name for it where that is not this app's — and the
-//! series this server works out itself (`indices`).
+//! stocks and indices with its coins), Kraken, Lighter, Gate, Aster, HTX,
+//! Bitfinex, Bitstamp, Deribit and Coinbase (spot alone), with 24h stats, and each
+//! exchange's own name for it where that is not this app's — and the series
+//! this server works out itself (`indices`).
 //!
 //! Fetched here rather than by each browser because the raw lists are several
 //! megabytes; the browser gets one compact, compressed response it can search
 //! locally without a request per keystroke. That response (`wire`) lists each
 //! venue's markets as rows of a few columns, rounded to what is shown, and is
 //! compressed with brotli once per refresh rather than per request: some
-//! 135 KB where the plain list was 2.4 MB, 340 KB gzipped. The list is read
+//! 200 KB, a fraction of the plain list. The list is read
 //! again in the background before it goes stale, so no request waits on the
 //! exchanges for it.
 
@@ -21,7 +22,7 @@ use axum::body::Bytes;
 use serde::Serialize;
 use serde_json::json;
 use tokio::sync::Mutex;
-use tradoor_venues::{binance, bitget, bybit, hyperliquid, kraken, lighter, okx, Exchange, Product, Venue};
+use tradoor_venues::{aster, binance, bitfinex, bitget, bitstamp, bybit, coinbase, deribit, gate, htx, hyperliquid, kraken, lighter, okx, Exchange, Product, Venue};
 
 const TTL: Duration = Duration::from_secs(30 * 60);
 
@@ -160,6 +161,43 @@ impl Catalog {
                 kraken::parse_futures(&list, tickers.as_deref()).map_err(err)
             }
             Exchange::Lighter => lighter::parse_products(&self.text(&lighter::details_url()).await?).map_err(err),
+            Exchange::Gate if venue == Venue::GateSpot => {
+                let (list, tickers) = self.pair(gate::spot_pairs_url(), gate::spot_tickers_url()).await?;
+                gate::parse_spot(&list, tickers.as_deref()).map_err(err)
+            }
+            Exchange::Gate => {
+                let (list, tickers) = self.pair(gate::contracts_url(), gate::perp_tickers_url()).await?;
+                gate::parse_perps(&list, tickers.as_deref()).map_err(err)
+            }
+            Exchange::Aster => {
+                let (list, tickers) = self.pair(aster::exchange_info_url(venue), aster::tickers_url(venue)).await?;
+                binance::parse_products(venue, &list, tickers.as_deref()).map_err(err)
+            }
+            Exchange::Htx if venue == Venue::HtxSpot => {
+                let (list, tickers) = self.pair(htx::spot_symbols_url(), htx::spot_tickers_url()).await?;
+                htx::parse_spot(&list, tickers.as_deref()).map_err(err)
+            }
+            Exchange::Htx => {
+                let (list, tickers) = self.pair(htx::contracts_url(), htx::perp_tickers_url()).await?;
+                htx::parse_perps(&list, tickers.as_deref()).map_err(err)
+            }
+            Exchange::Bitfinex => {
+                let (list, tickers) = self.pair(bitfinex::pairs_url(venue), bitfinex::tickers_url()).await?;
+                bitfinex::parse_products(venue, &list, tickers.as_deref()).map_err(err)
+            }
+            Exchange::Deribit => {
+                let (instruments, btc, eth, usdc) = (deribit::instruments_url(), deribit::summary_url("BTC"), deribit::summary_url("ETH"), deribit::summary_url("USDC"));
+                let (list, btc, eth, usdc) = tokio::join!(self.text(&instruments), self.text(&btc), self.text(&eth), self.text(&usdc));
+                deribit::parse_perps(&list?, &[btc.ok(), eth.ok(), usdc.ok()]).map_err(err)
+            }
+            Exchange::Bitstamp => {
+                let (list, tickers) = self.pair(bitstamp::markets_url(), bitstamp::tickers_url()).await?;
+                bitstamp::parse_products(venue, &list, tickers.as_deref()).map_err(err)
+            }
+            Exchange::Coinbase => {
+                let (list, stats) = self.pair(coinbase::products_url(), coinbase::stats_url()).await?;
+                coinbase::parse_spot(&list, stats.as_deref()).map_err(err)
+            }
             Exchange::Binance => {
                 let base = if venue == Venue::BinanceSpot { self.binance_spot_rest.as_str() } else { binance::PERP_REST };
                 let (info_url, tickers_url) = (binance::exchange_info_url(base, venue), binance::tickers_url(base, venue));

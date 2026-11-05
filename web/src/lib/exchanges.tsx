@@ -1,6 +1,6 @@
 /**
  * Exchanges and their marks. Those `live` can be charted — they have venues,
- * streams and history loaders; the rest are here for their liquidations.
+ * streams and history loaders.
  * Marks are the official ones, on a black disc, from rsalianto's exchange icons.
  */
 import { Show, type Component, type JSX } from 'solid-js';
@@ -8,7 +8,7 @@ import { Dynamic, For } from 'solid-js/web';
 import { MARKS, type ExchangeMark } from './exchange-marks';
 import { parseMarket, ratioLegs, venueLabel, type Venue } from './markets';
 
-export type ExchangeId = 'binance' | 'bybit' | 'okx' | 'bitget' | 'hyperliquid' | 'kraken' | 'lighter' | 'index' | 'gate' | 'htx' | 'bitfinex' | 'aster' | 'deribit';
+export type ExchangeId = 'binance' | 'bybit' | 'okx' | 'bitget' | 'hyperliquid' | 'kraken' | 'lighter' | 'index' | 'gate' | 'htx' | 'bitfinex' | 'aster' | 'deribit' | 'coinbase' | 'bitstamp';
 
 interface LogoProps {
   size?: number;
@@ -52,11 +52,13 @@ export const EXCHANGES: Record<ExchangeId, ExchangeDef> = {
   kraken: { id: 'kraken', name: 'Kraken', live: true, Logo: logo('kraken') },
   lighter: { id: 'lighter', name: 'Lighter', live: true, Logo: logo('lighter') },
   index: { id: 'index', name: 'Index', live: true, Logo: logo('index') },
-  gate: { id: 'gate', name: 'Gate', live: false, Logo: logo('gate') },
-  htx: { id: 'htx', name: 'HTX', live: false, Logo: logo('htx') },
-  bitfinex: { id: 'bitfinex', name: 'Bitfinex', live: false, Logo: logo('bitfinex') },
-  aster: { id: 'aster', name: 'Aster', live: false, Logo: logo('aster') },
-  deribit: { id: 'deribit', name: 'Deribit', live: false, Logo: logo('deribit') },
+  gate: { id: 'gate', name: 'Gate', live: true, Logo: logo('gate') },
+  htx: { id: 'htx', name: 'HTX', live: true, Logo: logo('htx') },
+  bitfinex: { id: 'bitfinex', name: 'Bitfinex', live: true, Logo: logo('bitfinex') },
+  aster: { id: 'aster', name: 'Aster', live: true, Logo: logo('aster') },
+  deribit: { id: 'deribit', name: 'Deribit', live: true, Logo: logo('deribit') },
+  coinbase: { id: 'coinbase', name: 'Coinbase', live: true, Logo: logo('coinbase') },
+  bitstamp: { id: 'bitstamp', name: 'Bitstamp', live: true, Logo: logo('bitstamp') },
 };
 
 export const ALL_EXCHANGES: readonly ExchangeDef[] = Object.values(EXCHANGES);

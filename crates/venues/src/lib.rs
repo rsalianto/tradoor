@@ -5,10 +5,17 @@
 //! network.
 #![forbid(unsafe_code)]
 
+pub mod aster;
 pub mod binance;
+pub mod bitfinex;
 pub mod bitget;
+pub mod bitstamp;
 pub mod bybit;
 pub mod catalog;
+pub mod coinbase;
+pub mod deribit;
+pub mod gate;
+pub mod htx;
 pub mod hyperliquid;
 pub mod kline;
 pub mod kraken;

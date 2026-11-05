@@ -11,6 +11,13 @@ pub enum Exchange {
     Hyperliquid,
     Kraken,
     Lighter,
+    Gate,
+    Aster,
+    Htx,
+    Bitfinex,
+    Deribit,
+    Coinbase,
+    Bitstamp,
     /// Series this server works out itself — the crypto market's total
     /// capitalisation and its parts, and indices such as the VIX — rather
     /// than markets anyone trades.
@@ -46,11 +53,23 @@ pub enum Venue {
     KrakenSpot,
     KrakenPerp,
     LighterPerp,
+    GateSpot,
+    GatePerp,
+    AsterSpot,
+    AsterPerp,
+    HtxSpot,
+    HtxPerp,
+    BitfinexSpot,
+    BitfinexPerp,
+    DeribitPerp,
+    CoinbaseSpot,
+    BitstampSpot,
+    BitstampPerp,
     Index,
 }
 
 impl Venue {
-    pub const ALL: [Venue; 13] = [
+    pub const ALL: [Venue; 25] = [
         Self::BinanceSpot,
         Self::BinancePerp,
         Self::BybitSpot,
@@ -63,6 +82,18 @@ impl Venue {
         Self::KrakenSpot,
         Self::KrakenPerp,
         Self::LighterPerp,
+        Self::GateSpot,
+        Self::GatePerp,
+        Self::AsterSpot,
+        Self::AsterPerp,
+        Self::HtxSpot,
+        Self::HtxPerp,
+        Self::BitfinexSpot,
+        Self::BitfinexPerp,
+        Self::DeribitPerp,
+        Self::CoinbaseSpot,
+        Self::BitstampSpot,
+        Self::BitstampPerp,
         Self::Index,
     ];
 
@@ -80,6 +111,18 @@ impl Venue {
             Self::KrakenSpot => "kraken-spot",
             Self::KrakenPerp => "kraken-perp",
             Self::LighterPerp => "lighter-perp",
+            Self::GateSpot => "gate-spot",
+            Self::GatePerp => "gate-perp",
+            Self::AsterSpot => "aster-spot",
+            Self::AsterPerp => "aster-perp",
+            Self::HtxSpot => "htx-spot",
+            Self::HtxPerp => "htx-perp",
+            Self::BitfinexSpot => "bitfinex-spot",
+            Self::BitfinexPerp => "bitfinex-perp",
+            Self::DeribitPerp => "deribit-perp",
+            Self::CoinbaseSpot => "coinbase-spot",
+            Self::BitstampSpot => "bitstamp-spot",
+            Self::BitstampPerp => "bitstamp-perp",
             Self::Index => "index",
         }
     }
@@ -98,6 +141,18 @@ impl Venue {
             Self::KrakenSpot => "Kraken Spot",
             Self::KrakenPerp => "Kraken Perp",
             Self::LighterPerp => "Lighter Perp",
+            Self::GateSpot => "Gate Spot",
+            Self::GatePerp => "Gate Perp",
+            Self::AsterSpot => "Aster Spot",
+            Self::AsterPerp => "Aster Perp",
+            Self::HtxSpot => "HTX Spot",
+            Self::HtxPerp => "HTX Perp",
+            Self::BitfinexSpot => "Bitfinex Spot",
+            Self::BitfinexPerp => "Bitfinex Perp",
+            Self::DeribitPerp => "Deribit Perp",
+            Self::CoinbaseSpot => "Coinbase Spot",
+            Self::BitstampSpot => "Bitstamp Spot",
+            Self::BitstampPerp => "Bitstamp Perp",
             Self::Index => "Index",
         }
     }
@@ -111,6 +166,13 @@ impl Venue {
             Self::HyperliquidPerp => Exchange::Hyperliquid,
             Self::KrakenSpot | Self::KrakenPerp => Exchange::Kraken,
             Self::LighterPerp => Exchange::Lighter,
+            Self::GateSpot | Self::GatePerp => Exchange::Gate,
+            Self::AsterSpot | Self::AsterPerp => Exchange::Aster,
+            Self::HtxSpot | Self::HtxPerp => Exchange::Htx,
+            Self::BitfinexSpot | Self::BitfinexPerp => Exchange::Bitfinex,
+            Self::DeribitPerp => Exchange::Deribit,
+            Self::CoinbaseSpot => Exchange::Coinbase,
+            Self::BitstampSpot | Self::BitstampPerp => Exchange::Bitstamp,
             Self::Index => Exchange::Index,
         }
     }
@@ -118,7 +180,7 @@ impl Venue {
     pub fn kind(self) -> Kind {
         match self {
             // An index is no perpetual: nothing is funded or liquidated on it.
-            Self::BinanceSpot | Self::BybitSpot | Self::OkxSpot | Self::BitgetSpot | Self::KrakenSpot | Self::Index => Kind::Spot,
+            Self::BinanceSpot | Self::BybitSpot | Self::OkxSpot | Self::BitgetSpot | Self::KrakenSpot | Self::GateSpot | Self::AsterSpot | Self::HtxSpot | Self::BitfinexSpot | Self::CoinbaseSpot | Self::BitstampSpot | Self::Index => Kind::Spot,
             _ => Kind::Perp,
         }
     }
@@ -179,6 +241,8 @@ mod tests {
         assert_eq!(MarketRef::parse("kraken-spot:BTCUSD").unwrap().venue, Venue::KrakenSpot);
         assert_eq!(MarketRef::parse("index:TOTAL2").map(|m| m.dir()), Some("index/TOTAL2".to_string()));
         assert!(MarketRef::parse("kucoin-spot:BTCUSDT").is_none());
+        assert_eq!(MarketRef::parse("gate-perp:BTCUSDT").map(|m| (m.venue.exchange(), m.venue.kind())), Some((Exchange::Gate, Kind::Perp)));
+        assert_eq!(MarketRef::parse("coinbase-spot:BTCUSD").map(|m| m.venue.kind()), Some(Kind::Spot));
         for v in Venue::ALL {
             assert_eq!(Venue::parse(v.id()), Some(v));
         }

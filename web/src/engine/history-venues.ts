@@ -86,8 +86,11 @@ export async function venueRows(ref: MarketRef, native: string, interval: string
       if (!Array.isArray(body)) throw new Error(body.error || `the index answered ${res.status}`);
       return body;
     }
-    default:
-      throw new Error(`no candle loader for ${ref.venue}`);
+    default: {
+      // The newer exchanges' loaders are in a file of their own.
+      const { loadVenues } = await import('./venue-load');
+      return (await loadVenues()).rows(ref, native, interval, range, limit, getJson, ms);
+    }
   }
 }
 

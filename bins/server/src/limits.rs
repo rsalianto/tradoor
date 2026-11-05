@@ -46,6 +46,9 @@ pub const RELAY_REST: Rate = Rate { name: "relay-rest", per_min: 240.0, burst: 1
 /// Relayed calls to one exchange host from everyone: well inside the lightest
 /// exchange limit (Binance's 2,400 weight a minute; a kline page weighs 2 to 10).
 pub const RELAY_HOST: Rate = Rate { name: "relay-host", per_min: 300.0, burst: 150.0 };
+/// Relayed candle calls to Bitfinex from everyone: it answers no browser itself,
+/// so every chart on it comes through here, and it allows an address thirty a minute.
+pub const RELAY_BITFINEX: Rate = Rate { name: "relay-bitfinex", per_min: 25.0, burst: 15.0 };
 /// Relayed streams opened from one address.
 pub const RELAY_OPENS: Rate = Rate { name: "relay-opens", per_min: 60.0, burst: 30.0 };
 /// Relayed streams opened to one exchange socket from everyone: Binance bans an
