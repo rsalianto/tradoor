@@ -12,7 +12,7 @@ import { favourites, loadFavourites, toggleFavourite } from '../lib/favourites';
 import { Icon } from '../lib/icons';
 import { session } from '../lib/owner';
 import { anotherId, CATEGORIES, defaultId, entries, instanceLabel, searchEntries, type Entry } from '../lib/study-schema';
-import { splitList } from '../lib/study-style';
+import { splitList, withLayer } from '../lib/study-style';
 import { toast } from '../lib/toasts';
 import type { ChartPanelState } from '../workspace/model';
 import { patchPanel } from '../workspace/store';
@@ -33,6 +33,7 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
 
   const active = () => splitList(props.panel.studies);
   const hidden = () => splitList(props.panel.hidden);
+  const removed = () => splitList(props.panel.removed);
   const on = (kind: string) => active().filter((id) => id.split(':')[0] === kind);
   const all = createMemo(() => (defs.state === 'ready' ? entries(defs()!) : []).filter((e) => !(props.panel.tpo && e.layer?.candles)));
 
@@ -66,7 +67,8 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
   const pick = (e: Entry | undefined) => {
     if (!e) return;
     if (e.layer) {
-      if (hidden().includes(e.id)) toggleLayer(e.id);
+      if (removed().includes(e.id)) patchPanel(props.panel.id, withLayer(props.panel, e.id));
+      else if (hidden().includes(e.id)) toggleLayer(e.id);
       else settings(e.id);
     } else if (on(e.id).length > 0) settings(on(e.id).at(-1)!);
     else if (e.def) add(defaultId(e.def));
@@ -107,7 +109,7 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
         </Show>
         <span class="spacer" />
         <Show when={!shown()}>
-          <span class="where">{e.layer && hidden().includes(e.id) ? 'hidden' : e.where}</span>
+          <span class="where">{e.layer && !removed().includes(e.id) ? 'hidden' : e.where}</span>
         </Show>
         <Show
           when={e.layer}
@@ -143,7 +145,7 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
             </button>
           </Show>
         </Show>
-        <Show when={!e.layer && (on(e.id).length === 0 || (e.def && anotherId(e.def, active())))}>
+        <Show when={e.layer ? removed().includes(e.id) : on(e.id).length === 0 || (e.def && anotherId(e.def, active()))}>
           <button
             class="iadd"
             aria-label={on(e.id).length > 0 ? `Add another ${e.short}` : `Add ${e.short}`}

@@ -30,7 +30,7 @@ import { VenueTag } from '../lib/exchanges';
 import { WatchlistToggle } from '../components/WatchlistToggle';
 import { liquidationVenues } from '../lib/liquidation-venues';
 import { formatClock, formatDateTime, formatFileTime, zoneLabel } from '../lib/timezone';
-import { dropOwner, numberOf, plotStyle, serializeStyles, splitList } from '../lib/study-style';
+import { dropOwner, numberOf, plotStyle, serializeStyles, splitList, withoutLayer } from '../lib/study-style';
 import { serializeTpo, tpoValue, withTpoValue } from '../lib/tpo-settings';
 import { isRatio, symbolOf, venueLabel } from '../lib/markets';
 import { alertState, createAlert, deleteAlert, digitsFor, editAlert, styleAlert, titleOf } from '../lib/alerts';
@@ -1139,7 +1139,18 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     if (studyEditing()?.id === study) setStudyEditing(null);
   };
 
+  const removeLayer = (layer: string) => {
+    patchPanel(id, withoutLayer(props.panel, layer));
+    if (studyEditing()?.id === layer) setStudyEditing(null);
+  };
+
   const editStudy = (study: string) => setStudyEditing({ panelId: id, id: study });
+
+  /** The built-in layers with a row in the legend. */
+  const layers = () => {
+    const removed = splitList(props.panel.removed);
+    return LAYERS.filter((layer) => !removed.includes(layer.id) && !(tpoShown() && layer.candles));
+  };
 
   /** A built-in layer's name, with the lengths the reader gave it. */
   const layerLabel = (layer: string, label: string) => {
@@ -1154,7 +1165,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   };
 
   /** What the legend holds under its arrow: the layers drawn and the studies. */
-  const folded = () => LAYERS.filter((layer) => !(tpoShown() && layer.candles)).length + studies().length;
+  const folded = () => layers().length + studies().length;
 
   /** A finger off the glass; true when the chart should hear nothing of it. */
   const lift = (e: PointerEvent) => {
@@ -1789,7 +1800,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               </Show>
             </div>
             <Show when={!props.panel.legendShut}>
-              <For each={LAYERS.filter((layer) => !(tpoShown() && layer.candles))}>{(layer) => <LayerRow label={layerLabel(layer.id, layer.label)} off={hidden().has(layer.id)} onToggle={() => toggleLayer(layer.id)} onSettings={() => editStudy(layer.id)} />}</For>
+              <For each={layers()}>{(layer) => <LayerRow label={layerLabel(layer.id, layer.label)} off={hidden().has(layer.id)} onToggle={() => toggleLayer(layer.id)} onRemove={() => removeLayer(layer.id)} onSettings={() => editStudy(layer.id)} />}</For>
             </Show>
             <For each={props.panel.legendShut ? [] : studies()}>
               {(s) => (

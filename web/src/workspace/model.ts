@@ -74,6 +74,8 @@ export interface ChartPanelState extends PanelBase {
   studies: string;
   /** Hidden layer ids: ribbon, ema200, volume, or a study id. */
   hidden: string;
+  /** Built-in layers taken off this chart: in `hidden` too, without a legend row until the picker adds them back. */
+  removed: string;
   /** How its studies and layers draw, where changed; see lib/study-style. */
   studyStyles: StudyStyles;
   log: boolean;
@@ -264,13 +266,13 @@ export function newPanel(type: PanelType, from?: Partial<Pick<PanelBase, 'link' 
   const base = { id: uid(type), link: from?.link ?? null, market: from?.market ?? DEFAULT_MARKET, timeframe: from?.timeframe ?? DEFAULT_TIMEFRAME };
   switch (type) {
     case 'chart':
-      return { ...base, type, studies: DEFAULT_STUDIES, hidden: '', studyStyles: {}, log: false, paneWeights: '', tpo: '', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, tpoEdits: '', legendShut: false };
+      return { ...base, type, studies: DEFAULT_STUDIES, hidden: '', removed: '', studyStyles: {}, log: false, paneWeights: '', tpo: '', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, tpoEdits: '', legendShut: false };
     case 'watchlist':
       return { ...base, type, markets: [...DEFAULT_WATCHLIST], collapsed: [], flags: {} };
     case 'tpo':
       // Profiles read cleanest bare, as MMT draws them: no studies under them,
       // and daily profiles of 30-minute brackets, the usual daily TPO.
-      return { ...base, timeframe: from?.timeframe ?? '30m', id: uid('chart'), type: 'chart', studies: '', hidden: '', studyStyles: {}, log: false, paneWeights: '', tpo: '1d', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, tpoEdits: '', legendShut: false };
+      return { ...base, timeframe: from?.timeframe ?? '30m', id: uid('chart'), type: 'chart', studies: '', hidden: '', removed: '', studyStyles: {}, log: false, paneWeights: '', tpo: '1d', footprint: false, footprintMode: 'delta', footprintUnit: 'coins', footprintTicks: 0, footprintValueArea: true, footprintStats: true, footprintProfile: true, tpoSettings: {}, tpoEdits: '', legendShut: false };
     case 'values':
       return { ...base, type, basis: 'volume' };
     case 'liquidations':
@@ -366,6 +368,7 @@ function readPanel(id: string, raw: unknown): Panel | null {
   if (p.type === 'chart') {
     p.studies = str(raw.studies, p.studies);
     p.hidden = str(raw.hidden, '');
+    p.removed = str(raw.removed, '');
     p.studyStyles = readStyles(raw.studyStyles);
     p.log = raw.log === true;
     p.legendShut = raw.legendShut === true;

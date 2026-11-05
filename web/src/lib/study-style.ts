@@ -81,3 +81,16 @@ export function replaceStudy(panel: { studies: string; hidden: string; studyStyl
   const swap = (list: string) => list.split(',').map((s) => (s === from ? to : s)).join(',');
   return { studies: swap(panel.studies), hidden: swap(panel.hidden), studyStyles: renameOwner(panel.studyStyles, from, to) };
 }
+
+const listed = (list: string, item: string): string => [...splitList(list).filter((x) => x !== item), item].join(',');
+const unlisted = (list: string, item: string): string => splitList(list).filter((x) => x !== item).join(',');
+
+/** A built-in layer taken off a chart: hidden, so nothing draws it, with no legend row, and its settings forgotten as a removed study's are. */
+export function withoutLayer(panel: { hidden: string; removed: string; studyStyles?: StudyStyles }, layer: string): { hidden: string; removed: string; studyStyles: StudyStyles } {
+  return { hidden: listed(panel.hidden, layer), removed: listed(panel.removed, layer), studyStyles: dropOwner(panel.studyStyles, layer) };
+}
+
+/** A built-in layer back on a chart, and drawn. */
+export function withLayer(panel: { hidden: string; removed: string }, layer: string): { hidden: string; removed: string } {
+  return { hidden: unlisted(panel.hidden, layer), removed: unlisted(panel.removed, layer) };
+}

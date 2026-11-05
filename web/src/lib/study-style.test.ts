@@ -1,6 +1,18 @@
 /// <reference lib="deno.ns" />
 import { assertEquals } from 'jsr:@std/assert@1';
-import { dropOwner, numberOf, plotStyle, readStyles, renameOwner, replaceStudy, serializeStyles, withNumber, withPlot } from './study-style.ts';
+import { dropOwner, numberOf, plotStyle, readStyles, renameOwner, replaceStudy, serializeStyles, withLayer, withNumber, withoutLayer, withPlot } from './study-style.ts';
+
+Deno.test('a removed layer stays undrawn and comes back drawn, its settings gone', () => {
+  const chart = { hidden: 'ema200,rsi:14', removed: '', studyStyles: { 'ribbon/fast': '9', 'ema200/length': '100' } };
+  const off = withoutLayer(chart, 'ribbon');
+  assertEquals(off, { hidden: 'ema200,rsi:14,ribbon', removed: 'ribbon', studyStyles: { 'ema200/length': '100' } });
+  assertEquals(withLayer(off, 'ribbon'), { hidden: 'ema200,rsi:14', removed: '' });
+  // A layer already hidden is listed once, and comes back shown.
+  const hiddenFirst = withoutLayer(off, 'ema200');
+  assertEquals(hiddenFirst.hidden, 'rsi:14,ribbon,ema200');
+  assertEquals(hiddenFirst.removed, 'ribbon,ema200');
+  assertEquals(withLayer(hiddenFirst, 'ema200'), { hidden: 'rsi:14,ribbon', removed: 'ribbon' });
+});
 
 Deno.test('a plot left at its defaults stores nothing', () => {
   let s = withPlot({}, 'ema:50', 'ema', { color: '#ff0000' });
