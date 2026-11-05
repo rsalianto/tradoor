@@ -6,10 +6,13 @@ Deno.test('a plot left at its defaults stores nothing', () => {
   let s = withPlot({}, 'ema:50', 'ema', { color: '#ff0000' });
   assertEquals(s, { 'ema:50/ema': '#ff0000,,' });
   s = withPlot(s, 'ema:50', 'ema', { width: '2', off: true });
-  assertEquals(plotStyle(s, 'ema:50', 'ema'), { color: '#ff0000', width: '2', off: true });
-  s = withPlot(s, 'ema:50', 'ema', { color: '', width: '', off: false });
+  assertEquals(plotStyle(s, 'ema:50', 'ema'), { color: '#ff0000', width: '2', off: true, pattern: '' });
+  s = withPlot(s, 'ema:50', 'ema', { pattern: '2' });
+  assertEquals(s, { 'ema:50/ema': '#ff0000,2,1,2' });
+  assertEquals(plotStyle(s, 'ema:50', 'ema').pattern, '2');
+  s = withPlot(s, 'ema:50', 'ema', { color: '', width: '', off: false, pattern: '' });
   assertEquals(s, {});
-  assertEquals(plotStyle(undefined, 'ema:50', 'ema'), { color: '', width: '', off: false });
+  assertEquals(plotStyle(undefined, 'ema:50', 'ema'), { color: '', width: '', off: false, pattern: '' });
 });
 
 Deno.test('a number back at its default is forgotten', () => {

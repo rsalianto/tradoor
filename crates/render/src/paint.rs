@@ -311,6 +311,33 @@ impl Frame {
     }
 
     /// A band between two lines sampled at the same x positions.
+    /// A line through `points`, its dashes running on across the corners: bars
+    /// closer together than a dash would otherwise draw it solid.
+    pub fn dashed_polyline(&mut self, points: &[(f32, f32)], width: f32, color: Color, dash: f32, gap: f32) {
+        let (mut on, mut left) = (true, dash);
+        for w in points.windows(2) {
+            let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+            let len = dx.hypot(dy);
+            if len <= 0.0 || !len.is_finite() {
+                continue;
+            }
+            let (ux, uy) = (dx / len, dy / len);
+            let mut d = 0.0;
+            while d < len {
+                let step = left.min(len - d);
+                if on {
+                    self.line(w[0].0 + ux * d, w[0].1 + uy * d, w[0].0 + ux * (d + step), w[0].1 + uy * (d + step), width, color);
+                }
+                d += step;
+                left -= step;
+                if left <= 0.0 {
+                    on = !on;
+                    left = if on { dash } else { gap };
+                }
+            }
+        }
+    }
+
     pub fn band(&mut self, upper: &[(f32, f32)], lower: &[(f32, f32)], color: Color) {
         for i in 1..upper.len().min(lower.len()) {
             self.triangle(upper[i - 1], lower[i - 1], upper[i], color);

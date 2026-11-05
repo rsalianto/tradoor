@@ -708,13 +708,15 @@ table.venues tr.off td { color: var(--dim); }
 /* A position's Inputs: rsalianto's trade form, one compact column; a sheet from the bottom on a phone. */
 .dsettings.wide { width: 500px; }
 /* An indicator's settings: on the page, not in a panel, so a small chart does not cut them off. */
-.dsettings.study-settings { position: fixed; right: auto; z-index: 60; }
+.dsettings.study-settings { position: fixed; right: auto; z-index: 60; width: 390px; }
 .dsettings.study-settings > header { touch-action: none; }
 .dbits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
 .dplot { display: flex; align-items: center; gap: 6px; min-height: 28px; }
 .dplot-name { min-width: 0; color: var(--text); }
 .dplot-name.indent { padding-left: 21px; }
-.dinput.dwidth { width: 76px; }
+.dinput.dwidth { width: 74px; }
+.dinput.dpattern { width: 82px; }
+.dplot-name { white-space: nowrap; }
 .dnote.warn { color: var(--warn); }
 .ticket { display: flex; flex-direction: column; gap: 10px; }
 .tgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }

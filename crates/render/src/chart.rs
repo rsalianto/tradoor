@@ -6,7 +6,7 @@ use tradoor_core::chart::{engine_series_with, EngineSeries};
 use tradoor_core::format::{format_compact, format_countdown, format_price, format_turnover, price_precision};
 use tradoor_core::live::LiveBar;
 use tradoor_core::indicators::profile::value_area;
-use tradoor_core::studies::{anchor_period, compute_study_with, idle_study, open_interest_live, parse_studies, ComputedStudy, Group, LineStyle, LineType, StudyFill, StudyInputs, StudyKind, StudySpec, Tone};
+use tradoor_core::studies::{anchor_period, compute_study_with, idle_study, open_interest_live, parse_studies, ComputedStudy, Group, LineStyle, LineType, Pattern, StudyFill, StudyInputs, StudyKind, StudySpec, Tone};
 use tradoor_core::time::DAY;
 use tradoor_core::{Candle, ChartTimeframe, Interval};
 use tradoor_core::timeframe::Source;
@@ -210,6 +210,15 @@ pub struct StudyMeta {
     pub stats: Vec<(String, String)>,
 }
 
+/// A line through `points` in its pattern.
+fn stroke(f: &mut Frame, points: &[(f32, f32)], width: f32, color: Color, pattern: Pattern) {
+    match pattern {
+        Pattern::Solid => f.polyline(points, width, color),
+        Pattern::Dashed => f.dashed_polyline(points, width, color, 6.0, 4.0),
+        Pattern::Dotted => f.dashed_polyline(points, width, color, width.max(1.5), 3.0),
+    }
+}
+
 /// Volume by price over the bars on screen.
 struct VisibleProfile {
     low: f64,
@@ -244,11 +253,12 @@ struct PlotStyle {
     color: Option<Color>,
     width: Option<f32>,
     off: bool,
+    pattern: Option<Pattern>,
     number: Option<f64>,
 }
 
 impl Styles {
-    /// `owner/plot=colour,width,off` or `owner/plot=number`, by `;`. What does
+    /// `owner/plot=colour,width,off,pattern` or `owner/plot=number`, by `;`. What does
     /// not read is left at its default: a setting from a newer page must not
     /// break an older engine.
     fn parse(raw: &str) -> Self {
@@ -259,7 +269,15 @@ impl Styles {
             let mut parts = value.split(',');
             let first = parts.next().unwrap_or_default();
             let style = match parts.next() {
-                Some(width) => PlotStyle { color: Color::parse(first), width: tradoor_core::format::parse_number(width).map(|w| w as f32).filter(|w| (0.5..=8.0).contains(w)), off: parts.next() == Some("1"), number: None },
+                Some(width) => PlotStyle { color: Color::parse(first), width: tradoor_core::format::parse_number(width).map(|w| w as f32).filter(|w| (0.5..=8.0).contains(w)), off: parts.next() == Some("1"),
+                    pattern: match parts.next() {
+                        Some("0") => Some(Pattern::Solid),
+                        Some("1") => Some(Pattern::Dashed),
+                        Some("2") => Some(Pattern::Dotted),
+                        _ => None,
+                    },
+                    number: None,
+                },
                 None => PlotStyle { number: tradoor_core::format::parse_number(first).filter(|n| n.is_finite()), ..PlotStyle::default() },
             };
             out.push((owner.to_string(), plot.to_string(), style));
@@ -1896,7 +1914,7 @@ impl Chart {
         }
         if !tpo && !foot && !self.hidden.contains("ema200") {
             let style = self.styles.of("ema200", "line");
-            self.paint_series(f, &price.scale, &self.engine.ema200, i0, i1, style.color.unwrap_or(t.ema200), style.width.unwrap_or(1.0), LineStyle::Solid);
+            self.paint_series(f, &price.scale, &self.engine.ema200, i0, i1, style.color.unwrap_or(t.ema200), style.width.unwrap_or(1.0), LineStyle::Solid, style.pattern.unwrap_or(Pattern::Solid));
         }
 
         // ---- studies, each in its pane
@@ -1913,13 +1931,16 @@ impl Chart {
             if study.kind == StudyKind::VisibleProfile {
                 self.paint_visible_profile(f, &pane, study);
             }
+            // The lowest label so far: tags close together stack rather than overprint.
+            let mut tag_y = f32::MIN;
             for (li, line) in study.lines.iter().enumerate() {
                 let own = self.styles.of(&study.id, line.key);
                 match (line.kind, line.style) {
                     _ if own.off => {}
                     (LineType::Histogram, _) => self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body, &study.id),
                     (LineType::Line, LineStyle::None) => {}
-                    (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, far, self.line_color(&study.id, line, index, li), own.width.unwrap_or(line.width), style),
+                    (LineType::Line, LineStyle::Tag) => self.paint_tag(f, &pane, line, self.line_color(&study.id, line, index, li), &mut tag_y),
+                    (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, far, self.line_color(&study.id, line, index, li), own.width.unwrap_or(line.width), style, own.pattern.unwrap_or(line.pattern)),
                 }
             }
             for seg in &study.segments {
@@ -2214,7 +2235,7 @@ impl Chart {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn paint_series(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, color: Color, width: f32, style: LineStyle) {
+    fn paint_series(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, color: Color, width: f32, style: LineStyle, pattern: Pattern) {
         if values.is_empty() {
             return;
         }
@@ -2223,11 +2244,9 @@ impl Chart {
         for i in i0..=end {
             match values[i] {
                 Some(v) => {
-                    if let LineStyle::Anchored(anchor) = style {
-                        if i > 0 && i < self.candles.len() && anchor_period(self.candles[i - 1].open_time, anchor) != anchor_period(self.candles[i].open_time, anchor) {
-                            f.polyline(&pts, width, color);
-                            pts.clear();
-                        }
+                    if self.turned(style, i) {
+                        stroke(f, &pts, width, color, pattern);
+                        pts.clear();
                     }
                     let (x, y) = (self.time.x(i as f64) as f32, scale.y(v) as f32);
                     if let (LineStyle::Step, Some(&(_, py))) = (style, pts.last()) {
@@ -2236,12 +2255,33 @@ impl Chart {
                     pts.push((x, y));
                 }
                 None => {
-                    f.polyline(&pts, width, color);
+                    stroke(f, &pts, width, color, pattern);
                     pts.clear();
                 }
             }
         }
-        f.polyline(&pts, width, color);
+        stroke(f, &pts, width, color, pattern);
+    }
+
+    /// Whether an anchored line starts again at bar `i`.
+    fn turned(&self, style: LineStyle, i: usize) -> bool {
+        let LineStyle::Anchored(anchor) = style else { return false };
+        i > 0 && i < self.candles.len() && anchor_period(self.candles[i - 1].open_time, anchor) != anchor_period(self.candles[i].open_time, anchor)
+    }
+
+    /// A level the line only names: a short stub and its label beside the newest
+    /// bar, kept on the pane when there is no room to its right.
+    fn paint_tag(&self, f: &mut Frame, pane: &PaneView, line: &tradoor_core::studies::StudyLine, color: Color, tag_y: &mut f32) {
+        let Some(v) = line.values.iter().rev().flatten().next() else { return };
+        let font = self.theme.font_px - 1.0;
+        let stub = 14.0;
+        let text = line.label.len() as f32 * self.char_width * font / self.theme.font_px;
+        let newest = self.time.x(self.total_bars().saturating_sub(1) as f64) as f32;
+        let x = (newest + 10.0).min(pane.plot.w - stub - text - 7.0);
+        let y = pane.scale.y(*v) as f32;
+        f.dashed_line(x, y, x + stub, y, 1.0, color, 2.0, 2.0);
+        *tag_y = y.max(*tag_y + font + 1.0);
+        f.text(x + stub + 3.0, *tag_y, line.label.clone(), color, Align::Left, Baseline::Middle, font, None, Some(pane.plot));
     }
 
     /// The shade between two of a study's lines, breaking where either has no
@@ -2249,6 +2289,7 @@ impl Chart {
     #[allow(clippy::too_many_arguments)]
     fn paint_fill(&self, f: &mut Frame, scale: &PriceScale, study: &ComputedStudy, fill: &StudyFill, i0: usize, far: usize) {
         let values = |key: &str| study.lines.iter().find(|l| l.key == key).map(|l| l.values.as_slice());
+        let anchored = study.lines.iter().find(|l| l.key == fill.upper).map_or(LineStyle::Solid, |l| l.style);
         let (Some(a), Some(b)) = (values(fill.upper), values(fill.lower)) else { return };
         // Only a forming bar, as on a coin listed this month: no lines yet.
         if a.is_empty() || b.is_empty() {
@@ -2275,6 +2316,9 @@ impl Chart {
             };
             let px = self.time.x(i as f64) as f32;
             let point = ((px, scale.y(x) as f32), (px, scale.y(y) as f32));
+            if self.turned(anchored, i) {
+                flush(f, &mut top, &mut bottom, above);
+            }
             if (x >= y) != above && !top.is_empty() {
                 // The stretch where they cross goes with what follows it.
                 let joined = (top.last().copied(), bottom.last().copied());
@@ -3436,7 +3480,7 @@ mod tests {
         let mut c = chart();
         c.set_hidden("ribbon,ema200,volume,liquidations");
         c.set_studies("vwap:0:0:0:0");
-        c.set_styles("vwap:0:0:0:0/vwap=#ff0000,1,");
+        c.set_styles("vwap:0:0:0:0/vwap=#ff0000,1,,0");
         let frame = c.render(1_800_000_000_000).clone();
         let red = [255u8, 0, 0, 255];
         let xs: Vec<f32> = frame.positions.chunks(2).zip(frame.colors.chunks(4)).filter(|(_, p)| *p == red).map(|(xy, _)| xy[0]).collect();
@@ -3570,6 +3614,44 @@ mod tests {
         let (above, below) = (c.theme.bull.with_alpha(0x80), c.theme.bear.with_alpha(0x80));
         assert!(inked(&mut c, above) > 0 && inked(&mut c, below) > 0);
         assert!(c.studies[0].stats.is_empty(), "nothing estimated");
+    }
+
+    #[test]
+    fn a_vwap_is_dotted_shaded_by_session_and_names_the_last_ones_levels() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("vwap");
+        let id = "vwap:0:1:0:0";
+        let red = [255u8, 0, 0, 255];
+        let segments = |c: &mut Chart, style: String| {
+            c.set_styles(&style);
+            let frame = c.render(1_800_000_000_000).clone();
+            frame.colors.chunks(4).filter(|p| *p == red).count()
+        };
+        let dotted = segments(&mut c, format!("{id}/vwap=#ff0000,1,"));
+        let solid = segments(&mut c, format!("{id}/vwap=#ff0000,1,,0"));
+        assert!(dotted > solid * 2, "dots by default, {dotted} vertices against {solid}, and a solid line when asked");
+        assert!(segments(&mut c, format!("{id}/vwap=#ff0000,1,,1")) < dotted, "dashes are longer than dots");
+
+        // The shade stops at the turn of each session, with no slant across it.
+        let blue = [0u8, 0, 255, 255];
+        c.set_styles(&format!("{id}/fill1=#0000ff,,"));
+        let frame = c.render(1_800_000_000_000).clone();
+        let xs: Vec<f32> = frame.positions.chunks(2).zip(frame.colors.chunks(4)).filter(|(_, p)| *p == blue).map(|(xy, _)| xy[0]).collect();
+        let spacing = c.time.bar_spacing as f32;
+        let mut sorted = xs.clone();
+        sorted.sort_by(f32::total_cmp);
+        assert!(!sorted.is_empty() && sorted.windows(2).any(|w| w[1] - w[0] > spacing * 0.9), "a gap where the day turned");
+
+        // Each previous level labelled beside the newest bar.
+        let frame = c.render(1_800_000_000_000).clone();
+        let labels: Vec<&str> = frame.texts.iter().map(|t| t.text.as_str()).filter(|t| t.starts_with("pD")).collect();
+        assert_eq!(labels, ["pDVAH", "pDVWAP", "pDVAL"]);
+        let w = c.panes[0].plot.w;
+        assert!(frame.texts.iter().filter(|t| t.text.starts_with("pD")).all(|t| t.x > 0.0 && t.x < w), "on the pane");
+        c.set_styles(&format!("{id}/prevVwap=,,1"));
+        let frame = c.render(1_800_000_000_000).clone();
+        assert_eq!(frame.texts.iter().filter(|t| t.text.starts_with("pD")).count(), 2, "and each can be turned off");
     }
 
     #[test]

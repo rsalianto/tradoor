@@ -1,7 +1,7 @@
 /**
  * How a chart's studies and layers draw, where the reader changed it. By
  * `owner/plot` — a study's id or a layer's, and one of its plots — either
- * `colour,width,off` or a number the owner takes. A value back at its default
+ * `colour,width,off,pattern` or a number the owner takes. A value back at its default
  * is forgotten, so a chart left alone stores nothing. The engine reads the same
  * spelling (`Styles::parse` in tradoor-render).
  */
@@ -13,6 +13,8 @@ export interface PlotStyle {
   /** Empty is the study's own. */
   width: string;
   off: boolean;
+  /** `0` solid, `1` dashed, `2` dotted; empty is the study's own. */
+  pattern: string;
 }
 
 export const splitList = (s: string): string[] =>
@@ -25,14 +27,14 @@ const at = (owner: string, plot: string): string => `${owner}/${plot}`;
 const ownerOf = (key: string): string => key.slice(0, key.indexOf('/'));
 
 export function plotStyle(styles: StudyStyles | undefined, owner: string, plot: string): PlotStyle {
-  const [color = '', width = '', off = ''] = (styles?.[at(owner, plot)] ?? '').split(',');
-  return { color, width, off: off === '1' };
+  const [color = '', width = '', off = '', pattern = ''] = (styles?.[at(owner, plot)] ?? '').split(',');
+  return { color, width, off: off === '1', pattern };
 }
 
 export function withPlot(styles: StudyStyles | undefined, owner: string, plot: string, patch: Partial<PlotStyle>): StudyStyles {
   const p = { ...plotStyle(styles, owner, plot), ...patch };
   const next = { ...styles };
-  if (p.color || p.width || p.off) next[at(owner, plot)] = `${p.color},${p.width},${p.off ? '1' : ''}`;
+  if (p.color || p.width || p.off || p.pattern) next[at(owner, plot)] = `${p.color},${p.width},${p.off ? '1' : ''}${p.pattern ? `,${p.pattern}` : ''}`;
   else delete next[at(owner, plot)];
   return next;
 }

@@ -54,6 +54,14 @@ Deno.test('what a new indicator paints besides lines has a row of its own', () =
   assertEquals(studyPlots('vpvr:24:70:30:0', [{ id: 'vpvr:24:70:30:0:poc', label: 'POC', color: '#000', width: 0 }]).map((p) => p.key), ['up', 'down', 'poc', 'va']);
 });
 
+Deno.test('a vwap lists its value area, shading and last period’s levels', () => {
+  const line = (key: string) => ({ id: `vwap:0:1:0:0:${key}`, label: key, color: '#000', width: 1 });
+  const plots = studyPlots('vwap:0:1:0:0', ['vwap', 'upper1', 'lower1', 'prevVah', 'prevVwap', 'prevVal'].map(line));
+  assertEquals(plots.map((p) => [p.key, p.label]), [['vwap', 'vwap'], ['upper1', 'Value Area High'], ['lower1', 'Value Area Low'], ['fill1', 'Value area shading'], ['prevVah', 'Previous VAH'], ['prevVwap', 'Previous VWAP'], ['prevVal', 'Previous VAL']]);
+  assertEquals(plots[0]!.pattern, '2', 'dotted unless changed');
+  assertEquals(studyPlots('vwap:0:0:0:0', ['vwap', 'prevVwap'].map(line)).map((p) => p.key), ['vwap', 'prevVwap'], 'no band, no shading');
+});
+
 Deno.test('the picker says which one is on the chart', () => {
   assertEquals(instanceLabel('ema:50'), '50');
   assertEquals(instanceLabel('bb:20:2.5'), '20 2.5');

@@ -18,7 +18,12 @@ import { ColorField } from './ColorField';
 import { NumField } from './NumField';
 
 const WIDTHS = [1, 1.5, 2, 3, 4];
-const DIALOG_WIDTH = 340;
+const PATTERNS = [
+  ['0', 'Solid'],
+  ['1', 'Dashed'],
+  ['2', 'Dotted'],
+] as const;
+const DIALOG_WIDTH = 390;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const theme = (name: string) => doc.theme[name] ?? CHART_THEME.find((t) => t.name === name)?.value ?? '#000000';
 
@@ -188,13 +193,13 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
           >
             {(options) => (
               <select class="dinput" aria-label={ui.label} onChange={(e) => set(Number(e.currentTarget.value))}>
-                <Index each={options()}>
-                  {(name, i) => (
+                <For each={ui.order ?? options().map((_, i) => i)}>
+                  {(i) => (
                     <option value={i} selected={value() === i}>
-                      {name()}
+                      {options()[i]}
                     </option>
                   )}
-                </Index>
+                </For>
               </select>
             )}
           </Show>
@@ -253,6 +258,17 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
             <Show when={!r().onlyToggle}>
               <ColorField value={color()} onChange={(c) => set({ color: c })} title={`${r().label} colour`} />
               <Show when={!r().noWidth}>
+                <Show when={!r().noPattern}>
+                  <select class="dinput dpattern" aria-label={`${r().label} line style`} onChange={(e) => set({ pattern: e.currentTarget.value })}>
+                    <For each={PATTERNS}>
+                      {([value, name]) => (
+                        <option value={value} selected={(own().pattern || r().pattern || '0') === value}>
+                          {name}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                </Show>
                 <select class="dinput dwidth" aria-label={`${r().label} width`} onChange={(e) => set({ width: e.currentTarget.value })}>
                   <For each={WIDTHS}>
                     {(w) => (

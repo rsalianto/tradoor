@@ -22,7 +22,7 @@ const STUDIES: Record<string, Described> = {
   ema: { name: 'Exponential Moving Average', category: 'Trend and averages', keywords: 'ma moving', about: 'Average close, weighted towards recent bars.' },
   sma: { name: 'Simple Moving Average', category: 'Trend and averages', keywords: 'ma moving', about: 'Plain average of the last N closes: every bar in the window counts the same.' },
   ichimoku: { name: 'Ichimoku Cloud', category: 'Trend and averages', keywords: 'kumo tenkan kijun senkou chikou', about: 'Conversion and base lines at the bar, a cloud between two spans carried ahead of it, and price carried behind it.' },
-  vwap: { name: 'Volume Weighted Average Price', category: 'VWAP', keywords: 'session bands deviation', about: 'Average price paid since the session opened, each trade weighted by its size, with bands at standard deviations of price around it. Sessions are UTC days.' },
+  vwap: { name: 'Volume Weighted Average Price', category: 'VWAP', keywords: 'session bands deviation value area vah val anchored monthly', about: 'Average price paid since the session, week, month, quarter or year opened, each trade weighted by its size. The first band is the value area, about two thirds of the volume, and last period’s VWAP and value area are labelled at the right. Sessions are UTC days.' },
   avwap: { name: 'Anchored VWAP (S/W/M/Y)', category: 'VWAP', keywords: 'multi session weekly monthly yearly', about: 'Volume-weighted average price since the session, week, month and year opened. The session line is drawn on intraday charts only.' },
   rsi: { name: 'Relative Strength Index', category: 'Momentum', keywords: 'oscillator overbought oversold', about: 'Momentum bounded 0–100. Wilder smoothing, so the values match TradingView exactly.' },
   stochrsi: { name: 'Stochastic RSI', category: 'Momentum', keywords: 'oscillator overbought oversold', about: 'Where RSI sits inside its own recent range. Turns earlier than RSI, and whipsaws more.' },
@@ -69,6 +69,10 @@ export interface StylePlot {
   noWidth?: boolean;
   /** Under a row with a box to tick, and lined up with it. */
   indent?: boolean;
+  /** Has a width but no choice of pattern: drawn one way only. */
+  noPattern?: boolean;
+  /** Its pattern unless changed: `0` solid, `1` dashed, `2` dotted. */
+  pattern?: string;
 }
 
 export interface LayerDef extends Described {
@@ -209,6 +213,8 @@ export interface ParamUi {
   label: string;
   hint?: string;
   options?: readonly string[];
+  /** The order to list `options` in, where their values cannot follow it. */
+  order?: readonly number[];
   /** A band: on with this multiple, off at 0. */
   band?: number;
   /** One checkbox per bit, with these names. */
@@ -236,8 +242,8 @@ const PARAMS: Record<string, Record<string, ParamUi>> = {
   macd: { fast: { label: 'Fast length' }, slow: { label: 'Slow length' }, signal: { label: 'Signal length' } },
   swingmap: { left: { label: 'Left bars', hint: 'Bars a pivot must stand above on its left' }, right: { label: 'Right bars', hint: 'Bars to its right before it is confirmed' } },
   vwap: {
-    anchor: { label: 'Anchor', options: ['Session', 'Week', 'Month', 'Year'], hint: 'Where the average starts again. A session is a UTC day, and needs bars shorter than a day' },
-    band1: { label: 'Bands 1', band: 1, hint: 'Standard deviations of price around the VWAP' },
+    anchor: { label: 'Anchor', options: ['Session', 'Week', 'Month', 'Year', 'Quarter'], order: [0, 1, 2, 4, 3], hint: 'Where the average starts again. A session is a UTC day, and needs bars shorter than a day' },
+    band1: { label: 'Value area', band: 1, hint: 'Standard deviations of price around the VWAP. One holds about two thirds of the volume' },
     band2: { label: 'Bands 2', band: 2 },
     band3: { label: 'Bands 3', band: 3 },
   },
@@ -256,7 +262,7 @@ const PANE_GUIDES: readonly NumberInput[] = [
   { owner: 'pct', key: 'upper', label: 'Upper guide', default: 80, min: 0, max: 100, hint: 'Shared by every study in this pane' },
   { owner: 'pct', key: 'lower', label: 'Lower guide', default: 20, min: 0, max: 100, hint: 'Shared by every study in this pane' },
 ];
-const GUIDES_PLOT: StylePlot = { owner: 'pct', key: 'guides', label: 'Guides', theme: 'border', width: 1 };
+const GUIDES_PLOT: StylePlot = { owner: 'pct', key: 'guides', label: 'Guides', theme: 'border', width: 1, noPattern: true };
 
 export const studyNumbers = (kind: string): readonly NumberInput[] => (kind === 'rsi' || kind === 'stochrsi' ? PANE_GUIDES : []);
 /** The owners besides a study's own that its settings change. */
@@ -272,7 +278,7 @@ export const NOTES: Record<string, string> = {
 const LABELS: Record<string, Record<string, string>> = {
   keylevels: { wo: 'Weekly open', mo: 'Monthly open', yo: 'Yearly open', monH: 'Monday high', monL: 'Monday low' },
   macd: { histogram: 'Histogram, above zero' },
-  vwap: { upper1: 'Upper band 1', lower1: 'Lower band 1', upper2: 'Upper band 2', lower2: 'Lower band 2', upper3: 'Upper band 3', lower3: 'Lower band 3' },
+  vwap: { upper1: 'Value Area High', lower1: 'Value Area Low', prevVwap: 'Previous VWAP', prevVah: 'Previous VAH', prevVal: 'Previous VAL', upper2: 'Upper band 2', lower2: 'Lower band 2', upper3: 'Upper band 3', lower3: 'Lower band 3' },
   swingmap: { zigzag: 'Zigzag' },
   volumedelta: { histogram: 'Delta, above zero', cvd: 'Cumulative delta' },
   ichimoku: { conversion: 'Conversion line', base: 'Base line', lagging: 'Lagging span', leadA: 'Leading span A', leadB: 'Leading span B' },
@@ -281,6 +287,7 @@ const LABELS: Record<string, Record<string, string>> = {
 const LINE_STYLE: Record<string, Record<string, Partial<StylePlot>>> = {
   macd: { histogram: { theme: 'bull', alpha: '80', noWidth: true } },
   volumedelta: { histogram: { theme: 'bull', alpha: '80', noWidth: true } },
+  vwap: { vwap: { pattern: '2' }, prevVwap: { noWidth: true }, prevVah: { noWidth: true }, prevVal: { noWidth: true } },
 };
 
 /** `rgba(r,g,b,a)`, as the engine writes a colour, in the spelling the colour field takes. */
@@ -300,15 +307,20 @@ export function studyPlots(id: string, lines: readonly StudyLine[]): StylePlot[]
     .filter((l) => l.width > 0 || kind === 'keylevels')
     .map((l) => {
       const key = l.id.slice(id.length + 1);
-      return { key, label: LABELS[kind]?.[key] ?? l.label, color: toHex(l.color), width: l.width || 1, ...LINE_STYLE[kind]?.[key] };
+      return { key, label: LABELS[kind]?.[key] ?? l.label, color: toHex(l.color), width: l.width || 1, noPattern: kind === 'keylevels', ...LINE_STYLE[kind]?.[key] };
     });
   if (kind === 'macd') out.splice(1, 0, { key: 'histogramDown', label: 'Histogram, below zero', theme: 'bear', alpha: '80', noToggle: true, noWidth: true, indent: true });
   if (kind === 'volumedelta' && out.some((p) => p.key === 'histogram')) out.push({ key: 'histogramDown', label: 'Delta, below zero', theme: 'bear', alpha: '80', noToggle: true, noWidth: true, indent: true });
+  if (kind === 'vwap') {
+    const fills = [['1', 'Value area shading', '#2962ff12'], ['2', 'Bands 2 shading', '#2962ff0c'], ['3', 'Bands 3 shading', '#2962ff08']] as const;
+    const at = out.findIndex((p) => p.key.startsWith('prev'));
+    out.splice(at < 0 ? out.length : at, 0, ...fills.filter(([n]) => out.some((p) => p.key === `upper${n}`)).map(([n, label, color]): StylePlot => ({ key: `fill${n}`, label, color, noWidth: true })));
+  }
   if (kind === 'bb' || kind === 'keltner') out.push({ key: 'fill', label: 'Background', color: '#2196f31a', noWidth: true });
   if (kind === 'ichimoku') out.push({ key: 'cloudUp', label: 'Cloud, A above B', color: '#43a04733', noWidth: true }, { key: 'cloudDown', label: 'Cloud, A below B', color: '#f4433633', noWidth: true });
   if (kind === 'sessions') out.push({ key: 'asia', label: 'Asia', color: '#e3cd2a', noWidth: true }, { key: 'london', label: 'London', color: '#c8202e', noWidth: true }, { key: 'ny', label: 'New York', color: '#2f5bd8', noWidth: true });
   if (kind === 'moon') out.push({ key: 'full', label: 'Full moon', color: '#f5efc8', noWidth: true }, { key: 'new', label: 'New moon', color: '#9aa0a6', noWidth: true });
-  if (kind === 'vpvr') out.push({ key: 'up', label: 'Bars that closed up', theme: 'bull', noWidth: true }, { key: 'down', label: 'Bars that closed down', theme: 'bear', noWidth: true }, { key: 'poc', label: 'Point of control', theme: 'tpoPoc', width: 1 }, { key: 'va', label: 'Value area edges', theme: 'text', width: 1 });
+  if (kind === 'vpvr') out.push({ key: 'up', label: 'Bars that closed up', theme: 'bull', noWidth: true }, { key: 'down', label: 'Bars that closed down', theme: 'bear', noWidth: true }, { key: 'poc', label: 'Point of control', theme: 'tpoPoc', width: 1, noPattern: true }, { key: 'va', label: 'Value area edges', theme: 'text', width: 1, noPattern: true });
   if (kind === 'swingmap') out.push({ key: 'labels', label: 'Swing labels', onlyToggle: true }, { key: 'stats', label: 'Averages in the legend', onlyToggle: true });
   if (kind === 'flow') out.push({ key: 'bought', label: 'Bought', theme: 'bull', noWidth: true }, { key: 'sold', label: 'Sold', theme: 'bear', noWidth: true });
   if (kind === 'oi' && id.split(':')[3] !== '1') out.push({ key: 'up', label: 'Rising', theme: 'bull', noToggle: true, noWidth: true }, { key: 'down', label: 'Falling', theme: 'bear', noToggle: true, noWidth: true });
