@@ -2,7 +2,7 @@
 /** The order book kept from snapshots and changes, and trades read for the DOM and tape. */
 import { assert, assertAlmostEquals, assertEquals } from 'jsr:@std/assert@1';
 import type { BookMsg } from '../engine/streams.ts';
-import { bestAsk, bestBid, Book, BookSync, Prints, recentGroups, Tally, tickOf } from './orderflow.ts';
+import { bestAsk, bestBid, Book, BookSync, coinsPerContract, Prints, recentGroups, Tally, tickOf } from './orderflow.ts';
 
 const change = (bids: [number, number][], asks: [number, number][], seq: Partial<BookMsg> = {}): BookMsg => ({ kind: 'book', reset: false, bids, asks, ...seq });
 
@@ -161,4 +161,13 @@ Deno.test('pulls far from the price are not kept', () => {
   book.reset({ bids: [[100, 1], [50, 1]], asks: [[101, 1]], last: undefined });
   book.apply({ bids: [[50, 9], [99, 2]], asks: [], last: undefined }, 0);
   assertEquals([book.pulls.has(50), book.pulled(99, 0)], [false, 2]);
+});
+
+Deno.test('the coins in a contract, however each exchange says it', () => {
+  assertEquals(coinsPerContract('okx-perp', { data: [{ ctVal: '0.01' }] }), 0.01);
+  assertEquals(coinsPerContract('gate-perp', { name: 'BTC_USDT', quanto_multiplier: '0.0001' }), 0.0001);
+  assertEquals(coinsPerContract('htx-perp', { data: [{ amount: 4.082, vol: 4082 }] }), 0.001, 'a bar says both');
+  assertEquals(coinsPerContract('htx-perp', { data: [{ amount: 0, vol: 0 }] }), 1, 'a bar nothing traded in says neither');
+  assertEquals(coinsPerContract('gate-perp', {}), 1);
+  assertEquals(coinsPerContract('binance-perp', { quanto_multiplier: '0.5' }), 1, 'coins already');
 });

@@ -40,9 +40,11 @@ const REST: [(&str, &[&str]); 18] = [
     ("api.kraken.com", &["/0/public/OHLC"]),
     ("futures.kraken.com", &["/api/charts/v1/trade/"]),
     ("mainnet.zklighter.elliot.ai", &["/api/v1/candles"]),
-    ("api.gateio.ws", &["/api/v4/spot/candlesticks", "/api/v4/futures/usdt/candlesticks"]),
-    ("fapi.asterdex.com", &["/fapi/v1/klines"]),
-    ("sapi.asterdex.com", &["/api/v1/klines"]),
+    // `contracts/`: the coins in one, which its sizes count.
+    ("api.gateio.ws", &["/api/v4/spot/candlesticks", "/api/v4/futures/usdt/candlesticks", "/api/v4/futures/usdt/contracts/"]),
+    // `depth`: the order book a DOM lays the stream's changes over, as on Binance.
+    ("fapi.asterdex.com", &["/fapi/v1/klines", "/fapi/v1/depth"]),
+    ("sapi.asterdex.com", &["/api/v1/klines", "/api/v1/depth"]),
     ("api.huobi.pro", &["/market/history/kline"]),
     ("api.hbdm.com", &["/linear-swap-ex/market/history/kline"]),
     // These two answer no browser, so their charts always come through here.
@@ -290,6 +292,9 @@ mod tests {
         assert!(ok("https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=60"));
         assert!(!ok("https://api.exchange.coinbase.com/orders"));
         assert!(ok("https://www.bitstamp.net/api/v2/ohlc/btcusd-perp/?step=60&limit=2"));
+        assert!(ok("https://fapi.asterdex.com/fapi/v1/depth?symbol=BTCUSDT&limit=1000"));
+        assert!(ok("https://sapi.asterdex.com/api/v1/depth?symbol=BTCUSDT&limit=1000"));
+        assert!(ok("https://api.gateio.ws/api/v4/futures/usdt/contracts/BTC_USDT"));
         assert!(!ok("https://www.bitstamp.net/api/v2/balance/"), "no account calls");
         assert!(ok("https://api.hbdm.com/linear-swap-ex/market/history/kline?contract_code=BTC-USDT&period=1min&size=1"));
         assert_eq!(stream_url("bitfinex-perp"), Some("wss://api-pub.bitfinex.com/ws/2"));

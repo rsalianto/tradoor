@@ -1,9 +1,9 @@
 /**
  * Every trade with the side that took it, and the order book, for the DOM and
- * tape panels: sockets of their own, loaded with the first of those panels, so
- * the charts' sockets and the rest of the app carry none of it. Sizes are as
- * the exchange sends them; an OKX swap's are contracts, turned into coins by
- * the reader (lib/orderflow).
+ * tape panels and footprints recorded in the browser: sockets of their own, so
+ * the charts' sockets carry none of it. Sizes are as
+ * the exchange sends them; a swap's on OKX, Gate or HTX are contracts, turned
+ * into coins by the reader (lib/orderflow).
  */
 import type { Venue } from '../lib/markets';
 import { chunks, Connection, num, relay, type BookMsg, type Json, type Protocol, type StreamListener, type StreamMsg } from './streams';
@@ -18,7 +18,7 @@ function levels(rows: unknown): Level[] {
   return rows.map((r): Level => (Array.isArray(r) ? [num(r[0]), num(r[1])] : [num((r as Json).price), num((r as Json).qty ?? (r as Json).size)]));
 }
 
-const book = (reset: boolean, bids: unknown, asks: unknown, seq: Partial<Pick<BookMsg, 'first' | 'last' | 'prev'>> = {}): BookMsg => ({ kind: 'book', reset, bids: levels(bids), asks: levels(asks), ...seq });
+export const book = (reset: boolean, bids: unknown, asks: unknown, seq: Partial<Pick<BookMsg, 'first' | 'last' | 'prev'>> = {}): BookMsg => ({ kind: 'book', reset, bids: levels(bids), asks: levels(asks), ...seq });
 
 /**
  * Binance: aggregated trades, and the book's changes every 100ms — the book
@@ -27,7 +27,7 @@ const book = (reset: boolean, bids: unknown, asks: unknown, seq: Partial<Pick<Bo
  * Nothing at all is pushed for a quiet market, so the subscription list is
  * asked for now and then to show the socket is alive.
  */
-function binance(urls: string[]): Protocol {
+export function binance(urls: string[]): Protocol {
   let id = 0;
   return {
     urls,
@@ -240,7 +240,33 @@ export function socketFor(venue: Venue, kind: FlowKind): string {
 }
 
 /** Whether a venue's book arrives as changes only, to be laid over a REST snapshot. */
-export const bookFromRest = (venue: Venue): boolean => venue === 'binance-spot' || venue === 'binance-perp';
+export const bookFromRest = (venue: Venue): boolean => venue.startsWith('binance') || venue.startsWith('aster');
+
+/** Whether every message is the whole book, so what changed has to be worked out. */
+export const wholeBook = (venue: Venue): boolean => venue === 'hyperliquid-perp' || /^(gate|htx|bitstamp)-/.test(venue);
+
+/** Where a venue whose book comes from REST keeps it. */
+export function depthUrl(venue: Venue, native: string): string {
+  const host = venue === 'binance-perp' ? 'https://fapi.binance.com/fapi/v1' : venue === 'aster-perp' ? 'https://fapi.asterdex.com/fapi/v1' : venue === 'aster-spot' ? 'https://sapi.asterdex.com/api/v1' : 'https://api.binance.com/api/v3';
+  return `${host}/depth?symbol=${native}&limit=1000`;
+}
+
+/**
+ * The newer exchanges' sockets are in a file of their own, fetched with the first
+ * DOM, tape or footprint on one: a chart loads this file, so they would otherwise
+ * be in every visitor's first download.
+ */
+let more: Promise<void> | null = null;
+export function loadMoreSockets(): Promise<void> {
+  more ??= import('./orderflow-venues').then(
+    (m) => void Object.assign(SOCKETS, m.SOCKETS),
+    (e) => {
+      more = null;
+      throw e;
+    },
+  );
+  return more;
+}
 
 export class OrderFlowHub {
   private readonly connections = new Map<string, Connection>();
@@ -249,10 +275,7 @@ export class OrderFlowHub {
   subscribe(venue: Venue, kind: FlowKind, symbol: string, listener: StreamListener): () => void {
     const socket = socketFor(venue, kind);
     const make = SOCKETS[socket];
-    if (!make) {
-      listener.state('stalled', false);
-      return () => {};
-    }
+    if (!make) return this.later(socket, listener, () => this.subscribe(venue, kind, symbol, listener));
     let conn = this.connections.get(socket);
     if (!conn) {
       conn = new Connection(make());
@@ -262,12 +285,42 @@ export class OrderFlowHub {
     // at all — the answer to a subscription, a pong — shows the socket is up.
     return conn.add(conn.topic({ kind, symbol }, venue), listener, true);
   }
+
+  /** `go` once the sockets are here, and again a few seconds on if they could not be fetched. */
+  private later(socket: string, listener: StreamListener, go: () => () => void): () => void {
+    let off: (() => void) | null = null;
+    let dropped = false;
+    listener.state('connecting', false);
+    const fetchThem = (): void => {
+      loadMoreSockets().then(
+        () => {
+          if (dropped) return;
+          if (SOCKETS[socket]) off = go();
+          else listener.state('stalled', false);
+        },
+        () => {
+          if (!dropped) setTimeout(fetchThem, 5_000);
+        },
+      );
+    };
+    fetchThem();
+    return () => {
+      dropped = true;
+      off?.();
+    };
+  }
 }
 
 /** For tests: one frame read by a socket's protocol. */
 export function readFrame(socket: string, frame: Json): [string, StreamMsg][] {
+  return readFrames(socket, [frame]);
+}
+
+/** For tests: frames read in turn by one socket's protocol, for those that keep track. */
+export function readFrames(socket: string, frames: unknown[]): [string, StreamMsg][] {
   const out: [string, StreamMsg][] = [];
-  SOCKETS[socket]!().read(frame, (topic, msg) => out.push([topic, msg]));
+  const proto = SOCKETS[socket]!();
+  for (const frame of frames) proto.read(frame as Json, (topic, msg) => out.push([topic, msg]));
   return out;
 }
 

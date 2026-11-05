@@ -27,8 +27,8 @@ use crate::telegram::{self, Telegram};
 use crate::trades::{self, stream_urls};
 
 /// The venues whose trades this server follows, and so the ones whose alerts
-/// fire with no browser open. The rest are watched by the page alone.
-const VENUES: [Venue; 12] = [
+/// fire with no browser open: every one but the indices, which nothing trades.
+const VENUES: [Venue; 24] = [
     Venue::BinanceSpot,
     Venue::BinancePerp,
     Venue::BybitSpot,
@@ -41,6 +41,18 @@ const VENUES: [Venue; 12] = [
     Venue::KrakenSpot,
     Venue::KrakenPerp,
     Venue::LighterPerp,
+    Venue::GateSpot,
+    Venue::GatePerp,
+    Venue::AsterSpot,
+    Venue::AsterPerp,
+    Venue::HtxSpot,
+    Venue::HtxPerp,
+    Venue::BitfinexSpot,
+    Venue::BitfinexPerp,
+    Venue::DeribitPerp,
+    Venue::CoinbaseSpot,
+    Venue::BitstampSpot,
+    Venue::BitstampPerp,
 ];
 /// How often the alerts to watch are read again.
 const REFRESH: Duration = Duration::from_secs(10);
@@ -57,6 +69,10 @@ const PING: Duration = Duration::from_secs(15);
 /// Markets followed on one exchange. Past this the page is on its own: a server
 /// holding thousands of alerts should not open a subscription for each.
 const MAX_SYMBOLS: usize = 200;
+/// A trade older than this is an exchange's look back on subscribing, not the
+/// price now: Gate's perpetuals open with the last hundred seconds or so, and a
+/// level met and left in that time has not been met.
+const STALE_MS: i64 = 15_000;
 
 /// An alert as the watcher needs it: who it belongs to, and when it fires.
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +98,11 @@ pub fn fires(condition: &str, level: f64, prev: Option<f64>, cur: f64) -> bool {
         "crossing" => prev.is_some_and(|p| (p < level && cur >= level) || (p > level && cur <= level)),
         _ => false,
     }
+}
+
+/// Whether a trade's time, 0 if the frame's is not read, puts it in the past.
+fn stale(at: i64, now: i64) -> bool {
+    at > 0 && now - at > STALE_MS
 }
 
 /// Follow every market with an active alert, for as long as the server runs.
@@ -137,7 +158,7 @@ fn symbols_of(venue: Venue, alerts: &[Watched]) -> Vec<String> {
     let mut symbols: Vec<String> = alerts.iter().filter(|a| a.venue == venue).map(|a| a.symbol.clone()).collect();
     symbols.sort_unstable();
     symbols.dedup();
-    symbols.truncate(MAX_SYMBOLS);
+    symbols.truncate(MAX_SYMBOLS.min(trades::most_symbols(venue)));
     symbols
 }
 
@@ -200,6 +221,7 @@ async fn session(
     let mut previous: HashMap<String, f64> = HashMap::new();
     // Alerts already fired here, so a level that stays met is reported once.
     let mut fired: HashSet<i64> = HashSet::new();
+    let mut channels = trades::Channels::default();
     loop {
         tokio::select! {
             frame = ws.next() => {
@@ -207,12 +229,23 @@ async fn session(
                 heard = Instant::now();
                 let text = match frame? {
                     Message::Text(text) => text.to_string(),
+                    Message::Binary(bytes) if trades::gzipped(venue) => match tradoor_codec::partition::gunzip(&bytes) {
+                        Ok(raw) => String::from_utf8_lossy(&raw).into_owned(),
+                        Err(_) => continue,
+                    },
                     Message::Close(_) => return Ok(()),
                     _ => continue,
                 };
-                for (theirs, price, _, _) in trades::prints(venue, &text) {
-                    let symbol = ours.get(&theirs).cloned().unwrap_or(theirs);
+                if let Some(answer) = trades::reply(venue, &text) {
+                    ws.send(Message::text(answer)).await?;
+                }
+                let text = channels.named(venue, text);
+                for (theirs, price, _, _, at) in trades::timed_prints(venue, &text) {
                     traded = Instant::now();
+                    if stale(at, now_ms()) {
+                        continue;
+                    }
+                    let symbol = ours.get(&theirs).cloned().unwrap_or(theirs);
                     let market = format!("{}:{}", venue.id(), symbol);
                     let prev = previous.insert(symbol, price);
                     let due: Vec<Watched> = alerts

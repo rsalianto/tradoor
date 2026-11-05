@@ -6,7 +6,7 @@
  * panel has shown a market for a few minutes its sockets close. Solid-free,
  * so it tests as plain code; panels draw from it on their own frames.
  */
-import { OrderFlowHub, bookFromRest, type FlowKind } from '../engine/orderflow-streams';
+import { OrderFlowHub, bookFromRest, depthUrl, wholeBook, type FlowKind } from '../engine/orderflow-streams';
 import { block, isBlocked, reached } from '../engine/reach';
 import type { BookMsg, PrintMsg, SocketState } from '../engine/streams';
 import { parseMarket, type Venue } from './markets';
@@ -21,7 +21,7 @@ const PRINTS_FIRST = 4_096;
 /** How long a market nobody shows keeps listening. */
 const LINGER_MS = 5 * 60_000;
 /** Book levels kept a side: where the exchange sends only the best so many, and Binance's, whose far levels no DOM scrolls to. */
-const KEEP: Partial<Record<Venue, number>> = { 'binance-spot': 10_000, 'binance-perp': 10_000, 'bybit-spot': 1000, 'bybit-perp': 1000, 'okx-spot': 400, 'okx-perp': 400, 'kraken-spot': 1000, 'bitget-spot': 500, 'bitget-perp': 500 };
+const KEEP: Partial<Record<Venue, number>> = { 'binance-spot': 10_000, 'binance-perp': 10_000, 'bybit-spot': 1000, 'bybit-perp': 1000, 'okx-spot': 400, 'okx-perp': 400, 'kraken-spot': 1000, 'bitget-spot': 500, 'bitget-perp': 500, 'aster-spot': 1000, 'aster-perp': 1000, 'bitfinex-spot': 100, 'bitfinex-perp': 100, 'deribit-perp': 1000, 'coinbase-spot': 2000 };
 /** Pulls and stacks are kept within this share of the price: no DOM scrolls further, and Binance changes levels everywhere. */
 const PULL_REACH = 0.03;
 /** A trade explains a level's shrinking this long after it, or before. */
@@ -383,18 +383,46 @@ async function rest(url: string): Promise<unknown> {
   return res.json();
 }
 
-/** The coins in one OKX swap contract: its sizes are contracts. */
+/**
+ * Where a swap's sizes are contracts, where to ask for the coins in one and how
+ * to read the answer. HTX's list of contracts answers no browser, but a bar says
+ * both its contracts and its coins, and this month's has traded if any has.
+ */
+const CONTRACT: Partial<Record<Venue, { url(native: string): string; coins(body: never): unknown }>> = {
+  'okx-perp': {
+    url: (native) => `https://www.okx.com/api/v5/public/instruments?instType=SWAP&instId=${encodeURIComponent(native)}`,
+    coins: (body: { data?: { ctVal?: string }[] }) => body.data?.[0]?.ctVal,
+  },
+  'gate-perp': {
+    url: (native) => `https://api.gateio.ws/api/v4/futures/usdt/contracts/${encodeURIComponent(native)}`,
+    coins: (body: { quanto_multiplier?: string }) => body.quanto_multiplier,
+  },
+  'htx-perp': {
+    url: (native) => `https://api.hbdm.com/linear-swap-ex/market/history/kline?contract_code=${encodeURIComponent(native)}&period=1mon&size=1`,
+    coins: (body: { data?: { amount: number; vol: number }[] }) => {
+      const bar = body.data?.[0];
+      return bar && bar.vol > 0 ? (bar.amount / bar.vol).toPrecision(6) : undefined;
+    },
+  },
+};
+
+/** The coins in one contract, as an exchange's answer says: 1 if it does not. */
+export const coinsPerContract = (venue: Venue, body: unknown): number => Number(CONTRACT[venue]?.coins(body as never)) || 1;
+
 const contracts = new Map<string, Promise<number>>();
-function contractSize(native: string): Promise<number> {
-  let size = contracts.get(native);
+function contractSize(venue: Venue, native: string): Promise<number> {
+  const contract = CONTRACT[venue];
+  if (!contract) return Promise.resolve(1);
+  const key = `${venue}:${native}`;
+  let size = contracts.get(key);
   if (!size) {
-    size = rest(`https://www.okx.com/api/v5/public/instruments?instType=SWAP&instId=${encodeURIComponent(native)}`)
-      .then((body) => Number((body as { data?: { ctVal?: string }[] }).data?.[0]?.ctVal) || 1)
+    size = rest(contract.url(native))
+      .then((body) => coinsPerContract(venue, body))
       .catch(() => {
-        contracts.delete(native);
+        contracts.delete(key);
         return 1;
       });
-    contracts.set(native, size);
+    contracts.set(key, size);
   }
   return size;
 }
@@ -422,7 +450,7 @@ export class Flow {
   constructor(readonly market: string) {
     this.venue = parseMarket(market)?.venue ?? null;
     this.book = new Book(this.venue ? KEEP[this.venue] : undefined);
-    this.sync = new BookSync(this.book, this.venue === 'hyperliquid-perp');
+    this.sync = new BookSync(this.book, !!this.venue && wholeBook(this.venue));
     if (!this.venue || this.venue === 'index') {
       this.state = { prints: 'none', book: 'none' };
       return;
@@ -432,7 +460,7 @@ export class Flow {
 
   private async open(venue: Venue): Promise<void> {
     this.native = await nativeOf(this.market);
-    if (venue === 'okx-perp') this.size = await contractSize(this.native);
+    this.size = await contractSize(venue, this.native);
     if (this.closed || this.native === '') return;
     this.offs.push(this.listen(venue, 'prints'));
     this.offs.push(this.listen(venue, 'book'));
@@ -515,7 +543,7 @@ export class Flow {
   private async snapshot(): Promise<void> {
     if (this.loading || this.closed) return;
     this.loading = true;
-    const url = this.venue === 'binance-perp' ? `https://fapi.binance.com/fapi/v1/depth?symbol=${this.native}&limit=1000` : `https://api.binance.com/api/v3/depth?symbol=${this.native}&limit=1000`;
+    const url = depthUrl(this.venue!, this.native);
     let again = false;
     try {
       const body = (await rest(url)) as { lastUpdateId: number; bids: [string, string][]; asks: [string, string][] };
@@ -565,7 +593,7 @@ export function listenPrints(market: string, listener: { print(time: number, pri
   let closed = false;
   void (async () => {
     const native = await nativeOf(market);
-    const size = venue === 'okx-perp' ? await contractSize(native) : 1;
+    const size = await contractSize(venue, native);
     if (closed || native === '') return;
     off = hub.subscribe(venue, 'prints', native, {
       message: (msg) => {

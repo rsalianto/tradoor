@@ -51,7 +51,7 @@
 
 **⚡ Light and fast.** The chart engine is Rust in a Web Worker, drawing with WebGL2 on an OffscreenCanvas, so the page thread never touches a candle. A minute chart with months behind it costs what one opened today does.
 
-**📊 Order flow and market profile.** A DOM and a tape on seven exchanges, TPO profiles by session, footprints with bid and ask at every price, value areas, and a Values panel that reads a market at a glance.
+**📊 Order flow and market profile.** A DOM and a tape on fourteen exchanges, TPO profiles by session, footprints with bid and ask at every price, value areas, and a Values panel that reads a market at a glance.
 
 **🔥 Live from the source.** Fourteen exchanges, streamed straight to the browser: trades fold into the forming bar, order books fill the DOM, liquidations land from eleven exchanges, and net taker flow is counted per venue.
 
@@ -79,7 +79,7 @@ Up to 20 charts on screen, all drawing: the first four with WebGL, the rest in 2
   <sub>One search across some 16,500 markets, the busiest first.</sub>
 </p>
 
-Every market on Binance, Bybit, OKX, Bitget, Kraken, Hyperliquid, Lighter, Gate, Aster, HTX, Bitfinex, Deribit, Coinbase and Bitstamp, in one search, to chart and to keep in a watchlist, live from the exchange's own feed. The DOM, the tape and footprints are on the first seven. The server does not watch the last seven yet, so a price alert on one of them fires only while tradoor is open in a browser, and the journal does not settle trades on them.
+Every market on Binance, Bybit, OKX, Bitget, Kraken, Hyperliquid, Lighter, Gate, Aster, HTX, Bitfinex, Deribit, Coinbase and Bitstamp, in one search, to chart, to keep in a watchlist and to set an alert on, live from the exchange's own feed, with a DOM, a tape and footprints on every one. The journal does not settle trades on the last seven yet, and the server's flow panel and recorded footprints stay with the first few.
 
 ### Indicators
 
@@ -104,7 +104,7 @@ Search for an indicator or pick one from its group. A click adds it with its usu
   <img src="docs/screenshots/tape.webp" alt="The tape for BTCUSDT: each trade's time, price and size in dollars, buys in green and sells in red, the big ones lit" width="53%">
 </p>
 
-The DOM is the order book by price on Binance, Bybit, OKX, Bitget, Kraken, Hyperliquid and Lighter: the bids and asks, the market sells and buys that traded at each price, a volume profile, and what was pulled from a level or stacked onto it beyond what trades took. A row is a tick or many, sizes are in coins or dollars, and the size filter judges whole orders, not single fills. Clear the profile, the trades or Pull/Stack, all of it or only above or below a row, or let each start again on the clock. The tape prints every trade as it lands, lights the big ones, and holds still under the pointer. Both read the exchange's own socket from the browser. In the workspace they only read; in Training the DOM trades on paper.
+The DOM is the order book by price on all fourteen exchanges: the bids and asks, the market sells and buys that traded at each price, a volume profile, and what was pulled from a level or stacked onto it beyond what trades took. A row is a tick or many, sizes are in coins or dollars, and the size filter judges whole orders, not single fills. Clear the profile, the trades or Pull/Stack, all of it or only above or below a row, or let each start again on the clock. The tape prints every trade as it lands, lights the big ones, and holds still under the pointer. Both read the exchange's own socket from the browser. In the workspace they only read; in Training the DOM trades on paper.
 
 ### Market profile
 
@@ -226,7 +226,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 
 #### Order flow
 
-- A DOM on seven exchanges: bids, asks, sold, bought, a volume profile and Pull/Stack at every price
+- A DOM on fourteen exchanges: bids, asks, sold, bought, a volume profile and Pull/Stack at every price
 - Rows of a tick or many, coins or dollars, a size filter that judges whole orders
 - Clear all of it or one part, above or below a row, or on the clock
 - A tape of every trade, the big ones lit

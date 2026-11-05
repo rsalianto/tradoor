@@ -668,7 +668,10 @@ The newest exchanges' sockets and loaders (Gate, Aster, HTX, Bitfinex, Deribit,
 Coinbase, Bitstamp: `engine/venue-pack.ts`) would so be in every visitor's worker, so they
 are built apart with `?worker&url` into one file that imports nothing back, and
 fetched with the first market on one of them. It hands itself over on
-`globalThis`, as a build of that kind keeps no exports.
+`globalThis`, as a build of that kind keeps no exports. Their trades and books
+are in `engine/orderflow-venues.ts`, on the page, an ordinary lazy import: a chart
+loads `orderflow-streams` for footprints, so they would otherwise be in the first
+download too.
 `?debug` shows, under every chart, what its engine holds, and which worker
 answers a ping, since when, and with how many charts.
 
