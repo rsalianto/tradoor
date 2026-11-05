@@ -52,7 +52,7 @@
 
 **📊 Order flow and market profile.** A DOM and a tape on seven exchanges, TPO profiles by session, footprints with bid and ask at every price, value areas, and a Values panel that reads a market at a glance.
 
-**🔥 Live from the source.** Exchange streams straight to the browser: trades fold into the forming bar, order books fill the DOM, liquidations land from twelve exchanges, and net taker flow is counted per venue.
+**🔥 Live from the source.** Exchange streams straight to the browser: trades fold into the forming bar, order books fill the DOM, liquidations land from eleven exchanges, and net taker flow is counted per venue.
 
 **📓 Journal and training.** Every position you draw becomes a trade that price settles, and a paper account trades Binance's perpetuals at their live prices, from the chart or the DOM.
 
@@ -133,7 +133,7 @@ Pick any bar and everything after it is hidden, then play the market forward fro
   <sub>BTCUSDT's liquidations on every exchange, as totals and as a tape.</sub>
 </p>
 
-One ticker's liquidations from twelve exchanges as they land: a tape with each one's venue, side, price and size, totals over the last hour to day, and a feed riding up the chart above the volume.
+One ticker's liquidations from eleven exchanges as they land: a tape with each one's venue, side, price and size, totals over the last hour to day, and a feed riding up the chart above the volume.
 
 ### Signals
 

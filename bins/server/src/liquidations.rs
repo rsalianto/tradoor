@@ -105,7 +105,7 @@ const fn secs(s: u64) -> Duration {
 /// follows, and Deribit and Kraken, whose trade feeds mark them. Hyperliquid
 /// publishes none. Where a feed carries every market, the hits are matched to
 /// the followed tickers by coin.
-pub const VENUES: [Venue; 12] = [
+pub const VENUES: [Venue; 11] = [
     // Binance pings every three minutes and drops a socket after a day.
     venue("binance-perp", "wss://fstream.binance.com/market/ws", binance_subscribe, parse_binance_venue),
     // Bybit closes a socket that has not pinged in twenty seconds.
@@ -114,7 +114,6 @@ pub const VENUES: [Venue; 12] = [
     Venue { ping: Some((|| "ping".into(), secs(25))), silence: secs(90), ..venue("bitget-perp", "wss://ws.bitget.com/v3/ws/public", bitget_subscribe, parse_bitget) },
     Venue { ping: Some((gate_ping, secs(18))), silence: secs(60), prepare: Prepare::GateSizes, ..venue("gate-perp", "wss://fx-ws.gateio.ws/v4/ws/usdt", gate_subscribe, parse_gate) },
     Venue { reply: htx_reply, silence: secs(60), gzip: true, ..venue("htx-perp", "wss://api.hbdm.com/linear-swap-notification", htx_subscribe, parse_htx) },
-    Venue { ping: Some((|| "ping".into(), secs(20))), silence: secs(90), ..venue("bitmex-perp", "wss://www.bitmex.com/realtime", bitmex_subscribe, parse_bitmex) },
     venue("bitfinex-perp", "wss://api-pub.bitfinex.com/ws/2", bitfinex_subscribe, parse_bitfinex),
     Venue { ping: Some((|| r#"{"type":"ping"}"#.into(), secs(30))), silence: secs(120), prepare: Prepare::LighterMarkets, ..venue("lighter-perp", "wss://mainnet.zklighter.elliot.ai/stream", lighter_subscribe, parse_lighter) },
     venue("aster-perp", "wss://fstream.asterdex.com/ws", binance_subscribe, parse_aster),
@@ -164,11 +163,6 @@ fn htx_subscribe(tickers: &[String], _: &Lookup) -> Vec<String> {
 fn htx_reply(text: &str) -> Option<String> {
     let v: Value = serde_json::from_str(text).ok()?;
     (v["op"] == "ping").then(|| json!({ "op": "pong", "ts": v["ts"] }).to_string())
-}
-
-/// BitMEX's liquidation table covers every instrument.
-fn bitmex_subscribe(_: &[String], _: &Lookup) -> Vec<String> {
-    vec![json!({ "op": "subscribe", "args": ["liquidation"] }).to_string()]
 }
 
 fn bitfinex_subscribe(_: &[String], _: &Lookup) -> Vec<String> {
@@ -347,26 +341,6 @@ pub fn parse_htx(text: &str, _: &Lookup) -> Vec<Hit> {
     let v = json(text);
     let Some(coin) = v["topic"].as_str().and_then(|t| t.strip_prefix("public.")).and_then(|t| t.strip_suffix("-USDT.liquidation_orders")) else { return Vec::new() };
     v["data"].as_array().into_iter().flatten().filter_map(|d| hit("htx-perp", coin, int(&d["created_at"]), num(&d["price"]), num(&d["amount"]), d["direction"] == "sell")).collect()
-}
-
-/// BitMEX's liquidation table. XBTUSD is inverse — a contract is a dollar — so
-/// its size is converted to coins; the other contracts are left out. It sends
-/// no time, so the hit is stamped on arrival.
-pub fn parse_bitmex(text: &str, _: &Lookup) -> Vec<Hit> {
-    let v = json(text);
-    if v["table"] != "liquidation" || v["action"] != "insert" {
-        return Vec::new();
-    }
-    v["data"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|d| d["symbol"] == "XBTUSD")
-        .filter_map(|d| {
-            let price = num(&d["price"])?;
-            hit("bitmex-perp", "BTC", Some(now_ms()), Some(price), num(&d["leavesQty"]).map(|usd| usd / price), d["side"] == "Sell")
-        })
-        .collect()
 }
 
 /// Bitfinex's global liquidation feed: `[chan, ["pos", id, mts, _, symbol,
@@ -960,14 +934,6 @@ mod tests {
         // Shape from HTX's documentation.
         let hits = parse_htx(r#"{"op":"notify","topic":"public.BTC-USDT.liquidation_orders","ts":1790141909985,"data":[{"contract_code":"BTC-USDT","symbol":"BTC","direction":"sell","offset":"close","volume":12,"amount":0.012,"trade_turnover":1041.6,"price":86800,"created_at":1790141909000}]}"#, &Lookup::default());
         assert_eq!(hits, [Hit { venue: "htx-perp", symbol: "BTC".into(), time: 1790141909000, price: 86800.0, qty: 0.012, long: true }]);
-    }
-
-    #[test]
-    fn bitmex_counts_dollars_on_the_inverse_contract() {
-        let hits = parse_bitmex(r#"{"table":"liquidation","action":"insert","data":[{"orderID":"a","symbol":"XBTUSD","side":"Buy","price":86800,"leavesQty":8680},{"orderID":"b","symbol":"ETHUSD","side":"Sell","price":2700,"leavesQty":5}]}"#, &Lookup::default());
-        assert_eq!(hits.len(), 1, "only the inverse bitcoin contract");
-        assert_eq!((hits[0].symbol.as_str(), hits[0].qty, hits[0].long), ("BTC", 0.1, false));
-        assert!(parse_bitmex(r#"{"table":"liquidation","action":"partial","data":[]}"#, &Lookup::default()).is_empty());
     }
 
     #[test]

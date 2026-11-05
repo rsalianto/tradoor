@@ -5,7 +5,7 @@
  */
 import type { ExchangeId } from './exchanges';
 
-export const MARK_ORDER: readonly ExchangeId[] = ['binance', 'bybit', 'okx', 'bitget', 'gate', 'htx', 'bitmex', 'bitfinex', 'aster', 'lighter', 'kraken', 'deribit', 'hyperliquid'];
+export const MARK_ORDER: readonly ExchangeId[] = ['binance', 'bybit', 'okx', 'bitget', 'gate', 'htx', 'bitfinex', 'aster', 'lighter', 'kraken', 'deribit', 'hyperliquid'];
 
 /** The engine's number for the exchange behind `binance-perp` and the like. */
 export const markIndex = (venue: string): number => Math.max(0, MARK_ORDER.indexOf(venue.split('-')[0] as ExchangeId));

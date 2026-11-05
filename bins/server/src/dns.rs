@@ -18,7 +18,7 @@ use tokio_tungstenite::tungstenite::http::Uri;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// Names under these are looked up over HTTPS.
-const EXCHANGE_DOMAINS: [&str; 14] = [
+const EXCHANGE_DOMAINS: [&str; 13] = [
     "binance.com",
     "binance.vision",
     "bybit.com",
@@ -30,7 +30,6 @@ const EXCHANGE_DOMAINS: [&str; 14] = [
     "deribit.com",
     "gateio.ws",
     "hbdm.com",
-    "bitmex.com",
     "bitfinex.com",
     "asterdex.com",
 ];

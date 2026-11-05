@@ -8,7 +8,7 @@ import { Dynamic, For } from 'solid-js/web';
 import { MARKS, type ExchangeMark } from './exchange-marks';
 import { parseMarket, ratioLegs, venueLabel, type Venue } from './markets';
 
-export type ExchangeId = 'binance' | 'bybit' | 'okx' | 'bitget' | 'hyperliquid' | 'kraken' | 'lighter' | 'index' | 'gate' | 'htx' | 'bitmex' | 'bitfinex' | 'aster' | 'deribit';
+export type ExchangeId = 'binance' | 'bybit' | 'okx' | 'bitget' | 'hyperliquid' | 'kraken' | 'lighter' | 'index' | 'gate' | 'htx' | 'bitfinex' | 'aster' | 'deribit';
 
 interface LogoProps {
   size?: number;
@@ -54,7 +54,6 @@ export const EXCHANGES: Record<ExchangeId, ExchangeDef> = {
   index: { id: 'index', name: 'Index', live: true, Logo: logo('index') },
   gate: { id: 'gate', name: 'Gate', live: false, Logo: logo('gate') },
   htx: { id: 'htx', name: 'HTX', live: false, Logo: logo('htx') },
-  bitmex: { id: 'bitmex', name: 'BitMEX', live: false, Logo: logo('bitmex') },
   bitfinex: { id: 'bitfinex', name: 'Bitfinex', live: false, Logo: logo('bitfinex') },
   aster: { id: 'aster', name: 'Aster', live: false, Logo: logo('aster') },
   deribit: { id: 'deribit', name: 'Deribit', live: false, Logo: logo('deribit') },
