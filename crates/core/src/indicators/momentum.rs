@@ -1,5 +1,6 @@
 //! RSI, Stochastic RSI, MACD — Pine Script definitions.
 
+use crate::num::Within;
 use super::series::{change, combine, ema, highest, lowest, rma, sma};
 use super::Series;
 
@@ -41,7 +42,7 @@ pub fn stoch_rsi(src: &[Option<f64>], rsi_len: usize, stoch_len: usize, smooth_k
         .collect();
     // Bounded 0..100 by definition; residual float error is clamped so it cannot
     // cross a threshold it mathematically cannot reach.
-    let clamp = |s: Series| -> Series { s.into_iter().map(|v| v.map(|v| v.clamp(0.0, 100.0))).collect() };
+    let clamp = |s: Series| -> Series { s.into_iter().map(|v| v.map(|v| v.within(0.0, 100.0))).collect() };
     let k = clamp(sma(&raw, smooth_k));
     let d = clamp(sma(&k, smooth_d));
     StochRsi { raw, k, d }

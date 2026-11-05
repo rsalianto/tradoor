@@ -4,6 +4,8 @@
 //! by interpolating over the candle times, which is what keeps a line drawn
 //! across a weekend touching the same two wicks — a fixed bar duration cannot.
 
+use tradoor_core::num::Within;
+
 pub type Pt = (f32, f32);
 
 /// Where `time` sits on the logical axis. Past either end the nearest gap is
@@ -63,7 +65,7 @@ pub fn distance_to_segment(p: Pt, a: Pt, b: Pt) -> f32 {
     if len_sq == 0.0 {
         return (p.0 - a.0).hypot(p.1 - a.1);
     }
-    let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len_sq).clamp(0.0, 1.0);
+    let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len_sq).within(0.0, 1.0);
     (p.0 - (a.0 + t * dx)).hypot(p.1 - (a.1 + t * dy))
 }
 

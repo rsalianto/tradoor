@@ -1,11 +1,12 @@
 //! The chart: data, view, interaction, and the frame that draws them.
 
-use std::collections::{BTreeMap, BTreeSet};
 
-use tradoor_core::chart::{engine_series, EngineSeries};
+use tradoor_core::num::Within;
+use tradoor_core::chart::{engine_series_with, EngineSeries};
 use tradoor_core::format::{format_compact, format_countdown, format_price, format_turnover, price_precision};
 use tradoor_core::live::LiveBar;
-use tradoor_core::studies::{compute_study_with, idle_study, open_interest_live, parse_studies, ComputedStudy, Group, LineStyle, LineType, StudyInputs, StudyKind, StudySpec, Tone};
+use tradoor_core::indicators::profile::value_area;
+use tradoor_core::studies::{anchor_period, compute_study_with, idle_study, open_interest_live, parse_studies, ComputedStudy, Group, LineStyle, LineType, StudyFill, StudyInputs, StudyKind, StudySpec, Tone};
 use tradoor_core::time::DAY;
 use tradoor_core::{Candle, ChartTimeframe, Interval};
 use tradoor_core::timeframe::Source;
@@ -202,9 +203,87 @@ pub struct StudyMeta {
     pub label: String,
     pub group: &'static str,
     pub hidden: bool,
-    /// `(studyId:lineKey, label, colour)`.
-    pub lines: Vec<(String, String, Color)>,
+    /// `(studyId:lineKey, label, colour, width)` as they draw now, the reader's
+    /// style applied. A width of 0 is not stroked: it only carries values for
+    /// the legend and the axis.
+    pub lines: Vec<(String, String, Color, f32)>,
     pub stats: Vec<(String, String)>,
+}
+
+/// Volume by price over the bars on screen.
+struct VisibleProfile {
+    low: f64,
+    step: f64,
+    up: Vec<f64>,
+    down: Vec<f64>,
+    total: Vec<f64>,
+    poc: usize,
+    /// The rows holding the value area, lowest and highest.
+    area: (usize, usize),
+}
+
+impl VisibleProfile {
+    /// The middle of the point of control's row, or an edge of the value area.
+    fn level(&self, key: &str) -> Option<f64> {
+        match key {
+            "poc" => Some(self.low + self.step * (self.poc as f64 + 0.5)),
+            "vah" => Some(self.low + self.step * (self.area.1 + 1) as f64),
+            "val" => Some(self.low + self.step * self.area.0 as f64),
+            _ => None,
+        }
+    }
+}
+
+/// What the reader changed of how a study or layer draws, per chart: a plot's
+/// colour, width and whether it shows, and the numbers a layer takes.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Styles(Vec<(String, String, PlotStyle)>);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct PlotStyle {
+    color: Option<Color>,
+    width: Option<f32>,
+    off: bool,
+    number: Option<f64>,
+}
+
+impl Styles {
+    /// `owner/plot=colour,width,off` or `owner/plot=number`, by `;`. What does
+    /// not read is left at its default: a setting from a newer page must not
+    /// break an older engine.
+    fn parse(raw: &str) -> Self {
+        let mut out = Vec::new();
+        for record in raw.split(';') {
+            let Some((owner, value)) = record.split_once('=') else { continue };
+            let Some((owner, plot)) = owner.split_once('/') else { continue };
+            let mut parts = value.split(',');
+            let first = parts.next().unwrap_or_default();
+            let style = match parts.next() {
+                Some(width) => PlotStyle { color: Color::parse(first), width: tradoor_core::format::parse_number(width).map(|w| w as f32).filter(|w| (0.5..=8.0).contains(w)), off: parts.next() == Some("1"), number: None },
+                None => PlotStyle { number: tradoor_core::format::parse_number(first).filter(|n| n.is_finite()), ..PlotStyle::default() },
+            };
+            out.push((owner.to_string(), plot.to_string(), style));
+        }
+        Self(out)
+    }
+
+    fn of(&self, owner: &str, plot: &str) -> PlotStyle {
+        self.0.iter().find(|(o, p, _)| o == owner && p == plot).map_or_else(PlotStyle::default, |e| e.2)
+    }
+
+    fn color(&self, owner: &str, plot: &str, default: Color) -> Color {
+        self.of(owner, plot).color.unwrap_or(default)
+    }
+
+    fn number(&self, owner: &str, key: &str, default: f64) -> f64 {
+        self.of(owner, key).number.unwrap_or(default)
+    }
+
+    /// The ribbon's fast and slow lengths, and the long average's.
+    fn lengths(&self) -> (usize, usize, usize) {
+        let length = |owner, key, default| self.number(owner, key, default).within(2.0, 1000.0) as usize;
+        (length("ribbon", "fast", 12.0), length("ribbon", "slow", 25.0), length("ema200", "length", 200.0))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -221,6 +300,63 @@ impl PaneState {
             Group::Price => Self { weight: 3.0, auto: true, margins: (0.2, 0.1), manual: None },
             _ => Self { weight: 1.0, auto: true, margins: (0.08, 0.08), manual: None },
         }
+    }
+}
+
+/// Each pane's state. A short list rather than a tree map, as a tree weighs
+/// several kB of wasm for each type it holds.
+#[derive(Clone, Debug, Default)]
+struct PaneStates(Vec<(Group, PaneState)>);
+
+impl PaneStates {
+    fn get(&self, group: &Group) -> Option<&PaneState> {
+        self.0.iter().find(|e| e.0 == *group).map(|e| &e.1)
+    }
+
+    fn get_mut(&mut self, group: &Group) -> Option<&mut PaneState> {
+        self.0.iter_mut().find(|e| e.0 == *group).map(|e| &mut e.1)
+    }
+
+    /// The group's, made with its defaults if it has none.
+    fn entry(&mut self, group: Group) -> &mut PaneState {
+        let at = self.0.iter().position(|e| e.0 == group).unwrap_or_else(|| {
+            self.0.push((group, PaneState::default_for(group)));
+            self.0.len() - 1
+        });
+        &mut self.0[at].1
+    }
+
+    fn insert(&mut self, group: Group, state: PaneState) {
+        *self.entry(group) = state;
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = (&Group, &mut PaneState)> {
+        self.0.iter_mut().map(|e| (&e.0, &mut e.1))
+    }
+
+    fn values_mut(&mut self) -> impl Iterator<Item = &mut PaneState> {
+        self.0.iter_mut().map(|e| &mut e.1)
+    }
+
+    fn values(&self) -> impl Iterator<Item = &PaneState> {
+        self.0.iter().map(|e| &e.1)
+    }
+}
+
+impl std::ops::Index<&Group> for PaneStates {
+    type Output = PaneState;
+    fn index(&self, group: &Group) -> &PaneState {
+        self.get(group).expect("every pane has a state")
+    }
+}
+
+/// Hidden layer and study ids: a handful.
+#[derive(Clone, Debug, Default)]
+struct Hidden(Vec<String>);
+
+impl Hidden {
+    fn contains(&self, id: &str) -> bool {
+        self.0.iter().any(|h| h == id)
     }
 }
 
@@ -346,14 +482,18 @@ pub struct Chart {
     engine: EngineSeries,
     ribbon: Vec<RibbonRun>,
     study_specs: Vec<StudySpec>,
+    styles: Styles,
+    /// The visible profile's point of control and value area edges as last drawn,
+    /// for the legend: working the rows out twice a frame is a waste.
+    profile_levels: std::cell::Cell<Option<[Option<f64>; 3]>>,
     /// Summed open interest from the server, as `(time, [o, h, l, c])` steps.
     open_interest: Vec<(i64, [f64; 4])>,
     studies: Vec<ComputedStudy>,
-    hidden: BTreeSet<String>,
+    hidden: Hidden,
     log_scale: bool,
     time: TimeScale,
     view_ready: bool,
-    pane_state: BTreeMap<Group, PaneState>,
+    pane_state: PaneStates,
     panes: Vec<PaneView>,
     axis_width: f32,
     crosshair: Option<(f32, f32)>,
@@ -427,17 +567,19 @@ impl Chart {
             footprint_table_row: footprint::TABLE_ROW,
             precision: 2,
             precision_override: None,
-            engine: engine_series(&[]),
+            engine: engine_series_with(&[], Styles::default().lengths()),
             ribbon: Vec::new(),
             study_specs: Vec::new(),
+            styles: Styles::default(),
+            profile_levels: std::cell::Cell::new(None),
             days: Vec::new(),
             open_interest: Vec::new(),
             studies: Vec::new(),
-            hidden: BTreeSet::new(),
+            hidden: Hidden::default(),
             log_scale: false,
             time: TimeScale::new(),
             view_ready: false,
-            pane_state: BTreeMap::new(),
+            pane_state: PaneStates::default(),
             panes: Vec::new(),
             axis_width: MIN_AXIS_WIDTH,
             crosshair: None,
@@ -554,14 +696,33 @@ impl Chart {
             self.history_asked = None;
         }
         self.precision = price_precision(self.candles.iter().rev().take(2000).flat_map(|c| [c.open, c.high, c.low, c.close]));
-        self.engine = engine_series(&self.candles);
-        self.ribbon = ribbon_runs(&self.engine.ema12, &self.engine.ema25);
+        self.refresh_engine();
         self.studies = self.compute_studies(&self.study_specs);
         if self.candles.is_empty() {
             self.view_ready = false;
             // Another market on its way: the last one's footprint is not its.
             self.footprint.clear();
         }
+        self.touch();
+    }
+
+    fn refresh_engine(&mut self) {
+        self.engine = engine_series_with(&self.candles, self.styles.lengths());
+        self.ribbon = ribbon_runs(&self.engine.ema12, &self.engine.ema25);
+    }
+
+    /// How the reader has the studies and layers drawn; see `Styles::parse`.
+    pub fn set_styles(&mut self, raw: &str) {
+        let styles = Styles::parse(raw);
+        if styles == self.styles {
+            return;
+        }
+        let lengths = styles.lengths() != self.styles.lengths();
+        self.styles = styles;
+        if lengths {
+            self.refresh_engine();
+        }
+        self.feed_dirty = true;
         self.touch();
     }
 
@@ -687,7 +848,7 @@ impl Chart {
 
     /// Hidden layer ids: `ribbon`, `ema200`, `volume`, or a study id.
     pub fn set_hidden(&mut self, raw: &str) {
-        let was = std::mem::replace(&mut self.hidden, raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect());
+        let was = std::mem::replace(&mut self.hidden, Hidden(raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()));
         // A study shown again is worked out now; one hidden lets its figures go.
         let inputs = StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days };
         for (spec, study) in self.study_specs.iter().zip(self.studies.iter_mut()) {
@@ -849,7 +1010,7 @@ impl Chart {
             stats: on(parts.next()),
             profile: on(parts.next()),
         };
-        let row = parts.next().and_then(|v| v.parse().ok()).map_or(footprint::TABLE_ROW, footprint::table_row);
+        let row = parts.next().and_then(tradoor_core::format::parse_number).map_or(footprint::TABLE_ROW, |v| footprint::table_row(v as f32));
         if self.footprint_options != options || self.footprint_table_row != row {
             self.footprint_options = options;
             self.footprint_table_row = row;
@@ -902,6 +1063,10 @@ impl Chart {
     }
 
     /// The flow mark under (x, y), and where it sits — for the page's label.
+    fn flow_style(&self, mark: &FlowMark) -> PlotStyle {
+        self.styles.of("flow", if mark.usd > 0.0 { "bought" } else { "sold" })
+    }
+
     pub fn flow_at(&self, x: f32, y: f32) -> Option<(usize, f32, f32)> {
         if !self.flow_shown() {
             return None;
@@ -913,6 +1078,7 @@ impl Chart {
         self.flow
             .iter()
             .enumerate()
+            .filter(|(_, mark)| !self.flow_style(mark).off)
             .filter_map(|(i, mark)| {
                 let (mx, my) = self.flow_xy(mark, pane)?;
                 let reach = self.flow_radius(mark) + 5.0;
@@ -933,7 +1099,7 @@ impl Chart {
     /// reason — a minute ten times the threshold is not ten times the circle.
     fn flow_radius(&self, mark: &FlowMark) -> f32 {
         let biggest = self.flow.iter().map(|m| m.usd.abs()).fold(1.0, f64::max);
-        let share = (mark.usd.abs() / biggest).clamp(0.0, 1.0) as f32;
+        let share = (mark.usd.abs() / biggest).within(0.0, 1.0) as f32;
         FLOW_MIN_RADIUS + (FLOW_MAX_RADIUS - FLOW_MIN_RADIUS) * share.sqrt()
     }
 
@@ -1031,18 +1197,19 @@ impl Chart {
                 "pct" => Group::Pct,
                 "macd" => Group::Macd,
                 "atr" => Group::Atr,
+                "delta" => Group::Delta,
                 "oi" => Group::Oi,
                 _ => continue,
             };
-            if let Ok(w) = weight.trim().parse::<f64>() {
-                self.pane_state.entry(group).or_insert_with(|| PaneState::default_for(group)).weight = w.clamp(0.1, 50.0);
+            if let Some(w) = tradoor_core::format::parse_number(weight.trim()) {
+                self.pane_state.entry(group).weight = w.within(0.1, 50.0);
             }
         }
         self.touch();
     }
 
     pub fn pane_weights(&self) -> String {
-        self.panes.iter().map(|p| format!("{}:{:.3}", p.group.as_str(), self.weight(p.group))).collect::<Vec<_>>().join(",")
+        self.panes.iter().map(|p| format!("{}:{}", p.group.as_str(), tradoor_core::format::fixed(self.weight(p.group), 3))).collect::<Vec<_>>().join(",")
     }
 
     pub fn set_drawings(&mut self, shapes: Vec<DrawingShape>) {
@@ -1243,7 +1410,7 @@ impl Chart {
             }
         }
         for g in &groups {
-            self.pane_state.entry(*g).or_insert_with(|| PaneState::default_for(*g));
+            self.pane_state.entry(*g);
         }
 
         let p = self.precision();
@@ -1385,8 +1552,8 @@ impl Chart {
             return (0, 0);
         }
         let (from, to) = self.time.visible();
-        let i0 = (from.floor() - extra).clamp(0.0, (n - 1) as f64) as usize;
-        let i1 = (to.ceil() + extra).clamp(0.0, (n - 1) as f64) as usize;
+        let i0 = (from.floor() - extra).within(0.0, (n - 1) as f64) as usize;
+        let i1 = (to.ceil() + extra).within(0.0, (n - 1) as f64) as usize;
         (i0, i1)
     }
 
@@ -1427,7 +1594,7 @@ impl Chart {
             }
         }
         for (_, study) in self.visible_studies().filter(|(_, s)| s.group == group) {
-            for line in &study.lines {
+            for line in study.lines.iter().filter(|l| !self.styles.of(&study.id, l.key).off) {
                 series(&line.values, &mut take);
                 if line.kind == LineType::Histogram {
                     take(0.0);
@@ -1501,11 +1668,13 @@ impl Chart {
         let foot = price.plot.bottom() - 4.0;
         // The newest hit pushes the whole stack up as it arrives, rather
         // than snapping a row taller between one frame and the next.
-        let shift = match self.liquidations.last() {
+        let smallest = self.styles.number("liquidations", "min", 0.0);
+        let shift = match self.liquidations.iter().rfind(|l| l.usd >= smallest) {
             Some(l) if now - l.at < LIQUIDATION_ENTER => row * (1.0 - (now - l.at).max(0) as f32 / LIQUIDATION_ENTER as f32),
             _ => 0.0,
         };
-        for (slot, l) in self.liquidations.iter().rev().take(LIQUIDATION_ROWS).enumerate() {
+        let (long, short) = (self.styles.color("liquidations", "long", t.bear), self.styles.color("liquidations", "short", t.bull));
+        for (slot, l) in self.liquidations.iter().rev().filter(|l| l.usd >= smallest).take(LIQUIDATION_ROWS).enumerate() {
             let age = (now - l.at).max(0);
             if age >= LIQUIDATION_TTL {
                 break;
@@ -1516,16 +1685,16 @@ impl Chart {
             }
             // Full strength in the middle of its life: it arrives with the
             // stack and leaves by fading where it stands.
-            let fade = (age as f32 / LIQUIDATION_ENTER as f32).min((LIQUIDATION_TTL - age) as f32 / LIQUIDATION_FADE as f32).clamp(0.0, 1.0);
+            let fade = (age as f32 / LIQUIDATION_ENTER as f32).min((LIQUIDATION_TTL - age) as f32 / LIQUIDATION_FADE as f32).within(0.0, 1.0);
             // A long liquidated is forced selling, so it takes the bear colour.
-            let base = if l.long { t.bear } else { t.bull };
+            let base = if l.long { long } else { short };
             let alpha = (40.0 + 200.0 * fade) as u8;
             let text = format!("{} ${}", if l.long { "LONG" } else { "SHORT" }, format_turnover(l.usd));
             let width = mark + 4.0 + text.len() as f32 * glyph;
             let left = (plot_w - width - 8.0).max(0.0);
             f.rect(left - 4.0, y - row + 1.0, width + 8.0, row - 1.0, t.background.with_alpha((190.0 * fade) as u8));
             f.icon(left + mark / 2.0, y - row / 2.0, mark, alpha, l.mark, Some(price.plot));
-            f.text(left + mark + 4.0, y - row / 2.0, text, base.with_alpha(alpha), Align::Left, Baseline::Middle, size, None, Some(price.plot));
+            f.text(left + mark + 4.0, y - row / 2.0, text, base.faded(alpha), Align::Left, Baseline::Middle, size, None, Some(price.plot));
         }
     }
 
@@ -1553,7 +1722,7 @@ impl Chart {
         };
         let bars: Vec<Candle> = (0..self.total_bars())
             .filter_map(|i| self.bar(i))
-            .map(|b| Candle { open_time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, quote_volume: None })
+            .map(|b| Candle { open_time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, quote_volume: None, taker_buy: None })
             .collect();
         if self.tpo_profiles.as_ref().is_some_and(|p| p.fresh(period, &bars, &self.footprint, &self.tpo_settings, &self.tpo_edits)) {
             return;
@@ -1603,8 +1772,8 @@ impl Chart {
         }
     }
 
-    fn line_color(&self, line: &tradoor_core::studies::StudyLine, study_index: usize, line_index: usize) -> Color {
-        line.color.and_then(Color::parse).unwrap_or(self.theme.study_palette[(study_index + line_index) % self.theme.study_palette.len()])
+    fn line_color(&self, owner: &str, line: &tradoor_core::studies::StudyLine, study_index: usize, line_index: usize) -> Color {
+        self.styles.of(owner, line.key).color.or_else(|| line.color.and_then(Color::parse)).unwrap_or(self.theme.study_palette[(study_index + line_index) % self.theme.study_palette.len()])
     }
 
     fn paint(&self, f: &mut Frame, now: i64) {
@@ -1617,11 +1786,12 @@ impl Chart {
         let avail = self.time_axis_top();
 
         // ---- guides under everything in the lower panes
-        for pane in self.panes.iter().filter(|p| p.group == Group::Pct) {
+        let guides = self.styles.of("pct", "guides");
+        for pane in self.panes.iter().filter(|p| p.group == Group::Pct && !guides.off) {
             f.clip(Some(pane.plot));
-            for level in [20.0, 80.0] {
+            for level in [self.styles.number("pct", "lower", 20.0), self.styles.number("pct", "upper", 80.0)] {
                 let y = pane.scale.y(level) as f32;
-                f.dashed_line(0.0, y, plot_w, y, 1.0, t.border, 4.0, 4.0);
+                f.dashed_line(0.0, y, plot_w, y, guides.width.unwrap_or(1.0), guides.color.unwrap_or(t.border), 4.0, 4.0);
             }
         }
 
@@ -1632,15 +1802,16 @@ impl Chart {
         let foot = !tpo && self.footprint_drawn();
         let mut tpo_tags = Vec::new();
         if let (true, Some(profiles)) = (tpo, self.tpo_profiles.as_ref()) {
-            let bars: Vec<Candle> = (0..n).filter_map(|i| self.bar(i)).map(|b| Candle { open_time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, quote_volume: None }).collect();
+            let bars: Vec<Candle> = (0..n).filter_map(|i| self.bar(i)).map(|b| Candle { open_time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume, quote_volume: None, taker_buy: None }).collect();
             let edge_x = |e: f64| self.time.edge_x(e) as f32;
             let y = |p: f64| price.scale.y(p) as f32;
             let hovered = self.tpo_hovered().filter(|_| self.tool.is_none() && matches!(self.drag, Drag::None)).map(|(k, _)| k);
             let view = tpo::View { plot: price.plot, column: self.time.bar_spacing as f32, char_width: self.char_width, theme: t, edge_x: &edge_x, y: &y, bars: &bars, hovered };
             tpo_tags = tpo::paint(f, &view, profiles, &self.tpo_settings);
         }
+        let ribbon_style = |bullish: bool| self.styles.of("ribbon", if bullish { "bull" } else { "bear" });
         if !tpo && !foot && !self.hidden.contains("ribbon") {
-            for run in &self.ribbon {
+            for run in self.ribbon.iter().filter(|run| !ribbon_style(run.bullish).off) {
                 let pts = visible_slice(&run.points, from - 1.0, to + 1.0);
                 if pts.len() < 2 {
                     continue;
@@ -1648,7 +1819,7 @@ impl Chart {
                 let upper: Vec<(f32, f32)> = pts.iter().map(|p| (self.time.x(p.logical) as f32, price.scale.y(p.fast) as f32)).collect();
                 let lower: Vec<(f32, f32)> = pts.iter().map(|p| (self.time.x(p.logical) as f32, price.scale.y(p.slow) as f32)).collect();
                 let color = if run.bullish { t.ribbon_fast } else { t.ribbon_slow };
-                f.band(&upper, &lower, color.with_alpha(t.ribbon_fill_alpha));
+                f.band(&upper, &lower, ribbon_style(run.bullish).color.unwrap_or(color.with_alpha(t.ribbon_fill_alpha)));
             }
         }
         let dpr = f.dpr;
@@ -1657,13 +1828,15 @@ impl Chart {
         if !tpo && !foot && !self.hidden.contains("volume") {
             let max_vol = (i0..=i1).filter_map(|i| self.bar(i)).map(|b| b.volume).fold(0.0, f64::max);
             if max_vol > 0.0 {
-                let (top, h) = (price.plot.y + price.plot.h * 0.82, price.plot.h * 0.18);
+                let share = self.styles.number("volume", "height", 18.0).within(5.0, 60.0) as f32 / 100.0;
+                let (top, h) = (price.plot.y + price.plot.h * (1.0 - share), price.plot.h * share);
+                let (up, down) = (self.styles.color("volume", "up", t.bull.with_alpha(t.volume_alpha)), self.styles.color("volume", "down", t.bear.with_alpha(t.volume_alpha)));
                 for i in i0..=i1 {
                     let Some(b) = self.bar(i) else { continue };
                     let y = top + h * (1.0 - (b.volume / max_vol) as f32);
-                    let base = if b.close >= b.open { t.bull } else { t.bear };
+                    let base = if b.close >= b.open { up } else { down };
                     let x = f.snap(self.time.x(i as f64) as f32);
-                    f.crisp_rect(x - body / 2.0, y, body, price.plot.bottom() - y, base.with_alpha(if b.live { 0x25 } else { t.volume_alpha }));
+                    f.crisp_rect(x - body / 2.0, y, body, price.plot.bottom() - y, if b.live { base.with_alpha(0x25) } else { base });
                 }
             }
         }
@@ -1722,52 +1895,72 @@ impl Chart {
             }
         }
         if !tpo && !foot && !self.hidden.contains("ema200") {
-            self.paint_series(f, &price.scale, &self.engine.ema200, i0, i1, t.ema200, 1.0, LineStyle::Solid);
+            let style = self.styles.of("ema200", "line");
+            self.paint_series(f, &price.scale, &self.engine.ema200, i0, i1, style.color.unwrap_or(t.ema200), style.width.unwrap_or(1.0), LineStyle::Solid);
         }
 
         // ---- studies, each in its pane
         for (index, study) in self.visible_studies() {
             let Some(pane) = self.panes.iter().find(|p| p.group == study.group) else { continue };
             f.clip(Some(pane.plot));
-            self.paint_study_candles(f, &pane.scale, &study.candles, i0, i1, body);
+            self.paint_study_candles(f, &pane.scale, &study.candles, i0, i1, body, &study.id);
+            // A line can run past the last bar: to what is on screen, not to the bars.
+            let far = (to.ceil() + 1.0).max(0.0) as usize;
+            for fill in &study.fills {
+                self.paint_fill(f, &pane.scale, study, fill, i0, far);
+            }
+            self.paint_boxes(f, &pane, study);
+            if study.kind == StudyKind::VisibleProfile {
+                self.paint_visible_profile(f, &pane, study);
+            }
             for (li, line) in study.lines.iter().enumerate() {
+                let own = self.styles.of(&study.id, line.key);
                 match (line.kind, line.style) {
-                    (LineType::Histogram, _) => self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body),
+                    _ if own.off => {}
+                    (LineType::Histogram, _) => self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body, &study.id),
                     (LineType::Line, LineStyle::None) => {}
-                    (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, i1, self.line_color(line, index, li), line.width, style),
+                    (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, far, self.line_color(&study.id, line, index, li), own.width.unwrap_or(line.width), style),
                 }
             }
             for seg in &study.segments {
+                let own = self.styles.of(&study.id, seg.key);
+                if own.off {
+                    continue;
+                }
                 let (Some(l0), Some(l1)) = (time_to_logical(&self.times, seg.from as f64), time_to_logical(&self.times, seg.to as f64)) else { continue };
                 let (x0, x1) = (self.time.x(l0) as f32, self.time.x(l1) as f32);
                 if x1 < 0.0 || x0 > plot_w {
                     continue;
                 }
                 let y = pane.scale.y(seg.price) as f32;
-                let color = Color::parse(seg.color).unwrap_or(t.text);
-                f.hline(x0, x1, y, 1.0, color);
+                let color = own.color.or_else(|| Color::parse(seg.color)).unwrap_or(t.text);
+                f.hline(x0, x1, y, own.width.unwrap_or(1.0), color);
                 f.text(x1 + 5.0, y - 3.0, seg.label, color, Align::Left, Baseline::Bottom, t.font_px - 1.0, None, Some(pane.plot));
             }
             for m in &study.markers {
+                let own = self.styles.of(&study.id, m.plot);
                 let Ok(i) = self.candles.binary_search_by_key(&m.time, |c| c.open_time) else { continue };
-                if i < i0 || i > i1 {
+                if own.off || i < i0 || i > i1 {
                     continue;
                 }
                 let c = &self.candles[i];
                 let x = self.time.x(i as f64) as f32;
-                let color = match m.tone {
+                let color = own.color.unwrap_or(match m.tone {
                     Tone::Bull => t.bull,
                     Tone::Bear => t.bear,
                     Tone::Neutral => t.text,
-                };
-                if m.above {
-                    let y = pane.scale.y(c.high) as f32 - 8.0;
-                    f.circle(x, y, 2.5, color);
-                    f.text(x, y - 5.0, m.text.clone(), color, Align::Center, Baseline::Bottom, t.font_px - 1.0, None, Some(pane.plot));
+                    Tone::Ink(ink) => Color::parse(ink).unwrap_or(t.text),
+                });
+                let radius = if m.text.is_empty() { 5.0 } else { 2.5 };
+                let y = if m.above { pane.scale.y(c.high) as f32 - 3.0 - 2.0 * radius } else { pane.scale.y(c.low) as f32 + 3.0 + 2.0 * radius };
+                if m.hollow {
+                    f.ring(x, y, radius, 1.5, color);
                 } else {
-                    let y = pane.scale.y(c.low) as f32 + 8.0;
-                    f.circle(x, y, 2.5, color);
-                    f.text(x, y + 5.0, m.text.clone(), color, Align::Center, Baseline::Top, t.font_px - 1.0, None, Some(pane.plot));
+                    f.circle(x, y, radius, color);
+                }
+                if !m.text.is_empty() {
+                    let (gap, baseline) = if m.above { (-5.0, Baseline::Bottom) } else { (5.0, Baseline::Top) };
+                    f.text(x, y + gap, m.text.clone(), color, Align::Center, baseline, t.font_px - 1.0, None, Some(pane.plot));
                 }
             }
         }
@@ -1780,9 +1973,13 @@ impl Chart {
                 if x < -FLOW_MAX_RADIUS || x > plot_w + FLOW_MAX_RADIUS {
                     continue;
                 }
-                let base = if mark.usd > 0.0 { t.bull } else { t.bear };
+                let own = self.flow_style(mark);
+                if own.off {
+                    continue;
+                }
+                let base = own.color.unwrap_or(if mark.usd > 0.0 { t.bull } else { t.bear });
                 let on = hovered == Some(i);
-                f.circle(x, y, self.flow_radius(mark), base.with_alpha(if on { 220 } else { 90 }));
+                f.circle(x, y, self.flow_radius(mark), base.faded(if on { 220 } else { 90 }));
                 if on {
                     f.ring(x, y, self.flow_radius(mark) + 2.0, 1.0, base);
                 }
@@ -1791,18 +1988,19 @@ impl Chart {
 
         // ---- ribbon crosses, last price, drawings
         f.clip(Some(price.plot));
-        if !tpo && !self.hidden.contains("ribbon") {
+        if !tpo && !self.hidden.contains("ribbon") && !self.styles.of("ribbon", "marks").off {
+            let (rising, falling) = (self.styles.color("ribbon", "bull", t.ribbon_fast).with_alpha(255), self.styles.color("ribbon", "bear", t.ribbon_slow).with_alpha(255));
             for cross in self.engine.crosses.iter().filter(|c| c.index >= i0 && c.index <= i1) {
                 let c = &self.candles[cross.index];
                 let x = self.time.x(cross.index as f64) as f32;
                 if cross.bull {
                     let tip = price.scale.y(c.low) as f32 + 6.0;
-                    f.triangle((x, tip), (x - 5.0, tip + 8.0), (x + 5.0, tip + 8.0), t.ribbon_fast);
-                    f.text(x, tip + 10.0, "Bull", t.ribbon_fast, Align::Center, Baseline::Top, t.font_px - 1.0, None, Some(price.plot));
+                    f.triangle((x, tip), (x - 5.0, tip + 8.0), (x + 5.0, tip + 8.0), rising);
+                    f.text(x, tip + 10.0, "Bull", rising, Align::Center, Baseline::Top, t.font_px - 1.0, None, Some(price.plot));
                 } else {
                     let tip = price.scale.y(c.high) as f32 - 6.0;
-                    f.triangle((x, tip), (x - 5.0, tip - 8.0), (x + 5.0, tip - 8.0), t.ribbon_slow);
-                    f.text(x, tip - 10.0, "Bear", t.ribbon_slow, Align::Center, Baseline::Bottom, t.font_px - 1.0, None, Some(price.plot));
+                    f.triangle((x, tip), (x - 5.0, tip - 8.0), (x + 5.0, tip - 8.0), falling);
+                    f.text(x, tip - 10.0, "Bear", falling, Align::Center, Baseline::Bottom, t.font_px - 1.0, None, Some(price.plot));
                 }
             }
         }
@@ -1894,24 +2092,26 @@ impl Chart {
         let last_value = |values: &[Option<f64>]| values.iter().rev().flatten().next().copied();
         if !self.hidden.contains("ema200") {
             if let Some(v) = last_value(&self.engine.ema200) {
-                badges.push(Badge { pane: 0, y: price.scale.y(v) as f32, text: format_price(v, Some(p)), bg: t.ema200, fg: t.ema200.contrast_text() });
+                let color = self.styles.color("ema200", "line", t.ema200);
+                badges.push(Badge { pane: 0, y: price.scale.y(v) as f32, text: format_price(v, Some(p)), bg: color, fg: color.contrast_text() });
             }
         }
         for (index, study) in self.visible_studies() {
             let Some(pane_index) = self.panes.iter().position(|pn| pn.group == study.group) else { continue };
             let pane = self.panes[pane_index];
-            for (li, line) in study.lines.iter().enumerate().filter(|(_, l)| l.kind == LineType::Line && l.badge) {
+            for (li, line) in study.lines.iter().enumerate().filter(|(_, l)| l.kind == LineType::Line && l.badge && !self.styles.of(&study.id, l.key).off) {
                 if let Some(v) = last_value(&line.values) {
                     // Candles take the colour of the last one, as the price badge does.
                     let color = match study.candles.iter().rev().flatten().next() {
-                        Some(b) => if b[3] >= b[0] { t.bull } else { t.bear },
-                        None => self.line_color(line, index, li),
+                        Some(b) if b[3] >= b[0] => self.styles.color(&study.id, "up", t.bull),
+                        Some(_) => self.styles.color(&study.id, "down", t.bear),
+                        None => self.line_color(&study.id, line, index, li),
                     };
                     badges.push(Badge { pane: pane_index, y: pane.scale.y(v) as f32, text: self.format_value(study.group, v), bg: color, fg: color.contrast_text() });
                 }
             }
         }
-        badges.sort_by(|a, b| a.pane.cmp(&b.pane).then(a.y.total_cmp(&b.y)));
+        tradoor_core::sort::insertion_sort_by(&mut badges, |a, b| (a.pane, a.y) < (b.pane, b.y));
         let mut previous: Option<(usize, f32)> = None;
         for badge in &mut badges {
             if let Some((pane, y)) = previous.filter(|(pane, _)| *pane == badge.pane) {
@@ -1931,7 +2131,7 @@ impl Chart {
                 Group::Pct => 2,
                 _ => ticks::step_decimals(&ticks).max(2),
             };
-            let label = |v: f64| if pane.group == Group::Oi { format_compact(v) } else { format_price(v, Some(decimals)) };
+            let label = |v: f64| if matches!(pane.group, Group::Oi | Group::Delta) { format_compact(v) } else { format_price(v, Some(decimals)) };
             for v in ticks {
                 let y = pane.scale.y(v) as f32;
                 let near_badge = badges.iter().any(|b| b.pane == pi && (b.y - y).abs() < badge_h);
@@ -2007,7 +2207,7 @@ impl Chart {
             f.text(x, avail + TIME_AXIS_HEIGHT / 2.0, label, t.text, Align::Center, Baseline::Middle, font, None, Some(time_axis));
         }
         if let Some((x, text, w)) = cross_label {
-            let left = (x - w / 2.0).clamp(0.0, (plot_w - w).max(0.0));
+            let left = (x - w / 2.0).within(0.0, (plot_w - w).max(0.0));
             f.crisp_rect(left, avail + 1.0, w, TIME_AXIS_HEIGHT - 2.0, t.label_background);
             f.text(left + w / 2.0, avail + TIME_AXIS_HEIGHT / 2.0, text, t.countdown_text, Align::Center, Baseline::Middle, font, None, None);
         }
@@ -2023,6 +2223,12 @@ impl Chart {
         for i in i0..=end {
             match values[i] {
                 Some(v) => {
+                    if let LineStyle::Anchored(anchor) = style {
+                        if i > 0 && i < self.candles.len() && anchor_period(self.candles[i - 1].open_time, anchor) != anchor_period(self.candles[i].open_time, anchor) {
+                            f.polyline(&pts, width, color);
+                            pts.clear();
+                        }
+                    }
                     let (x, y) = (self.time.x(i as f64) as f32, scale.y(v) as f32);
                     if let (LineStyle::Step, Some(&(_, py))) = (style, pts.last()) {
                         pts.push((x, py));
@@ -2038,15 +2244,155 @@ impl Chart {
         f.polyline(&pts, width, color);
     }
 
+    /// The shade between two of a study's lines, breaking where either has no
+    /// value and changing colour where they cross.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_fill(&self, f: &mut Frame, scale: &PriceScale, study: &ComputedStudy, fill: &StudyFill, i0: usize, far: usize) {
+        let values = |key: &str| study.lines.iter().find(|l| l.key == key).map(|l| l.values.as_slice());
+        let (Some(a), Some(b)) = (values(fill.upper), values(fill.lower)) else { return };
+        // Only a forming bar, as on a coin listed this month: no lines yet.
+        if a.is_empty() || b.is_empty() {
+            return;
+        }
+        let paint = |key: &str, color: &str| {
+            let own = self.styles.of(&study.id, key);
+            if own.off { None } else { own.color.or_else(|| Color::parse(color)) }
+        };
+        let (over, under) = (paint(fill.key, fill.color), paint(fill.crossed_key, fill.crossed_color));
+        let (mut top, mut bottom) = (Vec::new(), Vec::new());
+        let mut above = true;
+        let flush = |f: &mut Frame, top: &mut Vec<(f32, f32)>, bottom: &mut Vec<(f32, f32)>, above: bool| {
+            if let Some(color) = if above { over } else { under } {
+                f.band(top, bottom, color);
+            }
+            top.clear();
+            bottom.clear();
+        };
+        for i in i0..=far.min(a.len().min(b.len()) - 1) {
+            let (Some(x), Some(y)) = (a[i], b[i]) else {
+                flush(f, &mut top, &mut bottom, above);
+                continue;
+            };
+            let px = self.time.x(i as f64) as f32;
+            let point = ((px, scale.y(x) as f32), (px, scale.y(y) as f32));
+            if (x >= y) != above && !top.is_empty() {
+                // The stretch where they cross goes with what follows it.
+                let joined = (top.last().copied(), bottom.last().copied());
+                flush(f, &mut top, &mut bottom, above);
+                top.extend(joined.0);
+                bottom.extend(joined.1);
+            }
+            above = x >= y;
+            top.push(point.0);
+            bottom.push(point.1);
+        }
+        flush(f, &mut top, &mut bottom, above);
+    }
+
+    /// A study's stretches of time: a tinted box over the bars, with its name.
+    fn paint_boxes(&self, f: &mut Frame, pane: &PaneView, study: &ComputedStudy) {
+        let half = self.time.bar_spacing as f32 / 2.0;
+        for b in &study.boxes {
+            let own = self.styles.of(&study.id, b.key);
+            let (Some(l0), Some(l1)) = (time_to_logical(&self.times, b.from as f64), time_to_logical(&self.times, b.to as f64)) else { continue };
+            let (x0, x1) = (self.time.x(l0) as f32 - half, self.time.x(l1) as f32 + half);
+            if own.off || x1 < 0.0 || x0 > pane.plot.w {
+                continue;
+            }
+            let (top, bottom) = (pane.scale.y(b.top) as f32, pane.scale.y(b.bottom) as f32);
+            let color = own.color.or_else(|| Color::parse(b.color)).unwrap_or(self.theme.text);
+            f.rect(x0, top, x1 - x0, bottom - top, color.faded(0x1c));
+            f.stroke_rect(x0, top, x1 - x0, bottom - top, 1.0, color.faded(0x90));
+            f.text(x0 + 3.0, top - 2.0, b.label, color, Align::Left, Baseline::Bottom, self.theme.font_px - 1.0, None, Some(pane.plot));
+        }
+    }
+
+    /// Volume by price over the bars on screen, each bar's spread evenly across
+    /// the rows its range covers, and split by whether it closed up or down.
+    fn visible_profile(&self, study: &ComputedStudy) -> Option<VisibleProfile> {
+        let rows = study.params.first().map_or(24, |r| *r as usize).max(1);
+        let (from, to) = self.time.visible();
+        let (i0, i1) = (from.ceil().max(0.0) as usize, (to.floor().max(0.0) as usize).min(self.total_bars().checked_sub(1)?));
+        let bars = || (i0..=i1).filter_map(|i| self.bar(i));
+        let (low, high) = bars().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), b| (l.min(b.low), h.max(b.high)));
+        if !(high > low) {
+            return None;
+        }
+        let step = (high - low) / rows as f64;
+        let (mut up, mut down) = (vec![0.0; rows], vec![0.0; rows]);
+        let row = |price: f64| (((price - low) / step) as usize).min(rows - 1);
+        for b in bars() {
+            // A bar with its low over its high still lands somewhere.
+            let first = row(b.low);
+            let last = row(b.high).max(first);
+            let share = b.volume / (last - first + 1) as f64;
+            let side = if b.close >= b.open { &mut up } else { &mut down };
+            for v in &mut side[first..=last] {
+                *v += share;
+            }
+        }
+        let total: Vec<f64> = up.iter().zip(&down).map(|(a, b)| a + b).collect();
+        let poc = (0..rows).max_by(|a, b| total[*a].total_cmp(&total[*b]))?;
+        if total[poc] <= 0.0 {
+            return None;
+        }
+        let area = value_area(&total, poc, study.params.get(1).map_or(0.7, |p| p / 100.0));
+        Some(VisibleProfile { low, step, up, down, total, poc, area })
+    }
+
+    /// The profile against an edge of the pane, its value area stronger, its
+    /// point of control and value area edges across the whole of it.
+    fn paint_visible_profile(&self, f: &mut Frame, pane: &PaneView, study: &ComputedStudy) {
+        let Some(p) = self.visible_profile(study) else {
+            self.profile_levels.set(None);
+            return;
+        };
+        self.profile_levels.set(Some([p.level("poc"), p.level("vah"), p.level("val")]));
+        let t = &self.theme;
+        let id = study.id.as_str();
+        let longest = p.total[p.poc];
+        let room = pane.plot.w * study.params.get(2).map_or(30.0, |w| *w as f32) / 100.0;
+        let left_side = study.params.get(3).is_some_and(|s| *s == 1.0);
+        let (up, down) = (self.styles.of(id, "up"), self.styles.of(id, "down"));
+        let (up_ink, down_ink) = (up.color.unwrap_or(t.bull), down.color.unwrap_or(t.bear));
+        for r in 0..p.total.len() {
+            let (top, bottom) = (pane.scale.y(p.low + p.step * (r + 1) as f64) as f32, pane.scale.y(p.low + p.step * r as f64) as f32);
+            let alpha = if r >= p.area.0 && r <= p.area.1 { 0x90 } else { 0x38 };
+            let (a, b) = (room * (p.up[r] / longest) as f32, room * (p.down[r] / longest) as f32);
+            let height = (bottom - top - 1.0).max(1.0);
+            let at = |along: f32, len: f32| if left_side { along } else { pane.plot.w - along - len };
+            if !up.off {
+                f.rect(at(0.0, a), top, a, height, up_ink.faded(alpha));
+            }
+            if !down.off {
+                f.rect(at(a, b), top, b, height, down_ink.faded(alpha));
+            }
+        }
+        let poc = self.styles.of(id, "poc");
+        if !poc.off {
+            let y = pane.scale.y(p.level("poc").unwrap_or(0.0)) as f32;
+            f.hline(0.0, pane.plot.w, y, poc.width.unwrap_or(1.0), poc.color.unwrap_or(t.tpo_poc));
+        }
+        let edges = self.styles.of(id, "va");
+        if !edges.off {
+            for key in ["vah", "val"] {
+                let y = pane.scale.y(p.level(key).unwrap_or(0.0)) as f32;
+                f.dashed_line(0.0, y, pane.plot.w, y, edges.width.unwrap_or(1.0), edges.color.unwrap_or(t.text), 4.0, 4.0);
+            }
+        }
+    }
+
     /// A study's own candles — open interest — in its pane, coloured by whether it rose.
-    fn paint_study_candles(&self, f: &mut Frame, scale: &PriceScale, bars: &[Option<[f64; 4]>], i0: usize, i1: usize, body: f32) {
+    #[allow(clippy::too_many_arguments)]
+    fn paint_study_candles(&self, f: &mut Frame, scale: &PriceScale, bars: &[Option<[f64; 4]>], i0: usize, i1: usize, body: f32, owner: &str) {
         let t = &self.theme;
         let wick = (1.0 / f.dpr).max(1.0);
+        let (up, down) = (self.styles.color(owner, "up", t.bull), self.styles.color(owner, "down", t.bear));
         // Most studies have no candles: an empty list must not be indexed at all.
         for (i, bar) in bars.iter().enumerate().take(i1.saturating_add(1)).skip(i0) {
             let Some([o, h, l, c]) = *bar else { continue };
             let x = f.snap(self.time.x(i as f64) as f32);
-            let color = if c >= o { t.bull } else { t.bear };
+            let color = if c >= o { up } else { down };
             let (yh, yl, yo, yc) = (scale.y(h) as f32, scale.y(l) as f32, scale.y(o) as f32, scale.y(c) as f32);
             let (top, bottom) = (yo.min(yc), yo.max(yc));
             f.vline(x, yh, yl, wick, color);
@@ -2056,15 +2402,16 @@ impl Chart {
         }
     }
 
-    fn paint_histogram(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, body: f32) {
+    #[allow(clippy::too_many_arguments)]
+    fn paint_histogram(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, body: f32, owner: &str) {
         let zero = scale.y(0.0) as f32;
         let w = (body * 0.7).max(1.0 / f.dpr);
-        for i in i0..=i1.min(values.len().saturating_sub(1)) {
-            let Some(v) = values[i] else { continue };
+        let (above, below) = (self.styles.color(owner, "histogram", self.theme.bull.with_alpha(0x80)), self.styles.color(owner, "histogramDown", self.theme.bear.with_alpha(0x80)));
+        for (i, v) in values.iter().enumerate().take(i1.saturating_add(1)).skip(i0) {
+            let Some(v) = *v else { continue };
             let y = scale.y(v) as f32;
             let x = f.snap(self.time.x(i as f64) as f32);
-            let color = if v >= 0.0 { self.theme.bull } else { self.theme.bear };
-            f.crisp_rect(x - w / 2.0, y.min(zero), w, (y - zero).abs().max(1.0 / f.dpr), color.with_alpha(0x80));
+            f.crisp_rect(x - w / 2.0, y.min(zero), w, (y - zero).abs().max(1.0 / f.dpr), if v >= 0.0 { above } else { below });
         }
     }
 
@@ -2123,10 +2470,12 @@ impl Chart {
         let values = self
             .visible_studies()
             .flat_map(|(_, s)| {
+                let levels = if s.kind == StudyKind::VisibleProfile { self.profile_levels.get() } else { None };
                 s.lines.iter().map(move |l| {
                     // A series that runs into the forming bar is read there.
                     let i = if l.values.len() > self.candles.len() { index } else { at };
-                    (format!("{}:{}", s.id, l.key), l.values.get(i).copied().flatten().map_or("—".to_string(), |v| self.format_value(s.group, v)))
+                    let value = levels.map_or_else(|| l.values.get(i).copied().flatten(), |p| ["poc", "vah", "val"].iter().position(|k| *k == l.key).and_then(|at| p[at]));
+                    (format!("{}:{}", s.id, l.key), value.map_or("—".to_string(), |v| self.format_value(s.group, v)))
                 })
             })
             .collect();
@@ -2134,7 +2483,7 @@ impl Chart {
             index: Some(index),
             time: b.time,
             ohlc: format!("O{}  H{}  L{}  C{}", fp(b.open), fp(b.high), fp(b.low), fp(b.close)),
-            change: format!("{sign}{} ({sign}{pct:.2}%)", fp(diff)),
+            change: format!("{sign}{} ({sign}{}%)", fp(diff), tradoor_core::format::fixed(pct, 2)),
             up: diff >= 0.0,
             volume: format!("Vol {}", format_turnover(b.volume)),
             values,
@@ -2159,7 +2508,7 @@ impl Chart {
     fn format_value(&self, group: Group, v: f64) -> String {
         match group {
             Group::Price => format_price(v, Some(self.precision())),
-            Group::Oi => format_compact(v),
+            Group::Oi | Group::Delta => format_compact(v),
             _ => format_price(v, Some(2)),
         }
     }
@@ -2168,18 +2517,26 @@ impl Chart {
         let mut visible = 0usize;
         self.studies
             .iter()
-            .map(|s| {
+            .zip(&self.study_specs)
+            .map(|(s, spec)| {
                 let hidden = self.hidden.contains(&s.id);
                 let index = visible;
                 if !hidden {
                     visible += 1;
                 }
+                // A hidden study holds no lines; its settings still list them, from no bars at all.
+                let unread = hidden.then(|| compute_study_with(spec, &[], &StudyInputs::default()));
+                let lines = unread.as_ref().map_or(&s.lines, |u| &u.lines);
                 StudyMeta {
                     id: s.id.clone(),
                     label: s.label.clone(),
                     group: s.group.as_str(),
                     hidden,
-                    lines: s.lines.iter().enumerate().map(|(li, l)| (format!("{}:{}", s.id, l.key), l.label.clone(), self.line_color(l, index, li))).collect(),
+                    lines: lines
+                        .iter()
+                        .enumerate()
+                        .map(|(li, l)| (format!("{}:{}", s.id, l.key), l.label.clone(), self.line_color(&s.id, l, index, li), if l.style == LineStyle::None { 0.0 } else { self.styles.of(&s.id, l.key).width.unwrap_or(l.width) }))
+                        .collect(),
                     stats: s.stats.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
                 }
             })
@@ -2868,7 +3225,7 @@ impl Chart {
         change(&mut view.scale);
         let (range, group) = (view.scale.range, view.group);
         let was = self.auto_scale();
-        let state = self.pane_state.entry(group).or_insert_with(|| PaneState::default_for(group));
+        let state = self.pane_state.entry(group);
         state.auto = false;
         state.manual = Some(range);
         self.note_auto(was);
@@ -2881,7 +3238,7 @@ impl Chart {
     fn zoom_anchor(&self, pointer_x: f32) -> f64 {
         let plot_w = f64::from(self.plot_width());
         let newest = self.time.x(self.time.bars.saturating_sub(1) as f64);
-        if self.time.bars > 0 && (0.0..=plot_w).contains(&newest) { newest } else { f64::from(pointer_x).clamp(0.0, plot_w) }
+        if self.time.bars > 0 && (0.0..=plot_w).contains(&newest) { newest } else { f64::from(pointer_x).within(0.0, plot_w) }
     }
 
     /// The bar slot under `x` — past either end of the data too, so the crosshair
@@ -2953,7 +3310,7 @@ impl Chart {
         let total: f64 = self.panes.iter().map(|p| self.weight(p.group)).sum();
         let avail = f64::from(self.time_axis_top());
         for (group, h) in [(a.group, ha), (b.group, hb)] {
-            self.pane_state.entry(group).or_insert_with(|| PaneState::default_for(group)).weight = f64::from(h) / avail * total;
+            self.pane_state.entry(group).weight = f64::from(h) / avail * total;
         }
         self.panes[upper].plot.h = ha;
         self.panes[upper + 1].plot.y += dy;
@@ -2988,7 +3345,7 @@ mod tests {
         (0..n)
             .map(|i| {
                 let p = 100.0 + (i as f64 / 7.0).sin() * 10.0 + i as f64 * 0.05;
-                Candle { open_time: 1_700_000_000_000 - 1_700_000_000_000 % HOUR + i as i64 * HOUR, open: p - 0.5, high: p + 1.5, low: p - 2.0, close: p + 0.5, volume: 10.0 + i as f64, quote_volume: None }
+                Candle { open_time: 1_700_000_000_000 - 1_700_000_000_000 % HOUR + i as i64 * HOUR, open: p - 0.5, high: p + 1.5, low: p - 2.0, close: p + 0.5, volume: 10.0 + i as f64, quote_volume: None, taker_buy: None }
             })
             .collect()
     }
@@ -3035,6 +3392,238 @@ mod tests {
         assert_eq!(ticked.lines.last().map(|l| l.values.clone()), c.studies[0].lines.last().map(|l| l.values.clone()));
         // The steps from the forming bar's open on, 500 to 519, in dollars at its last price.
         assert_eq!(c.studies[0].candles.last().copied().flatten(), Some([1500.0 * 132.5, 1529.0 * 132.5, 990.0 * 132.5, 1524.0 * 132.5]));
+    }
+
+    #[test]
+    fn a_plot_takes_the_colour_and_width_the_reader_set_and_can_be_turned_off() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("ema:20,rsi:14");
+        let red = Color::hex(0xff0000);
+        let painted_now = |c: &mut Chart, color: Color| {
+            let frame = c.render(1_800_000_000_000).clone();
+            frame.colors.chunks(4).filter(|p| *p == [color.r, color.g, color.b, color.a]).count()
+        };
+        assert_eq!(painted_now(&mut c, red), 0);
+        let default = c.studies_meta()[0].lines[0].2;
+        assert!(painted_now(&mut c, default) > 0, "the palette's colour, until it is changed");
+
+        c.set_styles("ema:20/ema=#ff0000,,");
+        let thin = painted_now(&mut c, red);
+        assert!(thin > 0, "the reader's colour");
+        assert_eq!(painted_now(&mut c, default), 0, "and not the palette's");
+        let meta = c.studies_meta();
+        assert_eq!(meta[0].lines[0].2, red, "the legend reads the colour it draws in");
+
+        c.set_styles("ema:20/ema=#ff0000,3,");
+        assert!(painted_now(&mut c, red) > thin, "a wider line covers more");
+        assert_eq!(c.studies_meta()[0].lines[0].3, 3.0);
+
+        // Off: not drawn, no badge and out of the range.
+        c.set_styles("ema:20/ema=#ff0000,3,1");
+        assert_eq!(painted_now(&mut c, red), 0);
+        assert_eq!(c.studies_meta()[0].lines[0].0, "ema:20:ema", "its settings still list it");
+
+        // A hidden study lists its plots for its settings, its figures unread.
+        c.set_hidden("ribbon,ema200,volume,liquidations,rsi:14");
+        let meta = c.studies_meta();
+        assert!(c.studies[1].lines.is_empty(), "nothing worked out");
+        assert_eq!(meta[1].lines.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["rsi:14:rsi"]);
+    }
+
+    #[test]
+    fn a_vwap_starts_each_session_with_no_line_across_the_turn() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("vwap:0:0:0:0");
+        c.set_styles("vwap:0:0:0:0/vwap=#ff0000,1,");
+        let frame = c.render(1_800_000_000_000).clone();
+        let red = [255u8, 0, 0, 255];
+        let xs: Vec<f32> = frame.positions.chunks(2).zip(frame.colors.chunks(4)).filter(|(_, p)| *p == red).map(|(xy, _)| xy[0]).collect();
+        assert!(!xs.is_empty());
+        let spacing = c.time.bar_spacing as f32;
+        let mut sorted = xs.clone();
+        sorted.sort_by(f32::total_cmp);
+        assert!(sorted.windows(2).any(|w| w[1] - w[0] > spacing * 0.9), "a bar's width with nothing in it, where the day turned");
+    }
+
+    /// How many vertices of a colour a frame holds.
+    fn inked(c: &mut Chart, color: Color) -> usize {
+        let frame = c.render(1_800_000_000_000).clone();
+        frame.colors.chunks(4).filter(|p| *p == [color.r, color.g, color.b, color.a]).count()
+    }
+
+    #[test]
+    fn only_a_forming_bar_draws_without_a_panic() {
+        let mut c = Chart::new(ChartTimeframe::Mo1);
+        c.resize(1000.0, 600.0, 1.0);
+        c.set_studies("bb,keltner,ichimoku,macd,volumedelta,vpvr,sessions,moon,vwap");
+        c.set_live(Some(LiveBar { open_time: 1_800_000_000_000, open: 10.0, high: 12.0, low: 9.0, close: 11.0, volume: 5.0, closed: false }));
+        c.render(1_800_000_000_000);
+        // And a bar whose low stands over its high.
+        c.set_live(Some(LiveBar { open_time: 1_800_000_000_000, open: 10.0, high: 9.0, low: 12.0, close: 11.0, volume: 5.0, closed: false }));
+        c.render(1_800_000_000_000);
+    }
+
+    #[test]
+    fn a_colours_opacity_carries_through_where_a_study_sets_its_own() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("sessions");
+        c.set_styles("sessions/london=#00aaff80,,");
+        assert!(inked(&mut c, Color::hex(0x00aaff).with_alpha(0x0e)) > 0, "half of the box's own tint");
+    }
+
+    #[test]
+    fn a_channel_is_shaded_between_its_lines_until_it_is_turned_off() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("bb");
+        c.set_styles("bb:20:2/fill=#123456ff,,");
+        let ink = Color::hex(0x123456);
+        assert!(inked(&mut c, ink) > 0, "the reader's shade");
+        c.set_styles("bb:20:2/fill=#123456ff,,1");
+        assert_eq!(inked(&mut c, ink), 0, "off");
+    }
+
+    #[test]
+    fn the_cloud_is_drawn_past_the_last_bar_in_two_colours() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("ichimoku");
+        let (up, down) = (Color::hex(0x00ff01), Color::hex(0xff0002));
+        c.set_styles("ichimoku:9:26:52:26/cloudUp=#00ff01ff,,;ichimoku:9:26:52:26/cloudDown=#ff0002ff,,;ichimoku:9:26:52:26/leadA=#00ff03ff,,");
+        // The prices swing, so span A runs above span B and below it.
+        assert!(inked(&mut c, up) > 0 && inked(&mut c, down) > 0);
+        // Scrolled so what lies ahead of the bars is on screen.
+        let last = c.total_bars() as f64 - 1.0;
+        let lead = Color::hex(0x00ff03);
+        let frame = c.render(1_800_000_000_000).clone();
+        let last_x = c.time.x(last) as f32;
+        let beyond = frame.positions.chunks(2).zip(frame.colors.chunks(4)).filter(|(_, p)| *p == [lead.r, lead.g, lead.b, lead.a]).filter(|(xy, _)| xy[0] > last_x).count();
+        assert!(beyond > 0, "the leading span runs past the last bar");
+    }
+
+    #[test]
+    fn sessions_are_boxed_and_moons_marked_in_the_readers_colours() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("sessions");
+        let ink = Color::hex(0x00aaff);
+        c.set_styles("sessions/london=#00aaff,,");
+        assert!(inked(&mut c, ink.with_alpha(0x1c)) > 0, "London tinted");
+        c.set_styles("sessions/london=#00aaff,,1");
+        assert_eq!(inked(&mut c, ink.with_alpha(0x1c)), 0, "and gone when turned off");
+
+        // A hundred days: phases on screen whatever the view.
+        let t0 = c.candles()[0].open_time;
+        let days: Vec<Candle> = candles(100).into_iter().enumerate().map(|(i, bar)| Candle { open_time: t0 + i as i64 * 24 * HOUR, ..bar }).collect();
+        c.set_candles(days);
+        c.set_studies("moon");
+        c.set_styles("moon/full=#00aaff,,;moon/new=#00aaff,,");
+        assert!(inked(&mut c, ink) > 0);
+        c.set_styles("moon/full=#00aaff,,1;moon/new=#00aaff,,1");
+        assert_eq!(inked(&mut c, ink), 0);
+    }
+
+    #[test]
+    fn the_visible_range_profile_sums_the_bars_on_screen() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("vpvr:10:70:30:0");
+        let study = c.studies[0].clone();
+        assert_eq!(study.label, "VPVR 10");
+        let profile = c.visible_profile(&study).expect("bars on screen");
+        assert_eq!(profile.total.len(), 10);
+        let (from, to) = c.time.visible();
+        let shown: f64 = (from.ceil() as usize..=(to.floor() as usize).min(c.total_bars() - 1)).filter_map(|i| c.bar(i)).map(|b| b.volume).sum();
+        assert!((profile.total.iter().sum::<f64>() - shown).abs() < 1e-6, "every bar on screen and none other");
+        assert!(profile.total[profile.poc] >= *profile.total.iter().max_by(|a, b| a.total_cmp(b)).unwrap());
+        assert!(profile.area.0 <= profile.poc && profile.poc <= profile.area.1);
+        let (val, poc, vah) = (profile.level("val").unwrap(), profile.level("poc").unwrap(), profile.level("vah").unwrap());
+        assert!(val <= poc && poc <= vah);
+
+        // Against the edge, in the reader's colours; the legend reads its levels.
+        c.set_styles("vpvr:10:70:30:0/up=#00aaff,,;vpvr:10:70:30:0/down=#00aaff,,");
+        let ink = Color::hex(0x00aaff);
+        let frame = c.render(1_800_000_000_000).clone();
+        let w = c.panes[0].plot.w;
+        let xs: Vec<f32> = frame.positions.chunks(2).zip(frame.colors.chunks(4)).filter(|(_, p)| *p == [ink.r, ink.g, ink.b, 0x90] || *p == [ink.r, ink.g, ink.b, 0x38]).map(|(xy, _)| xy[0]).collect();
+        assert!(!xs.is_empty() && xs.iter().all(|x| *x >= w * 0.69 && *x <= w + 0.01), "no wider than its share of the pane");
+        c.pointer_move(500.0, 200.0);
+        let legend = c.legend();
+        assert!(legend.values.iter().any(|(id, v)| id == "vpvr:10:70:30:0:poc" && v != "—"));
+    }
+
+    #[test]
+    fn volume_delta_has_a_pane_of_its_own_and_reads_the_exchanges_buyers() {
+        let mut c = Chart::new(ChartTimeframe::H1);
+        c.resize(1000.0, 600.0, 1.0);
+        let mut bars = candles(300);
+        for (i, bar) in bars.iter_mut().enumerate() {
+            bar.taker_buy = Some(if i % 2 == 0 { bar.volume } else { 0.0 });
+        }
+        c.set_candles(bars);
+        c.set_studies("volumedelta");
+        c.render(1_800_000_000_000);
+        assert_eq!(c.panes.iter().map(|p| p.group).collect::<Vec<_>>(), [Group::Price, Group::Delta]);
+        let (above, below) = (c.theme.bull.with_alpha(0x80), c.theme.bear.with_alpha(0x80));
+        assert!(inked(&mut c, above) > 0 && inked(&mut c, below) > 0);
+        assert!(c.studies[0].stats.is_empty(), "nothing estimated");
+    }
+
+    #[test]
+    fn a_layer_takes_its_lengths_and_colours_from_the_reader() {
+        let mut c = chart();
+        let standard = c.engine.ema200.clone();
+        c.set_styles("ema200/length=50;ribbon/fast=5;ribbon/slow=9");
+        assert_ne!(c.engine.ema200, standard, "worked out again at once");
+        let shorter = c.engine.ema200.clone();
+        assert_ne!(c.engine.ema12, engine_series_with(c.candles(), Styles::default().lengths()).ema12, "the ribbon too");
+        c.set_candles(candles(500));
+        assert_eq!(c.engine.ema200, shorter, "and kept when the bars change");
+
+        let green = Color::hex(0x00ff00);
+        let painted_now = |c: &mut Chart, color: Color| {
+            let frame = c.render(1_800_000_000_000).clone();
+            frame.colors.chunks(4).filter(|p| *p == [color.r, color.g, color.b, color.a]).count()
+        };
+        c.set_styles("ema200/line=#00ff00,2,");
+        assert!(painted_now(&mut c, green) > 0);
+
+        // Volume in its own colour and height.
+        let blue = Color::hex(0x0000ff).with_alpha(0x80);
+        let top_of_blue = |c: &mut Chart| {
+            let frame = c.render(1_800_000_000_000).clone();
+            frame.positions.chunks(2).zip(frame.colors.chunks(4)).filter(|(_, p)| *p == [blue.r, blue.g, blue.b, blue.a]).map(|(xy, _)| xy[1]).fold(f32::MAX, f32::min)
+        };
+        c.set_styles("volume/up=#0000ff80,,;volume/down=#0000ff80,,;volume/height=40");
+        let tall = top_of_blue(&mut c);
+        c.set_styles("volume/up=#0000ff80,,;volume/down=#0000ff80,,;volume/height=10");
+        assert!(tall < f32::MAX && top_of_blue(&mut c) > tall, "shorter at a tenth of the pane than at two fifths");
+
+        // A number that does not read, or is out of bounds, falls back or is held in.
+        assert_eq!(Styles::parse("ema200/length=x").lengths().2, 200);
+        assert_eq!(Styles::parse("ema200/length=1").lengths().2, 2);
+        assert_eq!(Styles::parse("nonsense;=;a=b").0.len(), 0);
+    }
+
+    #[test]
+    fn the_liquidation_feed_keeps_to_the_size_and_colours_the_reader_set() {
+        let mut c = chart();
+        let now = 1_800_000_000_000;
+        c.push_liquidation(2_000_000.0, true, 0, now);
+        c.push_liquidation(500.0, false, 0, now);
+        let ink = Color::hex(0x123456);
+        c.set_styles("liquidations/long=#123456,,;liquidations/short=#123456,,");
+        c.pointer_leave();
+        let seen = |c: &mut Chart, at: i64| {
+            let frame = c.render_feed(at);
+            frame.texts.iter().filter(|t| t.color.r == ink.r && t.color.g == ink.g && t.color.b == ink.b).count()
+        };
+        assert_eq!(seen(&mut c, now + 2_000), 2);
+        c.set_styles("liquidations/long=#123456,,;liquidations/short=#123456,,;liquidations/min=1000");
+        assert_eq!(seen(&mut c, now + 2_000), 1, "the small one is left out");
     }
 
     fn chart() -> Chart {

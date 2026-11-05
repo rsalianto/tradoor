@@ -13,7 +13,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tradoor_store::DataDir;
 
-use crate::{account, alerts, catalog::Catalog, drawings, flow, footprint, footprint_history, indices, journal, limits, liquidations, open_interest, relay, session, signals, telegram, training, workspaces};
+use crate::{account, alerts, catalog::Catalog, drawings, favourites, flow, footprint, footprint_history, indices, journal, limits, liquidations, open_interest, relay, session, signals, telegram, training, workspaces};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -135,6 +135,8 @@ pub fn router(state: AppState, data_dir: PathBuf, web_dir: Option<PathBuf>) -> R
         .route("/account/signin/{code}", get(account::collected))
         .route("/account/session", delete(account::sign_out))
         .route("/account/sessions", delete(account::sign_out_everywhere))
+        .route("/account/favourites", get(favourites::list))
+        .route("/account/favourites/{kind}", axum::routing::put(favourites::add).delete(favourites::remove))
         .route("/telegram", get(telegram::status).patch(telegram::set_clock))
         .route("/telegram/link", axum::routing::post(telegram::link))
         .route("/telegram/test", axum::routing::post(telegram::test))

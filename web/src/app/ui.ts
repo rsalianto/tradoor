@@ -17,6 +17,9 @@ export type Overlay =
 export const [overlay, setOverlay] = createSignal<Overlay | null>(null);
 export const closeOverlay = (): void => void setOverlay(null);
 
+/** The study or layer whose settings are open, on which chart. They stay beside the chart rather than over it, so a change is seen as it lands. */
+export const [studyEditing, setStudyEditing] = createSignal<{ panelId: string; id: string } | null>(null);
+
 /** What the keyboard and the command palette can ask of a mounted chart. */
 export interface ChartController {
   key(key: string): Promise<boolean>;

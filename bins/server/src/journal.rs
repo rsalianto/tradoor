@@ -629,7 +629,7 @@ async fn minutes(http: &reqwest::Client, catalog: &Catalog, market: &str, from: 
 }
 
 fn candle(t: i64, o: f64, h: f64, l: f64, c: f64) -> Candle {
-    Candle { open_time: t, open: o, high: h, low: l, close: c, volume: 0.0, quote_volume: None }
+    Candle { open_time: t, open: o, high: h, low: l, close: c, volume: 0.0, quote_volume: None, taker_buy: None }
 }
 
 /// A number the exchanges send as a string or as a number.

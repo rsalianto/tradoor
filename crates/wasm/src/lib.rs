@@ -22,7 +22,7 @@ use tradoor_render::drawings::Dash;
 use tradoor_render::{Anchor, Chart, DrawingKind, DrawingShape, DrawingStyle, Event, Magnet};
 use wasm_bindgen::prelude::*;
 
-use crate::js::{candles, columns, get, obj, opt, set};
+use crate::js::{candles, columns, get, obj, opt, set, with_taker};
 
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -42,7 +42,7 @@ fn style(value: &JsValue) -> DrawingStyle {
             let e = Array::from(&e);
             let key = e.get(0).as_string()?;
             let v = e.get(1);
-            let text = v.as_string().or_else(|| v.as_f64().map(|n| n.to_string())).or_else(|| v.as_bool().map(|b| if b { "1".into() } else { "0".into() }))?;
+            let text = v.as_string().or_else(|| v.as_f64().map(tradoor_core::format::plain)).or_else(|| v.as_bool().map(|b| if b { "1".into() } else { "0".into() }))?;
             Some((key, text))
         })
         .collect();
@@ -121,8 +121,9 @@ impl ChartEngine {
         Ok(())
     }
 
-    pub fn set_candles(&mut self, time: &[f64], open: &[f64], high: &[f64], low: &[f64], close: &[f64], volume: &[f64]) {
-        self.chart.set_candles(candles(time, open, high, low, close, volume));
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_candles(&mut self, time: &[f64], open: &[f64], high: &[f64], low: &[f64], close: &[f64], volume: &[f64], buy: &[f64]) {
+        self.chart.set_candles(with_taker(candles(time, open, high, low, close, volume), buy));
     }
 
     /// The daily bars the chart's own were folded from, for key levels that open
@@ -166,6 +167,10 @@ impl ChartEngine {
         self.chart.set_open_interest((0..n).map(|i| (time[i] as i64, [open[i], high[i], low[i], close[i]])).collect());
     }
 
+    pub fn set_styles(&mut self, raw: &str) {
+        self.chart.set_styles(raw);
+    }
+
     pub fn set_hidden(&mut self, raw: &str) {
         self.chart.set_hidden(raw);
     }
@@ -202,10 +207,6 @@ impl ChartEngine {
 
     pub fn set_pane_weights(&mut self, raw: &str) {
         self.chart.set_pane_weights(raw);
-    }
-
-    pub fn pane_weights(&self) -> String {
-        self.chart.pane_weights()
     }
 
     pub fn set_theme_value(&mut self, key: &str, value: &str) -> bool {
@@ -284,10 +285,6 @@ impl ChartEngine {
 
     pub fn reset_view(&mut self) {
         self.chart.reset_view();
-    }
-
-    pub fn auto_scale(&self) -> bool {
-        self.chart.auto_scale()
     }
 
     pub fn set_auto_scale(&mut self) {
@@ -608,11 +605,12 @@ impl ChartEngine {
                 let lines: Array = s
                     .lines
                     .into_iter()
-                    .map(|(id, label, color)| {
+                    .map(|(id, label, color, width)| {
                         let l = obj();
                         set(&l, "id", id);
                         set(&l, "label", label);
                         set(&l, "color", color.css());
+                        set(&l, "width", width);
                         JsValue::from(l)
                     })
                     .collect();
@@ -652,8 +650,9 @@ pub fn bar_start(tf: &str, t: f64) -> Result<f64, JsValue> {
 
 /// Fold candles into a chart timeframe, dropping a bucket that has not closed.
 #[wasm_bindgen]
-pub fn fold_candles(tf: &str, time: &[f64], open: &[f64], high: &[f64], low: &[f64], close: &[f64], volume: &[f64], now: f64) -> Result<Object, JsValue> {
-    Ok(columns(&fold(&candles(time, open, high, low, close, volume), timeframe(tf)?, now as i64)))
+#[allow(clippy::too_many_arguments)]
+pub fn fold_candles(tf: &str, time: &[f64], open: &[f64], high: &[f64], low: &[f64], close: &[f64], volume: &[f64], buy: &[f64], now: f64) -> Result<Object, JsValue> {
+    Ok(columns(&fold(&with_taker(candles(time, open, high, low, close, volume), buy), timeframe(tf)?, now as i64)))
 }
 
 #[wasm_bindgen]
@@ -701,10 +700,8 @@ pub fn study_catalog() -> Array {
         .map(|d| {
             let o = obj();
             set(&o, "kind", d.kind.as_str());
-            set(&o, "name", d.name);
             set(&o, "short", d.short);
             set(&o, "group", d.group.as_str());
-            set(&o, "about", d.about);
             let params: Array = d
                 .params
                 .iter()
@@ -714,6 +711,7 @@ pub fn study_catalog() -> Array {
                     set(&po, "default", p.default);
                     set(&po, "min", p.min);
                     set(&po, "max", p.max);
+                    set(&po, "step", p.step);
                     JsValue::from(po)
                 })
                 .collect();

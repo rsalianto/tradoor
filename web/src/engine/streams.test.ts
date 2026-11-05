@@ -110,8 +110,8 @@ test('a liquidation topic is not confused with the candle stream', async () => {
   s.deliver(FORCE_ORDER);
   assertEquals(s.seen, [], 'nobody subscribed to ONUSDT liquidations');
 
-  s.deliver({ e: 'kline', s: 'BTCUSDT', k: { t: 1789531680000, i: '15m', o: '75800', h: '75950', l: '75790', c: '75900', v: '12.5', L: 42, x: false } });
-  assertEquals(s.seen, [{ kind: 'kline', openTime: 1789531680000, open: 75800, high: 75950, low: 75790, close: 75900, volume: 12.5, lastTradeId: 42, closed: false }]);
+  s.deliver({ e: 'kline', s: 'BTCUSDT', k: { t: 1789531680000, i: '15m', o: '75800', h: '75950', l: '75790', c: '75900', v: '12.5', V: '7.5', L: 42, x: false } });
+  assertEquals(s.seen, [{ kind: 'kline', openTime: 1789531680000, open: 75800, high: 75950, low: 75790, close: 75900, volume: 12.5, buy: 7.5, lastTradeId: 42, closed: false }]);
   s.stop();
 });
 

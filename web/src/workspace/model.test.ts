@@ -61,3 +61,15 @@ Deno.test('a layout stored before charts kept their own timeframes stays as it s
   assertEquals(validate(d)?.panels[linked.id]?.timeframe, '5m', 'once its own, the group does not touch it');
   assertEquals(validate(validate(before))?.panels[linked.id]?.timeframe, '30m');
 });
+
+Deno.test('a chart keeps how its studies draw, and nothing that cannot be a style', () => {
+  const doc = defaultWorkspace();
+  const chart = Object.values(doc.panels).find((p) => p.type === 'chart')! as ChartPanelState;
+  chart.studyStyles = { 'bb:20:2.5/upper': '#ff0000,2,', 'ribbon/fast': '9' };
+  (chart.studyStyles as Record<string, unknown>)['bad key'] = '1';
+  const back = validate(JSON.parse(JSON.stringify(doc)))!;
+  assertEquals((back.panels[chart.id] as ChartPanelState).studyStyles, { 'bb:20:2.5/upper': '#ff0000,2,', 'ribbon/fast': '9' });
+  // From before a chart had any.
+  delete (chart as Partial<ChartPanelState>).studyStyles;
+  assertEquals((validate(JSON.parse(JSON.stringify(doc)))!.panels[chart.id] as ChartPanelState).studyStyles, {});
+});

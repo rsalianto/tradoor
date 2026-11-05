@@ -47,6 +47,8 @@ export interface StudyLine {
   id: string;
   label: string;
   color: string;
+  /** 0: not stroked, it only carries values for the legend and the axis. */
+  width: number;
 }
 
 export interface StudyMeta {
@@ -63,14 +65,14 @@ export interface StudyParam {
   default: number;
   min: number;
   max: number;
+  step: number;
 }
 
+/** What the engine computes with; lib/study-schema says the rest. */
 export interface StudyDefinition {
   kind: string;
-  name: string;
   short: string;
   group: string;
-  about: string;
   params: StudyParam[];
 }
 
@@ -197,6 +199,7 @@ export type ToWorker =
   | { t: 'market'; id: string; market: string; timeframe: string; bars?: number }
   | { t: 'studies'; id: string; value: string }
   | { t: 'hidden'; id: string; value: string }
+  | { t: 'studyStyles'; id: string; value: string }
   | { t: 'log'; id: string; value: boolean }
   /** A TPO period — `1d`, `london`, `custom`… — drawn as profiles of the loaded bars. Empty: candles. */
   | { t: 'tpo'; id: string; value: string }

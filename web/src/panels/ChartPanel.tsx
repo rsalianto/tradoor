@@ -5,7 +5,7 @@
  */
 import { batch, createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, onMount, Show, untrack } from 'solid-js';
 import { lazy } from '../lib/lazy';
-import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, sharedRail, shownPattern, type ShownPattern } from '../app/ui';
+import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, setStudyEditing, sharedRail, shownPattern, studyEditing, type ShownPattern } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
 import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, ReplayState, StudyMeta, TpoHover } from '../engine/protocol';
@@ -30,6 +30,7 @@ import { VenueTag } from '../lib/exchanges';
 import { WatchlistToggle } from '../components/WatchlistToggle';
 import { liquidationVenues } from '../lib/liquidation-venues';
 import { formatClock, formatDateTime, formatFileTime, zoneLabel } from '../lib/timezone';
+import { dropOwner, numberOf, plotStyle, serializeStyles, splitList } from '../lib/study-style';
 import { serializeTpo, tpoValue, withTpoValue } from '../lib/tpo-settings';
 import { isRatio, symbolOf, venueLabel } from '../lib/markets';
 import { alertState, createAlert, deleteAlert, digitsFor, editAlert, styleAlert, titleOf } from '../lib/alerts';
@@ -41,7 +42,7 @@ import { behindMaximized, doc, marketOf, maximized, patchPanel, setPanelTimefram
 
 // Drawing settings load when a drawing is first selected: nobody needs them to see a chart.
 const DrawingSettings = lazy(() => import('../components/DrawingSettings').then((m) => ({ default: m.DrawingSettings })));
-const OpenInterestSettings = lazy(() => import('../components/OpenInterestSettings').then((m) => ({ default: m.OpenInterestSettings })));
+const StudySettings = lazy(() => import('../components/StudySettings').then((m) => ({ default: m.StudySettings })));
 const AlertStyleSettings = lazy(() => import('../components/AlertStyleSettings').then((m) => ({ default: m.AlertStyleSettings })));
 const DrawingToolbar = lazy(() => import('../components/DrawingToolbar').then((m) => ({ default: m.DrawingToolbar })));
 
@@ -102,11 +103,6 @@ const LIVE: Record<LiveStatus, { label: string; tone: string; title: string }> =
 const REPLAY_CLICK_SLOP = 5;
 const REPLAY_BADGE = { label: 'REPLAY', tone: 'warn', title: 'A bar replay: this chart stands in the past, and every bar after its cursor is hidden.' };
 
-const splitList = (s: string): string[] =>
-  s
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean);
 
 /** A pattern's side in the colours the chart gives a short and a long. */
 const PATTERN_COLOR = { bear: '#f23645', bull: '#089981' } as const;
@@ -176,8 +172,6 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const [drawings, setDrawings] = createSignal<Drawing[]>([]);
   const [offline, setOffline] = createSignal<string | null>(null);
   const [drawError, setDrawError] = createSignal<string | null>(null);
-  /** The study whose settings dialog is open. */
-  const [studyEditing, setStudyEditing] = createSignal<string | null>(null);
   /** The drawing whose settings dialog is open. */
   const [editing, setEditing] = createSignal<number | null>(null);
   /** The chart's menu, and the TPO profile it was opened on, if any. */
@@ -777,6 +771,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   });
   createEffect(() => send({ t: 'studies', id: sid, value: props.panel.studies }));
   createEffect(() => send({ t: 'hidden', id: sid, value: props.panel.hidden }));
+  createEffect(() => send({ t: 'studyStyles', id: sid, value: serializeStyles(props.panel.studyStyles) }));
   createEffect(() => send({ t: 'log', id: sid, value: props.panel.log }));
   createEffect(() => send({ t: 'tpo', id: sid, value: split() ?? '' }));
   createEffect(() => send({ t: 'tpoSettings', id: sid, value: serializeTpo(props.panel.tpoSettings) }));
@@ -1130,19 +1125,6 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     patchPanel(id, { hidden: [...next].join(',') });
   };
 
-  /** Swap a study for the same one with other parameters, keeping it shown or hidden. */
-  const replaceStudy = (from: string, to: string) => {
-    patchPanel(id, {
-      studies: splitList(props.panel.studies)
-        .map((s) => (s === from ? to : s))
-        .filter((s, i, all) => all.indexOf(s) === i)
-        .join(','),
-      hidden: splitList(props.panel.hidden)
-        .map((h) => (h === from ? to : h))
-        .join(','),
-    });
-  };
-
   const removeStudy = (study: string) => {
     patchPanel(id, {
       studies: splitList(props.panel.studies)
@@ -1152,7 +1134,18 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       hidden: splitList(props.panel.hidden)
         .filter((h) => h !== study)
         .join(','),
+      studyStyles: dropOwner(props.panel.studyStyles, study),
     });
+    if (studyEditing()?.id === study) setStudyEditing(null);
+  };
+
+  const editStudy = (study: string) => setStudyEditing({ panelId: id, id: study });
+
+  /** A built-in layer's name, with the lengths the reader gave it. */
+  const layerLabel = (layer: string, label: string) => {
+    const styles = props.panel.studyStyles;
+    if (layer === 'ribbon') return `EMA ${numberOf(styles, layer, 'fast', 12)}/${numberOf(styles, layer, 'slow', 25)} ribbon`;
+    return layer === 'ema200' ? `EMA ${numberOf(styles, layer, 'length', 200)}` : label;
   };
 
   const showRange = (days: number | 'ytd' | null) => {
@@ -1796,7 +1789,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               </Show>
             </div>
             <Show when={!props.panel.legendShut}>
-              <For each={LAYERS.filter((layer) => !(tpoShown() && layer.candles))}>{(layer) => <LayerRow label={layer.label} off={hidden().has(layer.id)} onToggle={() => toggleLayer(layer.id)} />}</For>
+              <For each={LAYERS.filter((layer) => !(tpoShown() && layer.candles))}>{(layer) => <LayerRow label={layerLabel(layer.id, layer.label)} off={hidden().has(layer.id)} onToggle={() => toggleLayer(layer.id)} onSettings={() => editStudy(layer.id)} />}</For>
             </Show>
             <For each={props.panel.legendShut ? [] : studies()}>
               {(s) => (
@@ -1805,9 +1798,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
                   off={s.hidden}
                   onToggle={() => toggleLayer(s.id)}
                   onRemove={() => removeStudy(s.id)}
-                  onSettings={s.id.split(':')[0] === 'oi' ? () => setStudyEditing(s.id) : undefined}
-                  values={s.hidden ? [] : s.lines.map((line) => ({ color: line.color, text: () => legend()?.values[line.id] ?? '—' }))}
-                  stats={s.hidden ? [] : s.stats}
+                  onSettings={() => editStudy(s.id)}
+                  values={s.hidden ? [] : s.lines.filter((line) => !plotStyle(props.panel.studyStyles, s.id, line.id.slice(s.id.length + 1)).off).map((line) => ({ color: line.color, text: () => legend()?.values[line.id] ?? '—' }))}
+                  stats={s.hidden || plotStyle(props.panel.studyStyles, s.id, 'stats').off ? [] : s.stats}
                 />
               )}
             </For>
@@ -1956,8 +1949,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         </div>
       </div>
 
-      <Show when={studyEditing()} keyed>
-        {(studyId) => <OpenInterestSettings id={studyId} onApply={(next) => replaceStudy(studyId, next)} onClose={() => setStudyEditing(null)} />}
+      <Show when={studyEditing()?.panelId === id && studyEditing()!.id} keyed>
+        {(target) => <StudySettings panel={props.panel} target={target} meta={(study) => studies().find((s) => s.id === study)} anchor={box} onClose={() => setStudyEditing(null)} />}
       </Show>
       {/* Keyed on the id, not the alert: the list is reloaded now and then, and
           a fresh copy of the same alert must not start the dialog over. */}
@@ -2070,7 +2063,16 @@ function LayerRow(props: {
 }) {
   return (
     <div class="layer" classList={{ off: props.off }}>
-      <span class="name">{props.label}</span>
+      <span
+        class="name"
+        onDblClick={(e) => {
+          // Not the chart's own double click as well.
+          e.stopPropagation();
+          props.onSettings?.();
+        }}
+      >
+        {props.label}
+      </span>
       <For each={props.values ?? []}>
         {(v) => (
           <span class="val" style={{ color: v.color }}>

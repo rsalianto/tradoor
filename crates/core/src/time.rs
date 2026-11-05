@@ -138,6 +138,40 @@ pub fn parse_iso(s: &str) -> Option<i64> {
     }
 }
 
+/// The `n`th Sunday of a month (`0`: the last), at midnight UTC.
+fn sunday(year: i64, month0: i64, n: i64) -> i64 {
+    if n == 0 {
+        let last = utc(year, month0 + 1, 1) - DAY;
+        return last - i64::from(weekday(last)) * DAY;
+    }
+    let first = utc(year, month0, 1);
+    first + ((7 - i64::from(weekday(first))) % 7 + 7 * (n - 1)) * DAY
+}
+
+/// Whether London keeps summer time on the day starting at `day`.
+fn london_summer(day: i64) -> bool {
+    let year = civil(day).year;
+    day >= sunday(year, 2, 0) && day < sunday(year, 9, 0)
+}
+
+/// Whether New York keeps summer time on the day starting at `day`.
+fn new_york_summer(day: i64) -> bool {
+    let year = civil(day).year;
+    day >= sunday(year, 2, 2) && day < sunday(year, 10, 1)
+}
+
+/// London's open and close on a day, in minutes past midnight UTC.
+pub fn london(day: i64) -> (i64, i64) {
+    let shift = if london_summer(day) { 60 } else { 0 };
+    (8 * 60 - shift, 16 * 60 + 30 - shift)
+}
+
+/// New York's open and close on a day, in minutes past midnight UTC.
+pub fn new_york(day: i64) -> (i64, i64) {
+    let behind = if new_york_summer(day) { 4 * 60 } else { 5 * 60 };
+    (9 * 60 + 30 + behind, 16 * 60 + behind)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

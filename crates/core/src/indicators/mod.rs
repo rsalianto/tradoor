@@ -11,6 +11,7 @@
 
 pub mod cross;
 pub mod momentum;
+pub mod moon;
 pub mod pivots;
 pub mod profile;
 pub mod series;

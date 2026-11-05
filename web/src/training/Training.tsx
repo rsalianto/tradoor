@@ -23,6 +23,7 @@ import { equityCurve, groupBy, money, stamp, stats, type Group } from '../journa
 import type { ChartPanel } from '../panels/ChartPanel';
 import { domTrade } from '../panels/DomTrade';
 import { DEFAULT_STUDIES, type ChartPanelState, type DomPanelState } from '../workspace/model';
+import { readStyles } from '../lib/study-style';
 import { detached, holdDetached, setPanelMarket } from '../workspace/store';
 import {
   asJournal,
@@ -77,6 +78,7 @@ function startPanel(): ChartPanelState {
     timeframe: '1m',
     studies: typeof saved.studies === 'string' ? saved.studies : DEFAULT_STUDIES,
     hidden: typeof saved.hidden === 'string' ? saved.hidden : '',
+    studyStyles: readStyles(saved.studyStyles),
     log: saved.log === true,
     paneWeights: typeof saved.paneWeights === 'string' ? saved.paneWeights : '',
     tpo: '',
@@ -130,7 +132,7 @@ export function Training(props: { chart: typeof ChartPanel }) {
   const panel = () => detached[TRAINING_CHART]!;
   createEffect(() => {
     const p = panel();
-    writePref(PANEL_KEY, JSON.stringify({ market: p.market, studies: p.studies, hidden: p.hidden, log: p.log, paneWeights: p.paneWeights, legendShut: p.legendShut }));
+    writePref(PANEL_KEY, JSON.stringify({ market: p.market, studies: p.studies, hidden: p.hidden, studyStyles: p.studyStyles, log: p.log, paneWeights: p.paneWeights, legendShut: p.legendShut }));
   });
   const symbol = () => symbolOfMarket(panel().market);
   const decimals = (s: string) => DECIMALS[s] ?? 2;

@@ -16,7 +16,7 @@ import type { SocketState } from './streams';
 
 const empty = (): Cols => {
   const e = () => new Float64Array(0);
-  return { time: e(), open: e(), high: e(), low: e(), close: e(), volume: e() };
+  return { time: e(), open: e(), high: e(), low: e(), close: e(), volume: e(), buy: e() };
 };
 
 export interface Ohlc {
@@ -66,7 +66,7 @@ export function divide(a: Cols, b: Cols): Cols {
       j += 1;
     }
   }
-  return { time: out.time.subarray(0, k), open: out.open.subarray(0, k), high: out.high.subarray(0, k), low: out.low.subarray(0, k), close: out.close.subarray(0, k), volume: out.volume.subarray(0, k) };
+  return { time: out.time.subarray(0, k), open: out.open.subarray(0, k), high: out.high.subarray(0, k), low: out.low.subarray(0, k), close: out.close.subarray(0, k), volume: out.volume.subarray(0, k), buy: new Float64Array(k).fill(-1) };
 }
 
 /**

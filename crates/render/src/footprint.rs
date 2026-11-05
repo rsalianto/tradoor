@@ -21,6 +21,7 @@
 //! table says what each came to: its volume, its delta, that delta as a share
 //! of the volume, and the most and least the delta reached on the way.
 
+use tradoor_core::num::Within;
 use crate::color::Color;
 use crate::paint::{Align, Baseline, Frame, Rect};
 use crate::theme::Theme;
@@ -123,7 +124,7 @@ const TABLE_TEXT: f32 = 15.0;
 
 /// A row height as the reader may have it.
 pub fn table_row(row: f32) -> f32 {
-    row.clamp(TABLE_ROW_RANGE.0, TABLE_ROW_RANGE.1)
+    row.within(TABLE_ROW_RANGE.0, TABLE_ROW_RANGE.1)
 }
 
 /// The row height that makes the table `height` tall on a plot `plot_h` tall, as near as it goes.
@@ -169,7 +170,7 @@ pub fn slot(center: f32, bar_spacing: f32) -> Slot {
     if width < CANDLE_FROM {
         return Slot { left, width, candle: center, candle_width: 0.0, cells: left, cells_width: width };
     }
-    let candle_width = (width * 0.1).clamp(3.0, 9.0).round();
+    let candle_width = (width * 0.1).within(3.0, 9.0).round();
     let gap = 2.0;
     Slot { left, width, candle: left + candle_width / 2.0, candle_width, cells: left + candle_width + gap, cells_width: width - candle_width - gap }
 }
@@ -234,7 +235,7 @@ fn short(v: f64) -> String {
         n if n >= 0.01 => 2,
         _ => 3,
     };
-    format!("{sign}{n:.decimals$}{unit}")
+    format!("{sign}{}{unit}", tradoor_core::format::fixed(n, decimals))
 }
 
 /// A delta, with the sign either way.
@@ -304,7 +305,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                 continue;
             }
             let (top, drawn) = (top_of(*price), drawn_at(*price));
-            let alpha = |v: f64| (55.0 + 200.0 * (v / loudest).clamp(0.0, 1.0).sqrt() as f32) as u8;
+            let alpha = |v: f64| (55.0 + 200.0 * (v / loudest).within(0.0, 1.0).sqrt() as f32) as u8;
             // A number reads in black or white, whichever stands out more from
             // the colour its cell actually shows — the fill over the background.
             let ink = |color: Color, fill: u8| color.with_alpha(fill).over(t.background).ink();
@@ -327,7 +328,7 @@ pub fn paint(f: &mut Frame, view: &View<'_>, bars: &[(f64, &Bar)], options: Opti
                     // chart zoomed out has room to say; where the row has room,
                     // the volume is written too.
                     let total = buy + sell;
-                    let (bar, fill) = (s.cells_width * (total / loudest).clamp(0.0, 1.0) as f32, alpha(total));
+                    let (bar, fill) = (s.cells_width * (total / loudest).within(0.0, 1.0) as f32, alpha(total));
                     f.rect(s.cells, top, bar, drawn, side.with_alpha(fill));
                     let text = short(total);
                     if let Some((on, size)) = on_or_past(view, &text, bar, s.cells_width, row) {
@@ -505,13 +506,13 @@ fn table(f: &mut Frame, view: &View<'_>, rows: &[(f32, Bar)]) {
         for (x, values) in &figures {
             let s = slot(*x, view.bar_spacing);
             let v = values[r];
-            let strength = if loudest > 0.0 { (v.abs() / loudest).clamp(0.0, 1.0).sqrt() } else { 0.0 };
+            let strength = if loudest > 0.0 { (v.abs() / loudest).within(0.0, 1.0).sqrt() } else { 0.0 };
             let color = if r == 0 { t.text } else if v >= 0.0 { t.bull } else { t.bear };
             let alpha = (if r == 0 { 12.0 + 60.0 * strength } else { 25.0 + 160.0 * strength }) as u8;
             f.rect(s.left, y + 0.5, s.width, row - 1.0, color.with_alpha(alpha));
             let text = match r {
                 0 => short(v),
-                2 => format!("{}{:.0}%", if v > 0.0 { "+" } else { "" }, v),
+                2 => format!("{}{}%", if v > 0.0 { "+" } else { "" }, tradoor_core::format::fixed(v, 0)),
                 _ => signed(v),
             };
             if let Some(size) = fitted_up_to(view, &text, s.width, row, size) {

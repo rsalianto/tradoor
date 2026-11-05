@@ -1,5 +1,7 @@
 //! Drawing tools: what each kind is, how it is styled, and how it is painted.
 
+use tradoor_core::num::Within;
+use tradoor_core::format::fixed;
 use tradoor_core::format::format_price;
 use tradoor_core::ChartTimeframe;
 
@@ -119,7 +121,7 @@ impl Level {
         s.split('|')
             .filter_map(|item| {
                 let mut parts = item.split(',');
-                let value = parts.next()?.trim().parse::<f64>().ok().filter(|v| v.is_finite())?;
+                let value = tradoor_core::format::parse_number(parts.next()?.trim()).filter(|v| v.is_finite())?;
                 let on = parts.next().is_none_or(|p| p.trim() != "0");
                 let color = parts.next().and_then(Color::parse);
                 let dash = parts.next().map_or(Dash::Solid, |d| Dash::parse(d.trim()));
@@ -187,7 +189,7 @@ impl DrawingStyle {
     pub fn set(&mut self, key: &str, value: &str) {
         let flag = || matches!(value, "1" | "true");
         let color = || Color::parse(value);
-        let num = || value.trim().parse::<f64>().ok().filter(|v| v.is_finite());
+        let num = || tradoor_core::format::parse_number(value.trim()).filter(|v| v.is_finite());
         let size = || num().map(|v| v as f32).filter(|v| *v > 0.0);
         match key {
             "color" => self.color = color(),
@@ -200,7 +202,7 @@ impl DrawingStyle {
             "leftArrow" => self.left_arrow = flag(),
             "rightArrow" => self.right_arrow = flag(),
             "textColor" => self.text_color = color(),
-            "textSize" => self.text_size = size().map(|s| s.clamp(6.0, 40.0)),
+            "textSize" => self.text_size = size().map(|s| s.within(6.0, 40.0)),
             "textBg" => self.text_bg = color(),
             "middle" => self.middle = flag(),
             "priceLabels" => self.price_labels = flag(),
@@ -218,15 +220,15 @@ impl DrawingStyle {
             "leverage" => self.leverage = num().filter(|v| *v > 0.0),
             "sizeBy" => self.by_margin = value == "margin",
             "margin" => self.margin = num().filter(|v| *v > 0.0),
-            "qtyDecimals" => self.qty_decimals = num().map(|v| v.clamp(0.0, 10.0) as usize),
+            "qtyDecimals" => self.qty_decimals = num().map(|v| v.within(0.0, 10.0) as usize),
             "legs" => {
                 self.legs = value
                     .split('|')
                     .filter_map(|part| {
                         let mut f = part.split(',').map(str::trim);
                         let kind = *f.next()?.as_bytes().first()?;
-                        let price: f64 = f.next()?.parse().ok()?;
-                        let percent: f64 = f.next()?.parse().ok()?;
+                        let price = tradoor_core::format::parse_number(f.next()?)?;
+                        let percent = tradoor_core::format::parse_number(f.next()?)?;
                         (matches!(kind, b't' | b'c' | b'a') && price.is_finite() && percent > 0.0 && percent <= 1000.0).then_some((kind, price, percent))
                     })
                     .take(12)
@@ -305,14 +307,14 @@ impl DrawingShape {
 pub fn significant(value: f64) -> String {
     let abs = value.abs();
     if abs >= 1000.0 {
-        format!("{value:.0}")
+        fixed(value, 0)
     } else if abs >= 1.0 {
-        format!("{value:.2}")
+        fixed(value, 2)
     } else if abs == 0.0 {
         "0".into()
     } else {
         let decimals = (2 - abs.log10().floor() as i32).max(0) as usize;
-        format!("{value:.decimals$}")
+        fixed(value, decimals)
     }
 }
 
@@ -424,7 +426,7 @@ fn pct(from: f64, to: f64) -> f64 {
 
 fn qty_text(qty: f64, decimals: Option<usize>) -> String {
     match decimals {
-        Some(d) => format!("{qty:.d$}"),
+        Some(d) => fixed(qty, d),
         None => significant(qty),
     }
 }
@@ -523,7 +525,7 @@ pub fn paint(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme) {
             let (x0, x1) = (if ext_left { plot.x } else { left }, if ext_right { plot.right() } else { right });
             let levels = style.levels_for(kind);
             let mut on: Vec<&Level> = levels.iter().filter(|l| l.on).collect();
-            on.sort_by(|p, q| p.value.total_cmp(&q.value));
+            tradoor_core::sort::insertion_sort_by(&mut on, |p, q| p.value < q.value);
             if let Some(fill) = fill.filter(|_| style.fill_on == Some(true)) {
                 for pair in on.windows(2) {
                     let y0 = a.1 + (b.1 - a.1) * pair[0].value as f32;
@@ -558,7 +560,7 @@ pub fn paint(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme) {
             let sign = if up { "+" } else { "" };
             let bars = d.bars.abs();
             let ticks = ((to - from) / 10f64.powi(-(d.precision as i32))).round();
-            let text = format!("{sign}{} ({sign}{:.2}%) {sign}{ticks:.0}, {bars} bar{}", format_price(to - from, digits), pct(from, to), if bars == 1 { "" } else { "s" });
+            let text = format!("{sign}{} ({sign}{}%) {sign}{}, {bars} bar{}", format_price(to - from, digits), fixed(pct(from, to), 2), fixed(ticks, 0), if bars == 1 { "" } else { "s" });
             let y = if up { a.1.min(b.1) - 6.0 } else { a.1.max(b.1) + 6.0 };
             frame.text(mid_x, y, text, tone.contrast_text(), Align::Center, if up { Baseline::Bottom } else { Baseline::Top }, font, Some(tone), Some(plot));
         }
@@ -609,7 +611,7 @@ pub fn paint(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme) {
                 let (from, to) = (prices[0], prices[1]);
                 let sign = if to >= from { "+" } else { "" };
                 let bars = d.bars.abs();
-                let text = format!("{sign}{} ({sign}{:.2}%), {bars} bar{}", format_price(to - from, digits), pct(from, to), if bars == 1 { "" } else { "s" });
+                let text = format!("{sign}{} ({sign}{}%), {bars} bar{}", format_price(to - from, digits), fixed(pct(from, to), 2), if bars == 1 { "" } else { "s" });
                 let right = if b.0 >= a.0 { b } else { a };
                 frame.text(right.0 + 8.0, right.1, text, text_color, Align::Left, Baseline::Middle, font, Some(theme.background.with_alpha(210)), Some(plot));
             }
@@ -627,7 +629,7 @@ pub fn paint(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme) {
 
 /// `0.618` rather than `0.6180000`, `1` rather than `1.0`.
 fn trim_level(v: f64) -> String {
-    let s = format!("{v:.3}");
+    let s = fixed(v, 3);
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
@@ -713,9 +715,9 @@ fn paint_position(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme, 
         let move_pct = pct(entry, price).abs();
         let ticks = ((price - entry).abs() / tick).round();
         if style.compact {
-            format!("{} ({move_pct:.2}%) {}", format_price(price, digits), significant(amount))
+            format!("{} ({}%) {}", format_price(price, digits), fixed(move_pct, 2), significant(amount))
         } else {
-            format!("{name}: {} ({move_pct:.2}%) {ticks:.0}, Amount: {}", format_price(price, digits), significant(amount))
+            format!("{name}: {} ({}%) {}, Amount: {}", format_price(price, digits), fixed(move_pct, 2), fixed(ticks, 0), significant(amount))
         }
     };
     let target_above = target_y <= entry_y;
@@ -729,11 +731,11 @@ fn paint_position(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme, 
     let (first, second) = match d.last.filter(|_| !d.draft) {
         Some(last) if !style.compact => {
             let pnl = (last - entry) * if long { 1.0 } else { -1.0 } * lot;
-            let q: f64 = qty.parse().unwrap_or(0.0);
-            (format!("Open P&L: {}, Qty: {qty}", significant(pnl * q)), format!("Risk/Reward Ratio: {rr:.2}"))
+            let q = tradoor_core::format::parse_number(&qty).unwrap_or(0.0);
+            (format!("Open P&L: {}, Qty: {qty}", significant(pnl * q)), format!("Risk/Reward Ratio: {}", fixed(rr, 2)))
         }
-        _ if style.compact => (format!("{qty}"), format!("{rr:.2}")),
-        _ => (format!("Qty: {qty}"), format!("Risk/Reward Ratio: {rr:.2}")),
+        _ if style.compact => (qty.clone(), fixed(rr, 2)),
+        _ => (format!("Qty: {qty}"), format!("Risk/Reward Ratio: {}", fixed(rr, 2))),
     };
     let grey = Color::hex(0x9598a1);
     let (up, down) = if target_above { (Baseline::Top, Baseline::Top) } else { (Baseline::Bottom, Baseline::Bottom) };

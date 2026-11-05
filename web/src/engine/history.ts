@@ -20,13 +20,15 @@ export interface Cols {
   low: Float64Array;
   close: Float64Array;
   volume: Float64Array;
+  /** What market buyers took, in coins; -1 where the exchange does not say. */
+  buy: Float64Array;
 }
 
-const KEYS = ['time', 'open', 'high', 'low', 'close', 'volume'] as const;
+const KEYS = ['time', 'open', 'high', 'low', 'close', 'volume', 'buy'] as const;
 
 export function emptyCols(): Cols {
   const e = () => new Float64Array(0);
-  return { time: e(), open: e(), high: e(), low: e(), close: e(), volume: e() };
+  return { time: e(), open: e(), high: e(), low: e(), close: e(), volume: e(), buy: e() };
 }
 
 /** Whether two runs of bars are the same bars, to the last figure. */
@@ -237,7 +239,7 @@ async function klines(ref: MarketRef, interval: string, range: Range, limit = pa
   const now = Date.now();
   const closed = rows.filter((r) => Number.isFinite(r[4]) && intervalEnd(interval, r[0]!) <= now);
   const cols = emptyCols();
-  for (const [i, key] of KEYS.entries()) cols[key] = Float64Array.from(closed, (r) => r[i]!);
+  for (const [i, key] of KEYS.entries()) cols[key] = Float64Array.from(closed, (r) => r[i] ?? -1);
   return { cols, raw: rows.length };
 }
 
@@ -264,7 +266,7 @@ async function rowsIn(ref: MarketRef, interval: string, range: Range, limit: num
     if (range.end !== undefined) query += `&endTime=${range.end}`;
     const body = ref.venue === 'binance-perp' ? await getJson(`https://fapi.binance.com${query}`) : await binanceSpot(query);
     if (!Array.isArray(body)) throw new Error('Binance sent an unexpected kline response');
-    rows = (body as unknown[][]).map((r) => [Number(r[0]), Number(r[1]), Number(r[2]), Number(r[3]), Number(r[4]), Number(r[5])]);
+    rows = (body as unknown[][]).map((r) => [Number(r[0]), Number(r[1]), Number(r[2]), Number(r[3]), Number(r[4]), Number(r[5]), Number(r[9])]);
   } else if (ref.venue.startsWith('bybit')) {
     const category = ref.venue === 'bybit-perp' ? 'linear' : 'spot';
     let url = `https://api.bybit.com/v5/market/kline?category=${category}&symbol=${ref.symbol}&interval=${BYBIT_INTERVAL[interval] ?? interval}&limit=${limit}`;
@@ -286,6 +288,8 @@ async function rowsIn(ref: MarketRef, interval: string, range: Range, limit: num
 
 interface PartitionInfo {
   period: string;
+  /** Its contents' hash: files are cached for a year, so a rebuilt one needs a new address. */
+  sha256?: string;
   rows: number;
   firstOpen: number;
   lastOpen: number;
@@ -314,8 +318,8 @@ function manifest(ref: MarketRef): Promise<Manifest | null> {
   return value;
 }
 
-async function fetchPartition(ref: MarketRef, base: string, period: string): Promise<Cols> {
-  const res = await fetch(`/data/${ref.venue}/${ref.symbol}/${base}/${period}.tdc.gz`);
+async function fetchPartition(ref: MarketRef, base: string, { period, sha256 }: PartitionInfo): Promise<Cols> {
+  const res = await fetch(`/data/${ref.venue}/${ref.symbol}/${base}/${period}.tdc.gz?v=${sha256?.slice(0, 12) ?? ''}`);
   if (!res.ok) throw new Error(`history file ${base}/${period} answered ${res.status}`);
   let bytes = new Uint8Array(await res.arrayBuffer());
   // Still gzip unless a server in between set Content-Encoding and the browser inflated it.
@@ -503,7 +507,7 @@ export class Series {
       take += 1;
     }
     const chosen = this.partitions.slice(this.partitions.length - take);
-    const parts = await Promise.all(chosen.map((p) => fetchPartition(this.ref, this.interval, p.period)));
+    const parts = await Promise.all(chosen.map((p) => fetchPartition(this.ref, this.interval, p)));
     this.partitions.splice(this.partitions.length - take, take);
     const loaded = concatCols(parts);
     this.cols = joinCols(loaded, this.cols);

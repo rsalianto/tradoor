@@ -60,7 +60,6 @@ const ReferralCard = lazy(() => import('../components/Referrals').then((m) => ({
 const Journal = lazy(() => import('../journal/Journal').then((m) => ({ default: m.Journal })));
 const Training = lazy(() => import('../training/Training').then((m) => ({ default: m.Training })));
 
-const splitList = (s: string): string[] => s.split(',').filter(Boolean);
 
 function addNear(type: PanelType, zone: DropZone): void {
   const from = focusedPanel() ?? targetChart();
@@ -404,17 +403,7 @@ function Overlays() {
           case 'indicators': {
             const panel = doc.panels[o.panelId] ?? detached[o.panelId];
             if (panel?.type !== 'chart') return null;
-            return (
-              <IndicatorPicker
-                active={splitList(panel.studies)}
-                onClose={closeOverlay}
-                onAdd={(study) => {
-                  closeOverlay();
-                  const list = splitList(panel.studies);
-                  if (!list.includes(study)) patchPanel(panel.id, { studies: [...list, study].join(',') });
-                }}
-              />
-            );
+            return <IndicatorPicker panel={panel} onClose={closeOverlay} />;
           }
           case 'tpoSettings': {
             const panel = doc.panels[o.panelId];

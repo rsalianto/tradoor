@@ -44,7 +44,7 @@ impl std::fmt::Display for CodecError {
             Self::Truncated => write!(f, "partition is truncated"),
             Self::TrailingBytes => write!(f, "partition has trailing bytes"),
             Self::UnknownInterval(c) => write!(f, "unknown interval code {c}"),
-            Self::BadNumber(s) => write!(f, "not a decimal number: {s:?}"),
+            Self::BadNumber(s) => write!(f, "not a decimal number: {s}"),
             Self::NotAscending(t) => write!(f, "open times are not ascending at {t}"),
             Self::Misaligned(t) => write!(f, "open time {t} is not on an interval boundary"),
             Self::MixedIntervals => write!(f, "cannot merge partitions of different intervals"),
@@ -303,6 +303,7 @@ impl TickCandles {
                 close: to_f64(self.close[i], self.price_scale),
                 volume: to_f64(self.volume[i] as i64, self.volume_scale),
                 quote_volume: self.quote_volume.as_ref().map(|q| to_f64(q[i] as i64, self.quote_scale)),
+                taker_buy: self.taker_buy_volume.as_ref().map(|q| to_f64(q[i] as i64, self.volume_scale)),
             })
             .collect()
     }
@@ -339,17 +340,18 @@ impl TickCandles {
         let vs = parts.iter().map(|p| p.volume_scale).max().unwrap_or(0);
         let qs = parts.iter().map(|p| p.quote_scale).max().unwrap_or(0);
         let scaled: Vec<Self> = parts.iter().map(|p| p.rescaled(ps, vs, qs)).collect::<Result<_, _>>()?;
-        let all = |f: fn(&Self) -> bool| scaled.iter().all(f);
-        let (has_quote, has_taker, has_trades) = (all(|p| p.quote_volume.is_some()), all(|p| p.taker_buy_volume.is_some()), all(|p| p.trades.is_some()));
 
         let mut rows: Vec<(i64, usize, usize)> = scaled.iter().enumerate().flat_map(|(p, part)| part.open_time.iter().enumerate().map(move |(i, &t)| (t, p, i))).collect();
-        rows.sort_by_key(|&(t, p, _)| (t, p));
+        // The last part holding a bar wins it. A column stays if every bar that
+        // survives has it: an empty part, or one the others overwrite whole, has
+        // no say in it.
+        rows.sort_by_key(|&(t, p, i)| (t, std::cmp::Reverse((p, i))));
+        rows.dedup_by_key(|r| r.0);
+        let all = |f: fn(&Self) -> bool| rows.iter().all(|r| f(&scaled[r.1]));
+        let (has_quote, has_taker, has_trades) = (all(|p| p.quote_volume.is_some()), all(|p| p.taker_buy_volume.is_some()), all(|p| p.trades.is_some()));
         let mut out = Self { price_scale: ps, volume_scale: vs, quote_scale: qs, ..Self::empty(first.interval) };
         let (mut quote, mut taker, mut trades) = (Vec::new(), Vec::new(), Vec::new());
-        for (k, &(t, p, i)) in rows.iter().enumerate() {
-            if rows.get(k + 1).is_some_and(|next| next.0 == t) {
-                continue;
-            }
+        for &(t, p, i) in &rows {
             let part = &scaled[p];
             out.open_time.push(t);
             out.open.push(part.open[i]);
@@ -533,6 +535,31 @@ mod tests {
         assert_eq!(m.to_candles()[1].close, 2.125);
         // Volume shares its scale with taker volume ("0.25"), so 1 is stored as 100.
         assert_eq!(m.to_candles().iter().map(|c| c.volume).collect::<Vec<_>>(), [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn a_column_survives_a_part_that_has_no_say_in_it() {
+        let t0 = parse_iso("2026-09-13").unwrap();
+        let full = TickCandles::from_raw(Interval::H1, &[raw(t0, "1", "2", "1", "1", "1"), raw(t0 + HOUR, "1", "2", "1", "1", "1")]).unwrap();
+        let bare = |t: i64| RawCandle { quote_volume: None, taker_buy_volume: None, trades: None, ..raw(t, "1", "2", "1", "1", "1") };
+        let empty = TickCandles::empty(Interval::H1);
+
+        // Nothing on disk yet, then the exchange's bars: what a recent day is made of.
+        let m = TickCandles::merge(&[empty, full.clone()]).unwrap().unwrap();
+        assert!(m.taker_buy_volume.is_some() && m.quote_volume.is_some() && m.trades.is_some());
+        assert_eq!(m.to_candles()[0].taker_buy, Some(0.25));
+
+        // Older files without it, every bar overwritten by the later part.
+        let old = TickCandles::from_raw(Interval::H1, &[bare(t0)]).unwrap();
+        let m = TickCandles::merge(&[old, full.clone()]).unwrap().unwrap();
+        assert!(m.taker_buy_volume.is_some());
+
+        // A bar that keeps no figure of its own takes the column away, for all of them.
+        let later = TickCandles::from_raw(Interval::H1, &[bare(t0 + 2 * HOUR)]).unwrap();
+        let m = TickCandles::merge(&[full, later]).unwrap().unwrap();
+        assert_eq!(m.len(), 3);
+        assert!(m.taker_buy_volume.is_none());
+        assert_eq!(m.to_candles()[0].taker_buy, None);
     }
 
     #[test]

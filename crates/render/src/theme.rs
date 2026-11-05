@@ -92,7 +92,7 @@ impl Theme {
             };
         }
         if key == "fontPx" {
-            return value.parse::<f32>().ok().filter(|v| (8.0..=20.0).contains(v)).map(|v| self.font_px = v).is_some();
+            return tradoor_core::format::parse_number(value).map(|v| v as f32).filter(|v| (8.0..=20.0).contains(v)).map(|v| self.font_px = v).is_some();
         }
         let Some(color) = Color::parse(value) else { return false };
         let slot = match key {

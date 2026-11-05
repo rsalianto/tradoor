@@ -29,7 +29,15 @@ pub fn point(time: f64, price: f64) -> Object {
 
 pub fn candles(time: &[f64], open: &[f64], high: &[f64], low: &[f64], close: &[f64], volume: &[f64]) -> Vec<Candle> {
     let n = time.len().min(open.len()).min(high.len()).min(low.len()).min(close.len()).min(volume.len());
-    (0..n).map(|i| Candle { open_time: time[i] as i64, open: open[i], high: high[i], low: low[i], close: close[i], volume: volume[i], quote_volume: None }).collect()
+    (0..n).map(|i| Candle { open_time: time[i] as i64, open: open[i], high: high[i], low: low[i], close: close[i], volume: volume[i], quote_volume: None, taker_buy: None }).collect()
+}
+
+/// What market buyers took in each bar, as `columns` writes it, onto candles.
+pub fn with_taker(mut candles: Vec<Candle>, buy: &[f64]) -> Vec<Candle> {
+    for (c, b) in candles.iter_mut().zip(buy) {
+        c.taker_buy = (*b >= 0.0).then_some(*b);
+    }
+    candles
 }
 
 pub fn columns(candles: &[Candle]) -> Object {
@@ -41,5 +49,7 @@ pub fn columns(candles: &[Candle]) -> Object {
     set(&o, "low", col(|c| c.low));
     set(&o, "close", col(|c| c.close));
     set(&o, "volume", col(|c| c.volume));
+    // -1 where the exchange does not say.
+    set(&o, "buy", col(|c| c.taker_buy.unwrap_or(-1.0)));
     o
 }

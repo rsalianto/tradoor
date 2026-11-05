@@ -16,6 +16,7 @@ const cols = (rows: [number, number, number, number, number][]): Cols => ({
   low: Float64Array.from(rows.map((r) => r[3])),
   close: Float64Array.from(rows.map((r) => r[4])),
   volume: new Float64Array(rows.length),
+  buy: new Float64Array(rows.length).fill(-1),
 });
 
 Deno.test('a ratio bar divides like for like, and takes in its open and close', () => {

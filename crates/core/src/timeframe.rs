@@ -302,6 +302,8 @@ pub fn fold(source: &[Candle], tf: ChartTimeframe, now: i64) -> Vec<Candle> {
                 bucket.close = candle.close;
                 bucket.volume += candle.volume;
                 bucket.quote_volume = Some(bucket.quote_volume.unwrap_or(0.0) + quote);
+                // A bar's buyers are known only if every bar in it says.
+                bucket.taker_buy = bucket.taker_buy.zip(candle.taker_buy).map(|(a, b)| a + b);
             }
             _ => out.push(Candle {
                 open_time: start,
@@ -311,6 +313,7 @@ pub fn fold(source: &[Candle], tf: ChartTimeframe, now: i64) -> Vec<Candle> {
                 close: candle.close,
                 volume: candle.volume,
                 quote_volume: Some(quote),
+                taker_buy: candle.taker_buy,
             }),
         }
     }
@@ -323,6 +326,14 @@ pub fn fold(source: &[Candle], tf: ChartTimeframe, now: i64) -> Vec<Candle> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folded_bars_buyers_are_known_only_if_every_bar_in_it_says() {
+        let day = 86_400_000;
+        let bar = |d: i64, taker_buy| Candle { open_time: d * day, open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 10.0, quote_volume: None, taker_buy };
+        let folded = fold(&[bar(0, Some(3.0)), bar(1, Some(4.0)), bar(2, Some(5.0)), bar(3, None)], ChartTimeframe::D2, 10 * day);
+        assert_eq!(folded.iter().map(|c| c.taker_buy).collect::<Vec<_>>(), [Some(7.0), None]);
+    }
     use crate::time::{iso_minute, parse_iso, weekday};
 
     fn t(s: &str) -> i64 {
@@ -334,7 +345,7 @@ mod tests {
             .enumerate()
             .map(|(i, d)| {
                 let i = i as f64;
-                Candle { open_time: t(d), open: i, high: i + 1.0, low: i - 1.0, close: i, volume: 1.0, quote_volume: None }
+                Candle { open_time: t(d), open: i, high: i + 1.0, low: i - 1.0, close: i, volume: 1.0, quote_volume: None, taker_buy: None }
             })
             .collect()
     }

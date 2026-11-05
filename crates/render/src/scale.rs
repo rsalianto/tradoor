@@ -1,5 +1,7 @@
 //! Time and price scales.
 
+use tradoor_core::num::Within;
+
 /// The horizontal axis, in bars. Logical index `i` is bar `i`; positions between
 /// and beyond bars are continuous, which is where drawings and projections live.
 ///
@@ -103,13 +105,13 @@ impl TimeScale {
     }
 
     pub fn nearest_bar(&self, x: f64) -> Option<usize> {
-        (self.bars > 0).then(|| self.logical(x).round().clamp(0.0, (self.bars - 1) as f64) as usize)
+        (self.bars > 0).then(|| self.logical(x).round().within(0.0, (self.bars - 1) as f64) as usize)
     }
 
     /// Keep what is under `x` under `x` while the spacing changes.
     pub fn zoom_at(&mut self, x: f64, factor: f64) {
         let anchor = self.right_column() + 0.5 - (self.width - x) / self.bar_spacing;
-        self.bar_spacing = (self.bar_spacing * factor).clamp(self.min_spacing, self.max_spacing());
+        self.bar_spacing = (self.bar_spacing * factor).within(self.min_spacing, self.max_spacing());
         let right = anchor + (self.width - x) / self.bar_spacing - 0.5;
         self.right_offset = right - self.column(self.bars as f64 - 1.0);
         self.clamp();
@@ -134,7 +136,7 @@ impl TimeScale {
         let keep = 3.0f64.min(total).min(visible / 2.0);
         let max = visible - keep;
         let min = -total + keep;
-        self.right_offset = self.right_offset.clamp(min.min(max), max.max(min));
+        self.right_offset = self.right_offset.within(min.min(max), max.max(min));
     }
 
     /// The last `count` bars fill the plot, with `margin` columns of room at the right.
@@ -144,7 +146,7 @@ impl TimeScale {
         }
         let n = self.bars as f64;
         let columns = self.edge_column(n) - self.edge_column(n - count.max(1.0));
-        self.bar_spacing = (self.width / (columns.max(1.0) + margin)).clamp(self.min_spacing, self.max_spacing());
+        self.bar_spacing = (self.width / (columns.max(1.0) + margin)).within(self.min_spacing, self.max_spacing());
         self.right_offset = margin;
         self.clamp();
     }
@@ -253,7 +255,7 @@ impl PriceScale {
     /// transformed units) within `[min_span, max_span]`.
     pub fn zoom(&mut self, factor: f64, min_span: f64, max_span: f64) {
         let (lo, hi) = self.range;
-        let span = ((hi - lo) * factor).clamp(min_span, max_span.max(min_span));
+        let span = ((hi - lo) * factor).within(min_span, max_span.max(min_span));
         let mid = (lo + hi) / 2.0;
         if span.is_finite() && span > 0.0 {
             self.range = (mid - span / 2.0, mid + span / 2.0);

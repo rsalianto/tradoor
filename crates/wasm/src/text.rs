@@ -28,7 +28,7 @@ pub struct TextLayer {
 }
 
 fn font(size: f32) -> String {
-    format!("{size}px ui-monospace, SFMono-Regular, Menlo, Consolas, \"Liberation Mono\", monospace")
+    format!("{}px ui-monospace, SFMono-Regular, Menlo, Consolas, \"Liberation Mono\", monospace", tradoor_core::format::plain(f64::from(size)))
 }
 
 impl TextLayer {
@@ -48,9 +48,9 @@ impl TextLayer {
             .lines()
             .filter_map(|line| {
                 let mut parts = line.splitn(5, '|');
-                let tx = parts.next()?.parse().ok()?;
-                let ty = parts.next()?.parse().ok()?;
-                let scale = parts.next()?.parse().ok()?;
+                let tx = tradoor_core::format::parse_number(parts.next()?)?;
+                let ty = tradoor_core::format::parse_number(parts.next()?)?;
+                let scale = tradoor_core::format::parse_number(parts.next()?)?;
                 let fill = parts.next()?.to_string();
                 let path = Path2d::new_with_path_string(parts.next()?).ok()?;
                 Some(MarkPath { path, fill, tx, ty, scale })

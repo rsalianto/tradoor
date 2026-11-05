@@ -8,7 +8,7 @@ pub fn nice_step(raw: f64) -> f64 {
     if !(raw.is_finite() && raw > 0.0) {
         return 1.0;
     }
-    let pow = 10f64.powf(raw.log10().floor());
+    let pow = 10f64.powi(raw.log10().floor() as i32);
     [1.0, 2.0, 2.5, 5.0, 10.0].into_iter().map(|m| m * pow).find(|s| *s >= raw * (1.0 - 1e-9)).unwrap_or(10.0 * pow)
 }
 
@@ -32,7 +32,7 @@ pub fn price_ticks(scale: &PriceScale, gap: f64) -> Vec<f64> {
             let (tlo, thi) = (scale.transform(lo.max(1e-12)), scale.transform(hi.max(1e-12)));
             for k in 0..=count as usize {
                 let p = scale.untransform(tlo + (thi - tlo) * k as f64 / count);
-                let mag = 10f64.powf(p.log10().floor() - 1.0);
+                let mag = 10f64.powi(p.log10().floor() as i32 - 1);
                 let rounded = (p / mag).round() * mag;
                 if rounded >= lo && rounded <= hi && out.last().is_none_or(|last: &f64| (rounded - last).abs() > mag * 0.5) {
                     out.push(rounded);
@@ -103,12 +103,12 @@ pub fn crosshair_label(t: i64, bar_ms: Option<i64>, monthly: bool) -> String {
 
 /// Pick labels most significant first, never closer than `gap` pixels.
 pub fn pick_time_labels(candidates: &[(u8, f32, i64)], gap: f32) -> Vec<(f32, String)> {
-    let mut order: Vec<usize> = (0..candidates.len()).collect();
-    order.sort_by(|&a, &b| candidates[b].0.cmp(&candidates[a].0).then(candidates[a].1.total_cmp(&candidates[b].1)));
     let mut taken: Vec<f32> = Vec::new();
     let mut out = Vec::new();
-    for i in order {
-        let (weight, x, t) = candidates[i];
+    // Candidates stand in order along the axis, so taking each weight in turn
+    // needs no sort, and there are only a few weights.
+    let heaviest = candidates.iter().map(|c| c.0).max().unwrap_or(0);
+    for &(weight, x, t) in (0..=heaviest).rev().flat_map(|w| candidates.iter().filter(move |c| c.0 == w)) {
         let pos = taken.partition_point(|v| *v < x);
         let clear = taken.get(pos).is_none_or(|n| n - x >= gap) && (pos == 0 || x - taken[pos - 1] >= gap);
         if clear {

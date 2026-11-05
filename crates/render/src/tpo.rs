@@ -9,10 +9,11 @@
 //! prints, poor highs and lows, and how long each level has stayed untouched
 //! ("naked"). Painting only places it.
 
+use tradoor_core::num::Within;
 use tradoor_core::format::format_turnover;
 use tradoor_core::indicators::profile::value_area;
 use tradoor_core::indicators::tpo::{tpo_session, TpoOptions, TpoSession};
-use tradoor_core::time::{civil, utc, weekday, DAY, HOUR, MINUTE};
+use tradoor_core::time::{civil, london, new_york, weekday, DAY, HOUR, MINUTE};
 use tradoor_core::{Candle, ChartTimeframe};
 
 use crate::color::Color;
@@ -118,40 +119,6 @@ impl Session {
     }
 }
 
-/// The `n`th Sunday of a month (`0`: the last), at midnight UTC.
-fn sunday(year: i64, month0: i64, n: i64) -> i64 {
-    if n == 0 {
-        let last = utc(year, month0 + 1, 1) - DAY;
-        return last - i64::from(weekday(last)) * DAY;
-    }
-    let first = utc(year, month0, 1);
-    first + ((7 - i64::from(weekday(first))) % 7 + 7 * (n - 1)) * DAY
-}
-
-/// Whether London keeps summer time on the day starting at `day`.
-fn london_summer(day: i64) -> bool {
-    let year = civil(day).year;
-    day >= sunday(year, 2, 0) && day < sunday(year, 9, 0)
-}
-
-/// Whether New York keeps summer time on the day starting at `day`.
-fn new_york_summer(day: i64) -> bool {
-    let year = civil(day).year;
-    day >= sunday(year, 2, 2) && day < sunday(year, 10, 1)
-}
-
-/// London's open and close on a day, in minutes past midnight UTC.
-fn london(day: i64) -> (i64, i64) {
-    let shift = if london_summer(day) { 60 } else { 0 };
-    (8 * 60 - shift, 16 * 60 + 30 - shift)
-}
-
-/// New York's open and close on a day, in minutes past midnight UTC.
-fn new_york(day: i64) -> (i64, i64) {
-    let behind = if new_york_summer(day) { 4 * 60 } else { 5 * 60 };
-    (9 * 60 + 30 + behind, 16 * 60 + behind)
-}
-
 const ASIA: Color = Color { r: 0xe3, g: 0xcd, b: 0x2a, a: 255 };
 const LONDON: Color = Color { r: 0xc8, g: 0x20, b: 0x2e, a: 255 };
 const NEW_YORK: Color = Color { r: 0x2f, g: 0x5b, b: 0xd8, a: 255 };
@@ -205,7 +172,7 @@ fn windows(period: Period, sessions: &[Session], from: i64, to: i64) -> Vec<Wind
         }
         day += DAY;
     }
-    out.sort_by_key(|w| w.start);
+    tradoor_core::sort::insertion_sort_by(&mut out, |a, b| a.start < b.start);
     // Overlapping sessions: a bar goes to the one that opened first.
     for i in 1..out.len() {
         out[i].start = out[i].start.max(out[i - 1].end.min(out[i].end));
@@ -254,7 +221,7 @@ fn pieces(windows: Vec<Window>, edits: &Edits) -> Vec<Piece> {
     let mut out: Vec<Piece> = Vec::new();
     for w in windows {
         let mut cuts: Vec<i64> = edits.splits.iter().copied().filter(|t| *t > w.start && *t < w.end).collect();
-        cuts.sort_unstable();
+        tradoor_core::sort::insertion_sort_by(&mut cuts, |a, b| a < b);
         cuts.dedup();
         let mut start = w.start;
         for end in cuts.into_iter().chain([w.end]) {
@@ -445,7 +412,7 @@ impl Settings {
         };
         let color = || Color::parse(v);
         let count = |lo: usize, hi: usize| v.parse::<usize>().ok().filter(|n| (lo..=hi).contains(n));
-        let number = |lo: f64, hi: f64| v.parse::<f64>().ok().filter(|n| (lo..=hi).contains(n));
+        let number = |lo: f64, hi: f64| tradoor_core::format::parse_number(v).filter(|n| (lo..=hi).contains(n));
         macro_rules! apply {
             ($slot:expr, $value:expr) => {
                 if let Some(x) = $value {
@@ -476,7 +443,7 @@ impl Settings {
             "sessions" => self.sessions = Session::parse_list(v),
             "sessionHeader" => apply!(self.session_header, flag()),
             "poc" => apply!(self.poc, flag()),
-            "pocWidth" => apply!(self.poc_width, v.parse::<f32>().ok().filter(|n| (1.0..=6.0).contains(n))),
+            "pocWidth" => apply!(self.poc_width, tradoor_core::format::parse_number(v).map(|n| n as f32).filter(|n| (1.0..=6.0).contains(n))),
             "pocColor" => apply!(self.poc_color, color().map(Some)),
             "pocRayColor" => apply!(self.poc_ray_color, color().map(Some)),
             "nakedPoc" => apply!(self.naked_poc, flag()),
@@ -779,14 +746,14 @@ fn row_size(bars: &[Candle], tick: f64, row_ticks: u32) -> f64 {
     if ranges.is_empty() {
         return tick.max(1e-9);
     }
-    ranges.sort_by(f64::total_cmp);
+    tradoor_core::sort::heap_sort_by(&mut ranges, |a, b| a < b);
     let raw = ranges[ranges.len() / 2] / AUTO_DAY_ROWS;
     if !(tick > 0.0) {
         return nice_step(raw);
     }
     // The nearest round number of ticks, not the next one up.
     let ticks = (raw / tick).max(1.0);
-    let pow = 10f64.powf(ticks.log10().floor());
+    let pow = 10f64.powi(ticks.log10().floor() as i32);
     let off = |a: f64| (a / ticks).max(ticks / a);
     let best = [1.0, 2.0, 2.5, 5.0, 10.0].into_iter().map(|m| m * pow).min_by(|a, b| off(*a).total_cmp(&off(*b))).unwrap_or(1.0);
     tick * best.round().max(1.0)
@@ -812,7 +779,7 @@ pub fn build(bars: &[Candle], period: Period, tick: f64, flow: &[footprint::Bar]
     // Bars to the piece that holds them; a bar outside every session belongs to none.
     let pieces = pieces(windows(period, &settings.sessions, first_bar.open_time, last_bar.open_time), edits);
     let mut ranges: Vec<(i64, i64, usize)> = pieces.iter().enumerate().flat_map(|(k, p)| p.ranges.iter().map(move |r| (r.0, r.1, k))).collect();
-    ranges.sort_by_key(|r| r.0);
+    tradoor_core::sort::insertion_sort_by(&mut ranges, |a, b| a.0 < b.0);
     let mut members: Vec<Vec<usize>> = vec![Vec::new(); pieces.len()];
     let mut at = 0;
     for (i, b) in bars.iter().enumerate() {
@@ -961,7 +928,7 @@ pub struct Tag {
 }
 
 fn mix(a: Color, b: Color, t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
+    let t = t.within(0.0, 1.0);
     let ch = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
     Color { r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b), a: ch(a.a, b.a) }
 }
@@ -986,7 +953,7 @@ pub fn paint(f: &mut Frame, v: &View, p: &Profiles, s: &Settings) -> Vec<Tag> {
     let dpr = f.dpr;
     let hair = 1.0 / dpr;
     let col = v.column;
-    let gap_x = (col * BLOCK_GAP).clamp(hair, MAX_GAP);
+    let gap_x = (col * BLOCK_GAP).within(hair, MAX_GAP);
     let block = f.snap((col - gap_x).max(hair)).max(hair);
     let merged = col * dpr < 1.5;
     let label_size = t.font_px - 2.0;
@@ -1051,7 +1018,7 @@ pub fn paint(f: &mut Frame, v: &View, p: &Profiles, s: &Settings) -> Vec<Tag> {
                 continue;
             }
             let height = bottom_y - top_y;
-            let gap = if height >= 3.0 { f.snap((height * BLOCK_GAP).clamp(hair, MAX_GAP)).max(hair) } else { 0.0 };
+            let gap = if height >= 3.0 { f.snap((height * BLOCK_GAP).within(hair, MAX_GAP)).max(hair) } else { 0.0 };
             let h = (height - gap).max(hair);
             let mid = p.grid_low + (row.index as f64 + 0.5) * p.row_size;
             let role = if s.poc && row.index == poc_row {
@@ -1228,7 +1195,7 @@ fn paint_volume(f: &mut Frame, v: &View, p: &Profiles, s: &Settings, profile: &P
             continue;
         }
         let height = bottom - top;
-        let gap = if height >= 3.0 { (height * BLOCK_GAP).clamp(hair, MAX_GAP) } else { 0.0 };
+        let gap = if height >= 3.0 { (height * BLOCK_GAP).within(hair, MAX_GAP) } else { 0.0 };
         let h = (height - gap).max(hair);
         // From the anchor outwards: right to left against the slot's end, or left to right.
         let mut bar = |from: f32, w: f32, color: Color| {
@@ -1336,9 +1303,10 @@ pub fn hover(p: &Profiles, s: &Settings, k: usize, bar: Option<(usize, i64)>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tradoor_core::time::utc;
 
     fn bar(i: i64, low: f64, high: f64, volume: f64) -> Candle {
-        Candle { open_time: i * HOUR, open: low, high, low, close: high, volume, quote_volume: None }
+        Candle { open_time: i * HOUR, open: low, high, low, close: high, volume, quote_volume: None, taker_buy: None }
     }
 
     #[test]
@@ -1459,7 +1427,7 @@ mod tests {
 
     #[test]
     fn the_tick_is_read_off_the_prices() {
-        let bars: Vec<Candle> = (0..50).map(|i| Candle { open_time: i, open: 100.0 + i as f64 * 0.1, high: 101.5, low: 99.3, close: 100.2, volume: 1.0, quote_volume: None }).collect();
+        let bars: Vec<Candle> = (0..50).map(|i| Candle { open_time: i, open: 100.0 + i as f64 * 0.1, high: 101.5, low: 99.3, close: 100.2, volume: 1.0, quote_volume: None, taker_buy: None }).collect();
         assert!((infer_tick(&bars, 2) - 0.1).abs() < 1e-12, "two decimals shown, a tenth traded");
         let halves: Vec<Candle> = bars.iter().map(|b| Candle { open: 100.5, high: 101.5, low: 99.0, close: 100.0, ..*b }).collect();
         assert!((infer_tick(&halves, 2) - 0.5).abs() < 1e-12);

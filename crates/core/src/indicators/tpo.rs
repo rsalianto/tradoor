@@ -6,7 +6,6 @@
 //! that impossible. The value area is computed from the letter counts so it
 //! agrees with what is on screen.
 
-use std::collections::BTreeMap;
 
 use super::profile::value_area;
 use crate::{Candle, ChartTimeframe};
@@ -84,15 +83,21 @@ pub fn tpo_session(period_candles: &[Candle], session_start: i64, session_end: i
         return None;
     }
 
-    let mut by_row: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
+    let lowest = row_index(low, grid_low, row_size);
+    let mut by_row: Vec<Vec<usize>> = vec![Vec::new(); (row_index(high, grid_low, row_size) - lowest + 1).max(0) as usize];
     for (p, c) in period_candles.iter().enumerate() {
         for r in row_index(c.low, grid_low, row_size)..=row_index(c.high, grid_low, row_size) {
-            by_row.entry(r).or_default().push(p);
+            by_row[(r - lowest) as usize].push(p);
         }
     }
     let rows: Vec<TpoRow> = by_row
         .into_iter()
-        .map(|(index, periods)| TpoRow { index, price: grid_low + index as f64 * row_size, periods })
+        .enumerate()
+        .filter(|(_, periods)| !periods.is_empty())
+        .map(|(at, periods)| {
+            let index = lowest + at as i64;
+            TpoRow { index, price: grid_low + index as f64 * row_size, periods }
+        })
         .collect();
     let (first, last) = (rows.first()?.index, rows.last()?.index);
 
@@ -137,16 +142,12 @@ fn single_prints(rows: &[TpoRow]) -> Vec<i64> {
             out.push(r.index);
         }
     }
-    out.sort_unstable();
+    crate::sort::insertion_sort_by(&mut out, |a, b| a < b);
     out
 }
 
 pub fn tpo_by_session(candles: &[Candle], session: ChartTimeframe, opts: &TpoOptions) -> Vec<TpoSession> {
-    let mut groups: BTreeMap<i64, Vec<Candle>> = BTreeMap::new();
-    for c in candles {
-        groups.entry(session.align(c.open_time)).or_default().push(*c);
-    }
-    groups
+    super::profile::by_session(candles, session)
         .into_iter()
         .filter(|(_, g)| g.len() >= opts.min_periods)
         .filter_map(|(start, g)| tpo_session(&g, start, session.end(start), opts))

@@ -221,7 +221,7 @@ pub fn fill_triangles(ctx: &web_sys::OffscreenCanvasRenderingContext2d, frame: &
                 if run.is_some() {
                     ctx.fill();
                 }
-                ctx.set_fill_style_str(&format!("rgba({},{},{},{})", color[0], color[1], color[2], f64::from(color[3]) / 255.0));
+                ctx.set_fill_style_str(&format!("rgba({},{},{},{})", color[0], color[1], color[2], tradoor_core::format::fixed(f64::from(color[3]) / 255.0, 3)));
                 ctx.begin_path();
                 run = Some(color);
             }

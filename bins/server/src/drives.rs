@@ -945,7 +945,7 @@ mod tests {
             .map(|(i, &p)| {
                 // Corners and the bars beside them stay clean, so each peak is one bar.
                 let close = if peaks.iter().any(|&q| i.abs_diff(q) <= 2) { p } else { p + if i % 2 == 0 { 0.9 } else { -0.9 } };
-                Candle { open_time: i as i64 * H4, open: close, high: close + 0.5, low: close - 0.5, close, volume: 100.0, quote_volume: None }
+                Candle { open_time: i as i64 * H4, open: close, high: close + 0.5, low: close - 0.5, close, volume: 100.0, quote_volume: None, taker_buy: None }
             })
             .collect()
     }
@@ -984,7 +984,7 @@ mod tests {
 
     #[test]
     fn a_trade_takes_half_at_the_first_profit_and_then_cannot_lose() {
-        let bar = |high: f64, low: f64, close: f64| Candle { open_time: 0, open: close, high, low, close, volume: 1.0, quote_volume: None };
+        let bar = |high: f64, low: f64, close: f64| Candle { open_time: 0, open: close, high, low, close, volume: 1.0, quote_volume: None, taker_buy: None };
         // Short at 100 under a third drive at 104: profits at 97, 94 and 91, the stop at 107.64.
         let lv = plan_levels(Plan::Fixed, Side::Bear, 100.0, 104.0, 104.0, 0.0);
         assert!((lv.tp[0] - 97.0).abs() < 1e-9 && (lv.tp[2] - 91.0).abs() < 1e-9 && (lv.sl - 107.64).abs() < 1e-9);
@@ -1140,7 +1140,7 @@ mod tests {
 
     #[test]
     fn a_take_profit_already_past_at_the_entry_is_closed_there() {
-        let bar = |high: f64, low: f64, close: f64| Candle { open_time: 0, open: close, high, low, close, volume: 1.0, quote_volume: None };
+        let bar = |high: f64, low: f64, close: f64| Candle { open_time: 0, open: close, high, low, close, volume: 1.0, quote_volume: None, taker_buy: None };
         // Entered at 107 under Fib take-profits at 107.4, 104.6 and 100: the first is already past.
         let lv = plan_levels(Plan::Fib, Side::Bear, 107.0, 112.0, 100.0, 2.0);
         let back = play(Side::Bear, 107.0, lv, &[bar(107.5, 106.0, 107.2)], false);
@@ -1153,7 +1153,7 @@ mod tests {
 
     #[test]
     fn a_touch_is_its_own_third_drive_for_the_stop() {
-        let bar = |high: f64, low: f64, close: f64| Candle { open_time: 0, open: close, high, low, close, volume: 1.0, quote_volume: None };
+        let bar = |high: f64, low: f64, close: f64| Candle { open_time: 0, open: close, high, low, close, volume: 1.0, quote_volume: None, taker_buy: None };
         // Price at the line at 120: the stop 3.5% above it, at 124.2.
         let lv = plan_levels(Plan::Fixed, Side::Bear, 120.0, 120.0, 120.0, 0.0);
         let touch_outcome = |after: &[Candle]| touch_outcome(Side::Bear, 120.0, lv, after);

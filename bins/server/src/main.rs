@@ -15,6 +15,7 @@ mod catalog;
 mod dns;
 mod drives;
 mod drawings;
+mod favourites;
 mod flow;
 mod footprint;
 mod footprint_history;

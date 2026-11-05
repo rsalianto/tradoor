@@ -10,6 +10,8 @@
 pub mod candle;
 pub mod chart;
 pub mod format;
+pub mod num;
+pub mod sort;
 pub mod indicators;
 pub mod live;
 pub mod studies;
@@ -67,6 +69,7 @@ pub(crate) mod fixtures {
                 close: c,
                 volume,
                 quote_volume: Some(volume * c),
+                taker_buy: None,
             })
             .collect()
     }

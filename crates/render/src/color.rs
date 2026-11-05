@@ -1,5 +1,7 @@
 //! RGBA colours and the CSS spellings a theme accepts.
 
+use tradoor_core::num::Within;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Color {
     pub r: u8,
@@ -20,6 +22,11 @@ impl Color {
         Self { a, ..self }
     }
 
+    /// This strength of the colour, itself as strong as the reader set it.
+    pub const fn faded(self, a: u8) -> Self {
+        Self { a: (self.a as u32 * a as u32 / 255) as u8, ..self }
+    }
+
     /// `#rgb`, `#rrggbb`, `#rrggbbaa` or `rgba(r, g, b, a)` with `a` in 0–1.
     pub fn parse(s: &str) -> Option<Self> {
         let s = s.trim();
@@ -36,7 +43,7 @@ impl Color {
         let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
         let channel = |i: usize| parts.get(i)?.parse::<u8>().ok();
         let alpha = match parts.get(3) {
-            Some(a) => (a.parse::<f32>().ok()?.clamp(0.0, 1.0) * 255.0).round() as u8,
+            Some(a) => ((tradoor_core::format::parse_number(a)? as f32).within(0.0, 1.0) * 255.0).round() as u8,
             None => 255,
         };
         (parts.len() == 3 || parts.len() == 4).then(|| Some(Self { r: channel(0)?, g: channel(1)?, b: channel(2)?, a: alpha }))?
@@ -44,7 +51,7 @@ impl Color {
 
     /// What a 2D canvas takes as `fillStyle`.
     pub fn css(self) -> String {
-        format!("rgba({},{},{},{:.3})", self.r, self.g, self.b, f32::from(self.a) / 255.0)
+        format!("rgba({},{},{},{})", self.r, self.g, self.b, tradoor_core::format::fixed(f64::from(self.a) / 255.0, 3))
     }
 
     /// Dark or light text, whichever reads on this background.
@@ -65,8 +72,8 @@ impl Color {
     /// even at about 0.18, so a mid-tone fill gets dark text, a dim one light.
     pub fn ink(self) -> Color {
         let linear = |c: u8| {
-            let v = f32::from(c) / 255.0;
-            if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            let v = f64::from(c) / 255.0;
+            if v <= 0.04045 { v / 12.92 } else { (((v + 0.055) / 1.055).ln() * 2.4).exp() }
         };
         let luminance = 0.2126 * linear(self.r) + 0.7152 * linear(self.g) + 0.0722 * linear(self.b);
         if luminance > 0.179 { Color::hex(0x0f0f0f) } else { Color::hex(0xf2f5f2) }

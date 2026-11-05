@@ -320,23 +320,27 @@ impl Frame {
 
     pub fn circle(&mut self, cx: f32, cy: f32, r: f32, color: Color) {
         let segments = ((r * 2.5) as usize).clamp(8, 32);
-        let step = std::f32::consts::TAU / segments as f32;
-        for i in 0..segments {
-            let (a0, a1) = (i as f32 * step, (i + 1) as f32 * step);
-            self.triangle((cx, cy), (cx + r * a0.cos(), cy + r * a0.sin()), (cx + r * a1.cos(), cy + r * a1.sin()), color);
+        let turn = rotation(segments);
+        let mut at = (1.0, 0.0);
+        for _ in 0..segments {
+            let next = rotated(at, turn);
+            self.triangle((cx, cy), (cx + r * at.0, cy + r * at.1), (cx + r * next.0, cy + r * next.1), color);
+            at = next;
         }
     }
 
     /// A circle's outline, for marking the one under the pointer.
     pub fn ring(&mut self, cx: f32, cy: f32, r: f32, width: f32, color: Color) {
         let segments = ((r * 2.5) as usize).clamp(8, 32);
-        let step = std::f32::consts::TAU / segments as f32;
+        let turn = rotation(segments);
         let (inner, outer) = ((r - width / 2.0).max(0.1), r + width / 2.0);
-        for i in 0..segments {
-            let (a0, a1) = (i as f32 * step, (i + 1) as f32 * step);
-            let (c0, s0, c1, s1) = (a0.cos(), a0.sin(), a1.cos(), a1.sin());
+        let mut at = (1.0f32, 0.0f32);
+        for _ in 0..segments {
+            let next = rotated(at, turn);
+            let ((c0, s0), (c1, s1)) = (at, next);
             self.triangle((cx + inner * c0, cy + inner * s0), (cx + outer * c0, cy + outer * s0), (cx + outer * c1, cy + outer * s1), color);
             self.triangle((cx + inner * c0, cy + inner * s0), (cx + outer * c1, cy + outer * s1), (cx + inner * c1, cy + inner * s1), color);
+            at = next;
         }
     }
 
@@ -359,6 +363,19 @@ impl Frame {
         }
         self.icons.push(IconCmd { x, y, size, alpha, mark, clip });
     }
+}
+
+/// Cosine and sine of a turn in `segments` steps, from their series: a circle is
+/// never cut into fewer than eight, where they are good to a millionth, and the
+/// library's trigonometry weighs 8 kB of wasm for handling any angle at all.
+fn rotation(segments: usize) -> (f32, f32) {
+    let x = std::f32::consts::TAU / segments as f32;
+    let x2 = x * x;
+    (1.0 - x2 / 2.0 * (1.0 - x2 / 12.0 * (1.0 - x2 / 30.0)), x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0))))
+}
+
+fn rotated((c, s): (f32, f32), (dc, ds): (f32, f32)) -> (f32, f32) {
+    (c * dc - s * ds, s * dc + c * ds)
 }
 
 #[cfg(test)]

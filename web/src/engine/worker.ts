@@ -84,6 +84,7 @@ interface Bar {
   low: number;
   close: number;
   volume: number;
+  buy?: number;
   closed: boolean;
 }
 
@@ -121,6 +122,7 @@ function barCols(bars: readonly Bar[]): Cols {
     low: Float64Array.from(bars, (b) => b.low),
     close: Float64Array.from(bars, (b) => b.close),
     volume: Float64Array.from(bars, (b) => b.volume),
+    buy: Float64Array.from(bars, (b) => b.buy ?? -1),
   };
 }
 
@@ -148,7 +150,7 @@ async function openChartSeries(market: string, tf: TfInfo): Promise<CandleSeries
   const legs = ratioLegs(market);
   if (!legs) return openSeries(market, tf.base, tf.interval);
   const [a, b] = await Promise.all(legs.map((leg) => openSeries(leg, tf.base, tf.interval)));
-  const fold = (c: Cols) => fold_candles(tf.timeframe, c.time, c.open, c.high, c.low, c.close, c.volume, Date.now()) as unknown as Cols;
+  const fold = (c: Cols) => fold_candles(tf.timeframe, c.time, c.open, c.high, c.low, c.close, c.volume, c.buy, Date.now()) as unknown as Cols;
   // Loaded only here: a chart of one market never pays for it.
   const { RatioSeries } = await import('./ratio');
   return new RatioSeries([a!, b!], tf.timeframe, fold, (leg, bars) => baseBars(leg, tf, bars));
@@ -191,6 +193,8 @@ function combiner(timeframe: string, history: Cols): (k: KlineMsg) => KlineMsg |
 
 class Slot {
   readonly engine: ChartEngine;
+  /** What market buyers took in the bars the stream is on, by their open. */
+  private readonly takers = new Map<number, number>();
   private market = '';
   private timeframe = '';
   private bars = CHART_BARS;
@@ -474,6 +478,7 @@ class Slot {
     this.bars = bars;
     this.closed = emptyCols();
     this.extra = [];
+    this.takers.clear();
     this.live = null;
     this.price = Number.NaN;
     this.markPrice();
@@ -557,7 +562,7 @@ class Slot {
   private fail(error: string): void {
     this.fresh = false;
     this.engine.set_loading(false);
-    this.engine.set_candles(EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY);
+    this.engine.set_candles(EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY);
     this.engine.set_message(`Could not load candles — ${error}`);
     this.setStatus({ loading: false, error });
   }
@@ -577,7 +582,7 @@ class Slot {
       this.rest = rest;
     }
     const c = this.tail(series);
-    const folded = fold_candles(this.timeframe, c.time, c.open, c.high, c.low, c.close, c.volume, Date.now()) as unknown as Cols;
+    const folded = fold_candles(this.timeframe, c.time, c.open, c.high, c.low, c.close, c.volume, c.buy, Date.now()) as unknown as Cols;
     const last = folded.time.length > 0 ? folded.time[folded.time.length - 1]! : Number.NEGATIVE_INFINITY;
     this.foldedLast = last;
     // A ratio has no exchange's tick to keep to: its decimals come from its own
@@ -633,7 +638,7 @@ class Slot {
   private pushCandles(): void {
     const all = this.replayAt === null ? this.closed : sliceCols(this.closed, 0, this.replayEnd());
     const k = all.time.length > this.window ? sliceCols(all, all.time.length - this.window) : all;
-    this.engine.set_candles(k.time, k.open, k.high, k.low, k.close, k.volume);
+    this.engine.set_candles(k.time, k.open, k.high, k.low, k.close, k.volume, k.buy);
     if (this.fresh && k.time.length > 0) {
       // A market of its own opens at its own last bars, not where the one
       // before was scrolled to.
@@ -681,6 +686,8 @@ class Slot {
         let changed: boolean;
         if (m.kind === 'kline') {
           const k = combine ? combine(m) : m;
+          // A bar folded from shorter ones hears only the last of them: the exchange's history says it.
+          if (!combine && m.buy !== undefined) this.takers.set(m.openTime, m.buy);
           changed = k !== null && feed.apply_kline(k.openTime, k.open, k.high, k.low, k.close, k.volume, k.lastTradeId, k.closed);
         } else {
           changed = m.kind === 'trade' && feed.apply_trade(m.time, m.price, m.qty, m.lastTradeId);
@@ -752,13 +759,14 @@ class Slot {
     if (prev && bar.time > prev.time) {
       // The previous bar is final. Keep it until stored history or REST covers it.
       if (prev.time > this.lastClosedTime()) {
-        const done = { ...prev, closed: true };
+        const done = { ...prev, closed: true, buy: this.takers.get(prev.time) };
         this.extra.push(done);
         if (this.candlesIn) {
           this.closed = concatCols([this.closed, barCols([done])]);
           if (this.replayAt === null) this.pushCandles();
         }
       }
+      this.takers.delete(prev.time);
       if (this.candlesIn) this.confirm(prev.time);
     }
     // Before the closed bars are in, the chart drawn is the last market's: the
@@ -1069,7 +1077,7 @@ async function valuesCall({ market, timeframe, basis, profile = true, bars: want
   let src: Awaited<ReturnType<typeof hold>> | null = null;
   try {
     const c = chart.series.cols;
-    const bars = fold_candles(timeframe, c.time, c.open, c.high, c.low, c.close, c.volume, Date.now()) as unknown as Cols;
+    const bars = fold_candles(timeframe, c.time, c.open, c.high, c.low, c.close, c.volume, c.buy, Date.now()) as unknown as Cols;
     let s = emptyCols();
     if (spec) {
       // Enough source bars to cover the prior session of the last bar, and the view.
@@ -1090,7 +1098,7 @@ async function dailyCall({ market, days }: Calls['daily']['args']): Promise<Dail
   const held = await hold(market, '1d', Math.max(1, Math.min(CHART_BARS, days)));
   try {
     const c = held.series.cols;
-    const bars = lastBars(fold_candles('1d', c.time, c.open, c.high, c.low, c.close, c.volume, Date.now()) as unknown as Cols, days);
+    const bars = lastBars(fold_candles('1d', c.time, c.open, c.high, c.low, c.close, c.volume, c.buy, Date.now()) as unknown as Cols, days);
     return { time: [...bars.time], open: [...bars.open], high: [...bars.high], low: [...bars.low], close: [...bars.close], precision: precisionOf(bars) };
   } finally {
     held.release();
@@ -1305,6 +1313,10 @@ function handle(msg: ToWorker): void {
       break;
     case 'hidden':
       slot.engine.set_hidden(msg.value);
+      slot.markMeta();
+      break;
+    case 'studyStyles':
+      slot.engine.set_styles(msg.value);
       slot.markMeta();
       break;
     case 'log':

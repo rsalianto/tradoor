@@ -31,6 +31,8 @@ export interface KlineMsg {
   low: number;
   close: number;
   volume: number;
+  /** What market buyers took, where the exchange's stream says. */
+  buy?: number;
   /** Last trade folded into the kline, comparable with a trade's id. */
   lastTradeId: number;
   closed: boolean;
@@ -146,6 +148,7 @@ function binance(urls: string[]): Protocol {
           low: num(k.l),
           close: num(k.c),
           volume: num(k.v),
+          buy: num(k.V),
           lastTradeId: typeof k.L === 'number' ? k.L : -1,
           closed: k.x === true,
         });

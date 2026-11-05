@@ -3,8 +3,9 @@
 //! Studies sharing a `group` share a pane: a pane has one price scale, and mixing
 //! scales is how RSI ends up a flat line beside a MACD measured in dollars.
 
+use crate::format::{fixed, plain};
 use crate::indicators::{self, Series};
-use crate::time::{weekday, week_index, month_index, year_of, DAY, HOUR};
+use crate::time::{london, new_york, weekday, week_index, month_index, year_of, DAY, HOUR, MINUTE};
 use crate::Candle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,8 +17,15 @@ pub enum StudyKind {
     StochRsi,
     Macd,
     Atr,
+    Keltner,
+    Ichimoku,
+    Sessions,
+    Moon,
+    VolumeDelta,
+    VisibleProfile,
     KeyLevels,
     Avwap,
+    Vwap,
     SwingMap,
     OpenInterest,
     Flow,
@@ -33,8 +41,15 @@ impl StudyKind {
             Self::StochRsi => "stochrsi",
             Self::Macd => "macd",
             Self::Atr => "atr",
+            Self::Keltner => "keltner",
+            Self::Ichimoku => "ichimoku",
+            Self::Sessions => "sessions",
+            Self::Moon => "moon",
+            Self::VolumeDelta => "volumedelta",
+            Self::VisibleProfile => "vpvr",
             Self::KeyLevels => "keylevels",
             Self::Avwap => "avwap",
+            Self::Vwap => "vwap",
             Self::SwingMap => "swingmap",
             Self::OpenInterest => "oi",
             Self::Flow => "flow",
@@ -50,6 +65,8 @@ pub enum Group {
     Atr,
     /// Open interest: its own pane, in coins or dollars.
     Oi,
+    /// Bought less sold, in coins.
+    Delta,
 }
 
 impl Group {
@@ -60,58 +77,66 @@ impl Group {
             Self::Macd => "macd",
             Self::Atr => "atr",
             Self::Oi => "oi",
+            Self::Delta => "delta",
         }
     }
 }
 
 pub struct StudyParam {
     pub name: &'static str,
-    pub default: u32,
-    pub min: u32,
-    pub max: u32,
+    pub default: f64,
+    pub min: f64,
+    pub max: f64,
+    /// What a value moves by: whole for a length, finer for a multiplier.
+    pub step: f64,
 }
 
+/// What the engine needs of a study: the page's own catalogue
+/// (web/src/lib/study-schema) names and describes it, in the picker's chunk
+/// rather than in the wasm every chart waits for.
 pub struct StudyDefinition {
     pub kind: StudyKind,
-    pub name: &'static str,
     pub short: &'static str,
     pub group: Group,
     pub params: &'static [StudyParam],
-    pub about: &'static str,
 }
 
 const fn p(name: &'static str, default: u32, min: u32, max: u32) -> StudyParam {
-    StudyParam { name, default, min, max }
+    StudyParam { name, default: default as f64, min: min as f64, max: max as f64, step: 1.0 }
 }
 
-pub static STUDIES: [StudyDefinition; 12] = [
-    StudyDefinition { kind: StudyKind::Ema, name: "Exponential Moving Average", short: "EMA", group: Group::Price, params: &[p("length", 50, 2, 1000)], about: "Average close, weighted towards recent bars." },
-    StudyDefinition { kind: StudyKind::Sma, name: "Simple Moving Average", short: "SMA", group: Group::Price, params: &[p("length", 50, 2, 1000)], about: "Plain average of the last N closes — every bar in the window counts the same." },
-    StudyDefinition { kind: StudyKind::Bb, name: "Bollinger Bands", short: "BB", group: Group::Price, params: &[p("length", 20, 2, 1000), p("mult", 2, 1, 10)], about: "An SMA with a band at N standard deviations. Narrow bands mark the quiet before an expansion." },
-    StudyDefinition { kind: StudyKind::Rsi, name: "Relative Strength Index", short: "RSI", group: Group::Pct, params: &[p("length", 14, 2, 1000)], about: "Momentum bounded 0–100. Wilder smoothing, so the values match TradingView exactly." },
-    StudyDefinition { kind: StudyKind::StochRsi, name: "Stochastic RSI", short: "Stoch RSI", group: Group::Pct, params: &[p("rsi", 14, 2, 1000), p("stoch", 14, 2, 1000), p("k", 3, 1, 100), p("d", 3, 1, 100)], about: "Where RSI sits inside its own recent range. Turns earlier than RSI, and whipsaws more." },
-    StudyDefinition { kind: StudyKind::Macd, name: "MACD", short: "MACD", group: Group::Macd, params: &[p("fast", 12, 1, 1000), p("slow", 26, 2, 1000), p("signal", 9, 1, 1000)], about: "The gap between two EMAs, and an EMA of that gap. The histogram is the difference between them." },
-    StudyDefinition { kind: StudyKind::KeyLevels, name: "Historical Key Levels", short: "Key Levels", group: Group::Price, params: &[], about: "Weekly, monthly and yearly opens plus Monday’s high and low — the prices the week is measured against." },
-    StudyDefinition { kind: StudyKind::Avwap, name: "Anchored VWAP (S/W/M/Y)", short: "Multi-VWAP", group: Group::Price, params: &[], about: "Volume-weighted average price since the session, week, month and year opened. The session line is drawn on intraday charts only." },
-    StudyDefinition { kind: StudyKind::SwingMap, name: "Range Swing Structure Map", short: "Swings", group: Group::Price, params: &[p("left", 5, 1, 100), p("right", 5, 1, 100)], about: "Zigzag of confirmed pivots tagged HH/HL/LH/LL, with each leg’s move and duration, and the averages across the window." },
-    StudyDefinition {
-        kind: StudyKind::Flow,
-        name: "Net Taker Flow Marks",
-        short: "Flow",
-        group: Group::Price,
-        params: &[],
-        about: "Minutes whose net taker flow ran hard one way, marked where they traded — green bought, red sold, the dot larger the harder it ran. What counts as hard is the size set per market in the Flow panel, and the server keeps two days of them.",
-    },
-    StudyDefinition { kind: StudyKind::Atr, name: "Average True Range", short: "ATR", group: Group::Atr, params: &[p("length", 14, 2, 1000)], about: "Average range of a bar, in the instrument’s own price units. A stop distance, not a direction." },
-    StudyDefinition {
-        kind: StudyKind::OpenInterest,
-        name: "Aggregated Open Interest",
-        short: "Aggregated OI",
-        group: Group::Oi,
-        // `venues` is a bit per venue in the server's order; `measure` 0 coins, 1 dollars; `view` 0 candles, 1 line.
-        params: &[p("venues", OI_ALL_VENUES, 1, OI_ALL_VENUES), p("measure", 0, 0, 1), p("view", 0, 0, 1)],
-        about: "Open interest summed across Binance, Bybit, OKX, Deribit and Hyperliquid perpetuals, stablecoin- and coin-margined, as candles. Recorded by the tradoor server.",
-    },
+/// A multiplier, in tenths.
+const fn x(name: &'static str, default: f64, min: f64) -> StudyParam {
+    StudyParam { name, default, min, max: 10.0, step: 0.1 }
+}
+
+/// What `vwap`'s first parameter starts it from.
+const VWAP_ANCHORS: [&str; 4] = ["Session", "Week", "Month", "Year"];
+
+pub static STUDIES: [StudyDefinition; 19] = [
+    StudyDefinition { kind: StudyKind::Ema, short: "EMA", group: Group::Price, params: &[p("length", 50, 2, 1000)] },
+    StudyDefinition { kind: StudyKind::Sma, short: "SMA", group: Group::Price, params: &[p("length", 50, 2, 1000)] },
+    StudyDefinition { kind: StudyKind::Bb, short: "BB", group: Group::Price, params: &[p("length", 20, 2, 1000), x("mult", 2.0, 0.1)] },
+    StudyDefinition { kind: StudyKind::Keltner, short: "KC", group: Group::Price, params: &[p("length", 20, 2, 1000), x("mult", 2.0, 0.1), p("atr", 10, 1, 1000)] },
+    StudyDefinition { kind: StudyKind::Ichimoku, short: "Ichimoku", group: Group::Price, params: &[p("conversion", 9, 1, 1000), p("base", 26, 1, 1000), p("span", 52, 1, 1000), p("shift", 26, 1, 500)] },
+    StudyDefinition { kind: StudyKind::Rsi, short: "RSI", group: Group::Pct, params: &[p("length", 14, 2, 1000)] },
+    StudyDefinition { kind: StudyKind::StochRsi, short: "Stoch RSI", group: Group::Pct, params: &[p("rsi", 14, 2, 1000), p("stoch", 14, 2, 1000), p("k", 3, 1, 100), p("d", 3, 1, 100)] },
+    StudyDefinition { kind: StudyKind::Macd, short: "MACD", group: Group::Macd, params: &[p("fast", 12, 1, 1000), p("slow", 26, 2, 1000), p("signal", 9, 1, 1000)] },
+    StudyDefinition { kind: StudyKind::KeyLevels, short: "Key Levels", group: Group::Price, params: &[] },
+    // A band of 0 is not drawn.
+    StudyDefinition { kind: StudyKind::Vwap, short: "VWAP", group: Group::Price, params: &[p("anchor", 0, 0, 3), x("band1", 1.0, 0.0), x("band2", 0.0, 0.0), x("band3", 0.0, 0.0)] },
+    StudyDefinition { kind: StudyKind::Avwap, short: "Multi-VWAP", group: Group::Price, params: &[] },
+    StudyDefinition { kind: StudyKind::SwingMap, short: "Swings", group: Group::Price, params: &[p("left", 5, 1, 100), p("right", 5, 1, 100)] },
+    StudyDefinition { kind: StudyKind::Flow, short: "Flow", group: Group::Price, params: &[] },
+    StudyDefinition { kind: StudyKind::Sessions, short: "Sessions", group: Group::Price, params: &[] },
+    StudyDefinition { kind: StudyKind::Moon, short: "Moon", group: Group::Price, params: &[] },
+    // `view` 0 each bar's, 1 cumulative.
+    StudyDefinition { kind: StudyKind::VolumeDelta, short: "Vol Delta", group: Group::Delta, params: &[p("view", 0, 0, 1)] },
+    // `side` 0 against the right edge, 1 the left.
+    StudyDefinition { kind: StudyKind::VisibleProfile, short: "VPVR", group: Group::Price, params: &[p("rows", 24, 5, 200), p("va", 70, 1, 100), p("width", 30, 5, 90), p("side", 0, 0, 1)] },
+    StudyDefinition { kind: StudyKind::Atr, short: "ATR", group: Group::Atr, params: &[p("length", 14, 2, 1000)] },
+    // `venues` is a bit per venue in the server's order; `measure` 0 coins, 1 dollars; `view` 0 candles, 1 line.
+    StudyDefinition { kind: StudyKind::OpenInterest, short: "Aggregated OI", group: Group::Oi, params: &[p("venues", OI_ALL_VENUES, 1, OI_ALL_VENUES), p("measure", 0, 0, 1), p("view", 0, 0, 1)] },
 ];
 
 /// One bit per open interest venue, in the server's order.
@@ -122,10 +147,10 @@ pub fn definition(kind: &str) -> Option<&'static StudyDefinition> {
     STUDIES.iter().find(|d| d.kind.as_str() == kind)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StudySpec {
     pub kind: StudyKind,
-    pub params: Vec<u32>,
+    pub params: Vec<f64>,
 }
 
 impl StudySpec {
@@ -134,30 +159,48 @@ impl StudySpec {
     }
 
     /// Its `i`th parameter, or the definition's default.
+    fn number(&self, i: usize) -> f64 {
+        self.params.get(i).copied().unwrap_or(self.def().params.get(i).map_or(0.0, |p| p.default))
+    }
+
     fn param(&self, i: usize) -> usize {
-        self.params.get(i).copied().unwrap_or(self.def().params.get(i).map_or(0, |p| p.default)) as usize
+        self.number(i) as usize
     }
 
     /// `ema:50` — the id AND the wire format: what localStorage holds and what a
     /// legend row is keyed by, so a study cannot be added twice under two names.
     pub fn id(&self) -> String {
-        std::iter::once(self.kind.as_str().to_string()).chain(self.params.iter().map(u32::to_string)).collect::<Vec<_>>().join(":")
+        std::iter::once(self.kind.as_str().to_string()).chain(self.params.iter().map(|v| plain(*v))).collect::<Vec<_>>().join(":")
     }
 
     /// `EMA 50`, `Stoch RSI 14 14 3 3`.
     pub fn label(&self) -> String {
         let short = self.def().short;
         if self.kind == StudyKind::OpenInterest {
-            let venues = self.params.first().copied().unwrap_or(OI_ALL_VENUES);
-            let measure = if self.params.get(1) == Some(&1) { "USD" } else { "Coins" };
-            let view = if self.params.get(2) == Some(&1) { "Line" } else { "Candles" };
+            let venues = self.params.first().map_or(OI_ALL_VENUES, |v| *v as u32);
+            let measure = if self.param(1) == 1 { "USD" } else { "Coins" };
+            let view = if self.param(2) == 1 { "Line" } else { "Candles" };
             let count = if venues == OI_ALL_VENUES { String::new() } else { format!(" · {} venues", venues.count_ones()) };
             return format!("{short} {measure} {view}{count}");
+        }
+        if self.kind == StudyKind::VolumeDelta {
+            return if self.param(0) == 1 { "CVD".to_string() } else { short.to_string() };
+        }
+        if self.kind == StudyKind::VisibleProfile {
+            return format!("{short} {}", self.param(0));
+        }
+        if self.kind == StudyKind::Vwap {
+            let mut label = format!("{short} {}", VWAP_ANCHORS[self.param(0).min(3)]);
+            for band in (1..4).map(|i| self.number(i)).filter(|b| *b > 0.0) {
+                label += " ±";
+                label += &plain(band);
+            }
+            return label;
         }
         if self.params.is_empty() {
             short.to_string()
         } else {
-            format!("{short} {}", self.params.iter().map(u32::to_string).collect::<Vec<_>>().join(" "))
+            format!("{short} {}", self.params.iter().map(|v| plain(*v)).collect::<Vec<_>>().join(" "))
         }
     }
 
@@ -175,17 +218,18 @@ pub fn parse_studies(raw: &str, max: usize) -> Vec<StudySpec> {
         let mut parts = token.split(':');
         let Some(def) = parts.next().and_then(definition) else { continue };
         let rest: Vec<&str> = parts.collect();
-        let params: Option<Vec<u32>> = def
+        let params: Option<Vec<f64>> = def
             .params
             .iter()
             .enumerate()
             .map(|(i, param)| {
                 let value = match rest.get(i) {
-                    None => f64::from(param.default),
+                    None => param.default,
                     Some(s) if s.trim().is_empty() => 0.0,
-                    Some(s) => s.trim().parse::<f64>().ok()?,
+                    Some(s) => crate::format::parse_number(s.trim())?,
                 };
-                (value.is_finite() && value >= f64::from(param.min) && value <= f64::from(param.max)).then(|| value.round() as u32)
+                // Hundredths at the finest, so a typed 0.3 does not come back 0.30000000000000004.
+                (value.is_finite() && value >= param.min && value <= param.max).then(|| if param.step >= 1.0 { value.round() } else { (value * 100.0).round() / 100.0 })
             })
             .collect();
         let Some(params) = params else { continue };
@@ -212,6 +256,8 @@ pub enum LineStyle {
     Solid,
     /// Holds each value flat until the next — what an opening price does.
     Step,
+    /// Starts again each time this anchor turns over, with no line across the turn.
+    Anchored(usize),
     /// Not stroked: the series only carries values for the legend and the axis.
     None,
 }
@@ -233,6 +279,10 @@ pub struct StudyLine {
 impl StudyLine {
     fn line(key: &'static str, label: impl Into<String>, values: Series) -> Self {
         Self { key, label: label.into(), kind: LineType::Line, values, style: LineStyle::Solid, color: None, width: 1.0, badge: true }
+    }
+
+    fn inked(key: &'static str, label: &'static str, values: Series, color: &'static str) -> Self {
+        Self { color: Some(color), ..Self::line(key, label, values) }
     }
 }
 
@@ -258,6 +308,8 @@ pub struct StudySegment {
     pub from: i64,
     pub to: i64,
     pub price: f64,
+    /// The line whose style it takes.
+    pub key: &'static str,
     pub label: &'static str,
     pub color: &'static str,
 }
@@ -267,14 +319,51 @@ pub enum Tone {
     Bull,
     Bear,
     Neutral,
+    /// A colour of its own.
+    Ink(&'static str),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StudyMarker {
     pub time: i64,
     pub above: bool,
+    /// None draws a larger mark with nothing beside it.
     pub text: String,
     pub tone: Tone,
+    /// The plot whose style it takes.
+    pub plot: &'static str,
+    /// A ring, not a disc.
+    pub hollow: bool,
+}
+
+/// The shade between two lines, in another colour where they have crossed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StudyFill {
+    pub upper: &'static str,
+    pub lower: &'static str,
+    pub key: &'static str,
+    pub color: &'static str,
+    pub crossed_key: &'static str,
+    pub crossed_color: &'static str,
+}
+
+impl StudyFill {
+    /// One colour, whichever line is on top: a channel's background.
+    const fn between(upper: &'static str, lower: &'static str, color: &'static str) -> Self {
+        Self { upper, lower, key: "fill", color, crossed_key: "fill", crossed_color: color }
+    }
+}
+
+/// A stretch of time and the range price traded in it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StudyBox {
+    pub from: i64,
+    pub to: i64,
+    pub top: f64,
+    pub bottom: f64,
+    pub key: &'static str,
+    pub label: &'static str,
+    pub color: &'static str,
 }
 
 #[derive(Clone, Debug)]
@@ -283,7 +372,10 @@ pub struct ComputedStudy {
     pub kind: StudyKind,
     pub label: String,
     pub group: Group,
+    pub params: Vec<f64>,
     pub lines: Vec<StudyLine>,
+    pub fills: Vec<StudyFill>,
+    pub boxes: Vec<StudyBox>,
     pub segments: Vec<StudySegment>,
     pub markers: Vec<StudyMarker>,
     pub stats: Vec<(&'static str, String)>,
@@ -299,7 +391,7 @@ pub fn compute_study(spec: &StudySpec, candles: &[Candle]) -> ComputedStudy {
 /// until it is shown, its bars unread.
 pub fn idle_study(spec: &StudySpec) -> ComputedStudy {
     let def = spec.def();
-    ComputedStudy { id: spec.id(), kind: def.kind, label: spec.label(), group: def.group, lines: Vec::new(), segments: Vec::new(), markers: Vec::new(), stats: Vec::new(), candles: Vec::new() }
+    ComputedStudy { id: spec.id(), kind: def.kind, label: spec.label(), group: def.group, params: spec.params.clone(), lines: Vec::new(), fills: Vec::new(), boxes: Vec::new(), segments: Vec::new(), markers: Vec::new(), stats: Vec::new(), candles: Vec::new() }
 }
 
 pub fn compute_study_with(spec: &StudySpec, candles: &[Candle], inputs: &StudyInputs<'_>) -> ComputedStudy {
@@ -315,6 +407,22 @@ pub fn compute_study_with(spec: &StudySpec, candles: &[Candle], inputs: &StudyIn
         StudyKind::Bb => {
             let b = indicators::bollinger(&close, param(0), param(1) as f64);
             study.lines = vec![StudyLine::line("upper", "Upper", b.upper), StudyLine::line("basis", "Basis", b.basis), StudyLine::line("lower", "Lower", b.lower)];
+            study.fills = vec![StudyFill::between("upper", "lower", BAND_FILL)];
+        }
+        StudyKind::Keltner => {
+            let (basis, atr, k) = (indicators::ema(&close, param(0)), indicators::atr(candles, param(2)), spec.number(1));
+            study.lines = vec![StudyLine::inked("upper", "Upper", mixed(&basis, &atr, 1.0, k), "#2962ff"), StudyLine::inked("basis", "Basis", basis.clone(), "#2962ff"), StudyLine::inked("lower", "Lower", mixed(&basis, &atr, 1.0, -k), "#2962ff")];
+            study.fills = vec![StudyFill::between("upper", "lower", BAND_FILL)];
+        }
+        StudyKind::Ichimoku => (study.lines, study.fills) = ichimoku(candles, &close, [param(0), param(1), param(2)], param(3)),
+        StudyKind::Sessions => (study.boxes, study.stats) = sessions(candles),
+        StudyKind::Moon => study.markers = moon_marks(candles),
+        StudyKind::VolumeDelta => (study.lines, study.stats) = volume_delta(candles, param(0) == 1),
+        // The bars on screen are the chart's to know: it works the rows out as it
+        // draws them, and these only carry the levels for the legend.
+        StudyKind::VisibleProfile => {
+            let level = |key, label, color| StudyLine { style: LineStyle::None, color: Some(color), badge: false, ..StudyLine::line(key, label, Vec::new()) };
+            study.lines = vec![level("poc", "POC", "#e6f5d3"), level("vah", "VAH", "#7c847d"), level("val", "VAL", "#7c847d")];
         }
         StudyKind::Rsi => study.lines.push(StudyLine::line("rsi", label, indicators::rsi(&close, param(0)))),
         StudyKind::StochRsi => {
@@ -337,6 +445,7 @@ pub fn compute_study_with(spec: &StudySpec, candles: &[Candle], inputs: &StudyIn
         StudyKind::Atr => study.lines.push(StudyLine::line("atr", label, indicators::atr(candles, param(0)))),
         StudyKind::KeyLevels => (study.lines, study.segments) = key_levels(candles, inputs.days),
         StudyKind::Avwap => study.lines = anchored_vwap(candles),
+        StudyKind::Vwap => (study.lines, study.stats) = vwap(candles, param(0).min(3), [spec.number(1), spec.number(2), spec.number(3)]),
         StudyKind::SwingMap => (study.lines, study.markers, study.stats) = swing_map(candles, param(0), param(1)),
         StudyKind::OpenInterest => {
             let usd = param(1) == 1;
@@ -358,6 +467,142 @@ pub fn compute_study_with(spec: &StudySpec, candles: &[Candle], inputs: &StudyIn
 }
 
 const OI_COLOR: &str = "#f0b90b";
+const BAND_FILL: &str = "#2196f31a";
+
+/// How long a bar is: the shortest gap among the first few, so a weekend or a
+/// listing gap at the start of the window is not taken for one.
+fn bar_length(candles: &[Candle]) -> Option<i64> {
+    candles.windows(2).take(32).map(|w| w[1].open_time - w[0].open_time).min()
+}
+
+/// `a` and `b` in these proportions, bar by bar.
+fn mixed(a: &Series, b: &Series, of_a: f64, of_b: f64) -> Series {
+    a.iter().zip(b).map(|(x, y)| Some(of_a * (*x)? + of_b * (*y)?)).collect()
+}
+
+/// The cloud as TradingView draws it: conversion and base lines at the bar, the
+/// two leading spans ahead of it and price behind it by `shift` less one, so the
+/// lines run past the last bar.
+fn ichimoku(candles: &[Candle], close: &Series, lengths: [usize; 3], shift: usize) -> (Vec<StudyLine>, Vec<StudyFill>) {
+    let n = candles.len();
+    let highs: Series = candles.iter().map(|c| Some(c.high)).collect();
+    let lows: Series = candles.iter().map(|c| Some(c.low)).collect();
+    let mid = |len| mixed(&indicators::highest(&highs, len), &indicators::lowest(&lows, len), 0.5, 0.5);
+    let (conversion, base, span_b) = (mid(lengths[0]), mid(lengths[1]), mid(lengths[2]));
+    let span_a = mixed(&conversion, &base, 0.5, 0.5);
+    let moved = shift - 1;
+    let ahead = |v: &Series| -> Series {
+        let mut out = vec![None; if n == 0 { 0 } else { moved }];
+        out.extend_from_slice(v);
+        out
+    };
+    let mut behind = vec![None; n];
+    for i in moved..n {
+        behind[i - moved] = close[i];
+    }
+    let unbadged = |line: StudyLine| StudyLine { badge: false, ..line };
+    (
+        vec![
+            StudyLine::inked("conversion", "Conversion", conversion.clone(), "#2962ff"),
+            StudyLine::inked("base", "Base", base.clone(), "#b71c1c"),
+            unbadged(StudyLine::inked("lagging", "Lagging", behind, "#43a047")),
+            unbadged(StudyLine::inked("leadA", "Lead A", ahead(&span_a), "#a5d6a7")),
+            unbadged(StudyLine::inked("leadB", "Lead B", ahead(&span_b), "#ef9a9a")),
+        ],
+        vec![StudyFill { upper: "leadA", lower: "leadB", key: "cloudUp", color: "#43a04733", crossed_key: "cloudDown", crossed_color: "#f4433633" }],
+    )
+}
+
+/// Asia, London and New York, each day's box from its first bar to its last,
+/// from the high to the low traded in it. Hours as the TPO's sessions keep them,
+/// London's and New York's following their summer time. A bar longer than an
+/// hour cannot say which session it traded in.
+fn sessions(candles: &[Candle]) -> (Vec<StudyBox>, Vec<(&'static str, String)>) {
+    if bar_length(candles).unwrap_or(0) > HOUR {
+        return (Vec::new(), vec![("Needs", "bars of an hour or less".to_string())]);
+    }
+    const NAMES: [(&str, &str, &str); 3] = [("asia", "Asia", "#e3cd2a"), ("london", "London", "#c8202e"), ("ny", "New York", "#2f5bd8")];
+    let mut boxes: Vec<StudyBox> = Vec::new();
+    let mut open: [Option<usize>; 3] = [None; 3];
+    let mut hours: [(i64, i64); 3] = [(0, 0); 3];
+    let mut today = None;
+    for c in candles {
+        let day = c.open_time.div_euclid(DAY) * DAY;
+        if today != Some(day) {
+            today = Some(day);
+            hours = [(0, 8 * 60), london(day), new_york(day)];
+            open = [None; 3];
+        }
+        let minute = (c.open_time - day) / MINUTE;
+        for (s, &(start, end)) in hours.iter().enumerate() {
+            if minute < start || minute >= end {
+                continue;
+            }
+            match open[s] {
+                Some(at) => {
+                    let b = &mut boxes[at];
+                    b.to = c.open_time;
+                    b.top = b.top.max(c.high);
+                    b.bottom = b.bottom.min(c.low);
+                }
+                None => {
+                    let (key, label, color) = NAMES[s];
+                    open[s] = Some(boxes.len());
+                    boxes.push(StudyBox { from: c.open_time, to: c.open_time, top: c.high, bottom: c.low, key, label, color });
+                }
+            }
+        }
+    }
+    (boxes, Vec::new())
+}
+
+/// A disc over the bar a full moon falls in, a ring under the bar a new one does.
+fn moon_marks(candles: &[Candle]) -> Vec<StudyMarker> {
+    let (Some(first), Some(last)) = (candles.first(), candles.last()) else { return Vec::new() };
+    let bar = bar_length(candles).unwrap_or(DAY);
+    indicators::moon::moon_phases(first.open_time, last.open_time + bar - 1)
+        .into_iter()
+        .map(|(at, full)| {
+            let i = candles.partition_point(|c| c.open_time <= at) - 1;
+            let (plot, ink) = if full { ("full", "#f5efc8") } else { ("new", "#9aa0a6") };
+            StudyMarker { time: candles[i].open_time, above: full, text: String::new(), tone: Tone::Ink(ink), plot, hollow: !full }
+        })
+        .collect()
+}
+
+/// What market buyers took less what market sellers did, bar by bar or added up.
+/// Exact where the exchange reports its buyers, as Binance does. Elsewhere it is
+/// estimated from where the bar closed inside its range, and says so.
+fn volume_delta(candles: &[Candle], cumulative: bool) -> (Vec<StudyLine>, Vec<(&'static str, String)>) {
+    let mut estimated = 0;
+    let mut sum = 0.0;
+    let values: Series = candles
+        .iter()
+        .map(|c| {
+            let range = c.high - c.low;
+            let delta = match c.taker_buy {
+                Some(buy) => 2.0 * buy - c.volume,
+                None if range > 0.0 => {
+                    estimated += 1;
+                    c.volume * (2.0 * (c.close - c.low) / range - 1.0)
+                }
+                None => 0.0,
+            };
+            sum += delta;
+            (c.volume > 0.0).then_some(if cumulative { sum } else { delta })
+        })
+        .collect();
+    let silent = !candles.is_empty() && values.iter().all(Option::is_none);
+    let stats = if silent {
+        vec![("Volume", "none in this market".to_string())]
+    } else if estimated > 0 {
+        vec![("Estimated", format!("{estimated} of {} bars", candles.len()))]
+    } else {
+        Vec::new()
+    };
+    let line = if cumulative { StudyLine::line("cvd", "CVD", values) } else { StudyLine { kind: LineType::Histogram, ..StudyLine::line("histogram", "Delta", values) } };
+    (vec![line], stats)
+}
 
 /// Fold open interest steps into the chart's bars, the forming one last: each
 /// bar is the candle of the steps that start inside it. A bar no step starts in
@@ -503,14 +748,14 @@ fn key_levels(candles: &[Candle], days: &[Candle]) -> (Vec<StudyLine>, Vec<Study
     }
 
     let mut segments = Vec::new();
-    for (runs, label, color) in [(&weeks, "WO", WEEKLY), (&months, "MO", MONTHLY), (&years, "YO", YEARLY)] {
-        segments.extend(runs.iter().map(|r| StudySegment { from: r.from, to: r.to, price: r.price, label, color }));
+    for (runs, key, label, color) in [(&weeks, "wo", "WO", WEEKLY), (&months, "mo", "MO", MONTHLY), (&years, "yo", "YO", YEARLY)] {
+        segments.extend(runs.iter().map(|r| StudySegment { from: r.from, to: r.to, price: r.price, key, label, color }));
     }
     // Only the current week's Monday is still a reference.
     let last_week = source.last().map(|c| week_index(c.open_time));
     if let Some(mon) = mondays.last().filter(|mon| last_week == Some(mon.week)) {
-        segments.push(StudySegment { from: mon.from, to: mon.to, price: mon.high, label: "Mon H", color: MONDAY });
-        segments.push(StudySegment { from: mon.from, to: mon.to, price: mon.low, label: "Mon L", color: MONDAY });
+        segments.push(StudySegment { from: mon.from, to: mon.to, price: mon.high, key: "monH", label: "Mon H", color: MONDAY });
+        segments.push(StudySegment { from: mon.from, to: mon.to, price: mon.low, key: "monL", label: "Mon L", color: MONDAY });
     }
 
     // What each of the chart's own bars reads: the level in force as it closed,
@@ -545,43 +790,83 @@ fn key_levels(candles: &[Candle], days: &[Candle]) -> (Vec<StudyLine>, Vec<Study
     )
 }
 
-/// VWAP of hlc3 since the session, week, month and year opened ("Boyen_Multiple
-/// Anchor VWAP"). The session line is empty unless bars are intraday — measured
-/// from the data, so it stays right for folded timeframes no label covers.
-fn anchored_vwap(candles: &[Candle]) -> Vec<StudyLine> {
-    let n = candles.len();
-    let (mut session, mut weekly, mut monthly, mut yearly) = (vec![None; n], vec![None; n], vec![None; n], vec![None; n]);
-    let intraday = n >= 2 && candles[1].open_time - candles[0].open_time < DAY;
-    let mut keys: [Option<i64>; 4] = [None; 4];
-    let mut acc = [(0.0f64, 0.0f64); 4];
-
-    for (i, c) in candles.iter().enumerate() {
-        let typical = (c.high + c.low + c.close) / 3.0;
-        let now = [c.open_time.div_euclid(DAY), week_index(c.open_time), month_index(c.open_time), year_of(c.open_time)];
-        for k in 0..4 {
-            if keys[k] != Some(now[k]) {
-                keys[k] = Some(now[k]);
-                acc[k] = (0.0, 0.0);
-            }
-            acc[k].0 += typical * c.volume;
-            acc[k].1 += c.volume;
-        }
-        // A period with no volume has no VWAP — never the last price.
-        let vwap = |k: usize| (acc[k].1 > 0.0).then(|| acc[k].0 / acc[k].1);
-        if intraday {
-            session[i] = vwap(0);
-        }
-        weekly[i] = vwap(1);
-        monthly[i] = vwap(2);
-        yearly[i] = vwap(3);
+/// Which session, week, month or year a time falls in.
+pub fn anchor_period(t: i64, anchor: usize) -> i64 {
+    match anchor {
+        0 => t.div_euclid(DAY),
+        1 => week_index(t),
+        2 => month_index(t),
+        _ => year_of(t),
     }
-    let colored = |key, label, values, color, width| StudyLine { color: Some(color), width, ..StudyLine::line(key, label, values) };
-    vec![
-        colored("session", "Session", session, "#2962ff", 1.0),
-        colored("weekly", "Weekly", weekly, "#ffa726", 2.0),
-        colored("monthly", "Monthly", monthly, "#e040fb", 2.0),
-        colored("yearly", "Yearly", yearly, "#e8e8e8", 2.0),
-    ]
+}
+
+/// VWAP of hlc3 since `anchor` last turned over, and the volume-weighted
+/// deviation of price around it. A period with no volume has neither: never the
+/// last price.
+fn anchored(candles: &[Candle], anchor: usize) -> (Series, Series) {
+    let mut turn = None;
+    let (mut volume, mut sum, mut squares) = (0.0f64, 0.0f64, 0.0f64);
+    candles
+        .iter()
+        .map(|c| {
+            let now = anchor_period(c.open_time, anchor);
+            if turn != Some(now) {
+                turn = Some(now);
+                (volume, sum, squares) = (0.0, 0.0, 0.0);
+            }
+            let typical = (c.high + c.low + c.close) / 3.0;
+            volume += c.volume;
+            sum += typical * c.volume;
+            squares += typical * typical * c.volume;
+            let vwap = sum / volume;
+            if volume > 0.0 { (Some(vwap), Some((squares / volume - vwap * vwap).max(0.0).sqrt())) } else { (None, None) }
+        })
+        .unzip()
+}
+
+/// VWAP since the session, week, month and year opened ("Boyen_Multiple Anchor
+/// VWAP"). The session line is empty unless bars are intraday — measured from
+/// the data, so it stays right for folded timeframes no label covers.
+fn anchored_vwap(candles: &[Candle]) -> Vec<StudyLine> {
+    let intraday = bar_length(candles).is_some_and(|bar| bar < DAY);
+    let colored = |key, label, anchor, color, width| StudyLine { color: Some(color), width, ..StudyLine::line(key, label, anchored(candles, anchor).0) };
+    let mut session = colored("session", "Session", 0, "#2962ff", 1.0);
+    if !intraday {
+        session.values.fill(None);
+    }
+    vec![session, colored("weekly", "Weekly", 1, "#ffa726", 2.0), colored("monthly", "Monthly", 2, "#e040fb", 2.0), colored("yearly", "Yearly", 3, "#e8e8e8", 2.0)]
+}
+
+/// The standard VWAP, as TradingView's, with bands at standard deviations of
+/// price around it. Sessions are UTC days, as the exchanges' daily bars are. An
+/// anchor no longer than a bar would start again on every bar, so it draws
+/// nothing and says why; so does a market with no volume.
+fn vwap(candles: &[Candle], anchor: usize, bands: [f64; 3]) -> (Vec<StudyLine>, Vec<(&'static str, String)>) {
+    let bar = bar_length(candles).unwrap_or(0);
+    let fits = bar < [DAY, 7 * DAY, 28 * DAY, 365 * DAY][anchor];
+    let (mut mid, deviation) = anchored(candles, anchor);
+    if !fits {
+        mid.fill(None);
+    }
+    let stats = if !fits {
+        vec![("Anchor", "needs shorter bars".to_string())]
+    } else if !candles.is_empty() && mid.iter().all(Option::is_none) {
+        vec![("Volume", "none in this market".to_string())]
+    } else {
+        Vec::new()
+    };
+    let style = LineStyle::Anchored(anchor);
+    let mut lines = vec![StudyLine { style, color: Some("#2962ff"), width: 1.5, ..StudyLine::line("vwap", "VWAP", mid.clone()) }];
+    let edges = [("upper1", "lower1", "#4caf50"), ("upper2", "lower2", "#808000"), ("upper3", "lower3", "#00897b")];
+    for (multiple, (upper, lower, color)) in bands.into_iter().zip(edges) {
+        if multiple > 0.0 {
+            for (key, k) in [(upper, multiple), (lower, -multiple)] {
+                let values = mid.iter().zip(&deviation).map(|(m, d)| Some((*m)? + k * (*d)?)).collect();
+                lines.push(StudyLine { style, color: Some(color), badge: false, ..StudyLine::line(key, key, values) });
+            }
+        }
+    }
+    (lines, stats)
 }
 
 /// Zigzag of CONFIRMED pivots tagged HH/HL/LH/LL ("Boyen_Range Swing Structure
@@ -603,7 +888,8 @@ fn swing_map(candles: &[Candle], left: usize, right: usize) -> (Vec<StudyLine>, 
         .map(|p| Point { index: p.index, price: p.value, high: true, time: candles[p.index].open_time })
         .chain(indicators::pivot_lows(&lows, left, right).into_iter().map(|p| Point { index: p.index, price: p.value, high: false, time: candles[p.index].open_time }))
         .collect();
-    pivots.sort_by_key(|p| p.index);
+    // A bar can be both: its high first.
+    crate::sort::heap_sort_by(&mut pivots, |a, b| (a.index, !a.high) < (b.index, !b.high));
 
     // Two of the same type in a row are one swing seen twice: keep the extreme.
     let mut points: Vec<Point> = Vec::new();
@@ -638,7 +924,7 @@ fn swing_map(candles: &[Candle], left: usize, right: usize) -> (Vec<StudyLine>, 
             let prev = points[i - 1];
             let pct = (p.price - prev.price) / prev.price * 100.0;
             let dur = (p.time - prev.time) as f64;
-            text += &format!(" {}{pct:.2}% {}", if pct >= 0.0 { "+" } else { "" }, format_duration(dur));
+            text += &format!(" {}{}% {}", if pct >= 0.0 { "+" } else { "" }, fixed(pct, 2), format_duration(dur));
             if p.high {
                 up_pct.push(pct);
                 up_dur.push(dur);
@@ -651,16 +937,16 @@ fn swing_map(candles: &[Candle], left: usize, right: usize) -> (Vec<StudyLine>, 
                 zigzag[prev.index + k] = Some(prev.price + (p.price - prev.price) * k as f64 / span as f64);
             }
         }
-        markers.push(StudyMarker { time: p.time, above: p.high, text, tone: if p.high { Tone::Bear } else { Tone::Bull } });
+        markers.push(StudyMarker { time: p.time, above: p.high, text, tone: if p.high { Tone::Bear } else { Tone::Bull }, plot: "labels", hollow: false });
     }
 
     let avg = |xs: &[f64]| (!xs.is_empty()).then(|| xs.iter().sum::<f64>() / xs.len() as f64);
     let na = || "n/a".to_string();
     let stats = vec![
         ("Swings", points.len().to_string()),
-        ("Avg rise", avg(&up_pct).map_or_else(na, |v| format!("+{v:.2}%"))),
+        ("Avg rise", avg(&up_pct).map_or_else(na, |v| format!("+{}%", fixed(v, 2)))),
         ("Avg rise time", avg(&up_dur).map_or_else(na, format_duration)),
-        ("Avg drop", avg(&dn_pct).map_or_else(na, |v| format!("{v:.2}%"))),
+        ("Avg drop", avg(&dn_pct).map_or_else(na, |v| fixed(v, 2) + "%")),
         ("Avg drop time", avg(&dn_dur).map_or_else(na, format_duration)),
     ];
     let line = StudyLine { color: Some("#8ab4f8"), width: 2.0, ..StudyLine::line("zigzag", "Swings", zigzag) };
@@ -682,7 +968,7 @@ mod tests {
             .map(|i| {
                 let base = 100.0 + i as f64;
                 let (o, h, l, c, v) = shape(i);
-                Candle { open_time: t0 + i as i64 * step, open: o.unwrap_or(base), high: h.unwrap_or(base + 1.0), low: l.unwrap_or(base - 1.0), close: c.unwrap_or(base), volume: v.unwrap_or(1.0), quote_volume: None }
+                Candle { open_time: t0 + i as i64 * step, open: o.unwrap_or(base), high: h.unwrap_or(base + 1.0), low: l.unwrap_or(base - 1.0), close: c.unwrap_or(base), volume: v.unwrap_or(1.0), quote_volume: None, taker_buy: None }
             })
             .collect()
     }
@@ -833,8 +1119,8 @@ mod tests {
 
         let t0 = parse_iso("2026-08-03").unwrap();
         let heavy = vec![
-            Candle { open_time: t0, open: 100.0, high: 100.0, low: 100.0, close: 100.0, volume: 1.0, quote_volume: None },
-            Candle { open_time: t0 + DAY, open: 200.0, high: 200.0, low: 200.0, close: 200.0, volume: 99.0, quote_volume: None },
+            Candle { open_time: t0, open: 100.0, high: 100.0, low: 100.0, close: 100.0, volume: 1.0, quote_volume: None, taker_buy: None },
+            Candle { open_time: t0 + DAY, open: 200.0, high: 200.0, low: 200.0, close: 200.0, volume: 99.0, quote_volume: None, taker_buy: None },
         ];
         assert!(line(&compute_study(&parse_studies("avwap", 12)[0], &heavy), "weekly")[1].unwrap() > 198.0);
 
@@ -852,6 +1138,174 @@ mod tests {
         assert!(line(&study, "monthly")[7].unwrap() < 200.0);
     }
 
+    /// `(high, low, close, volume)` bars, an hour apart from a UTC midnight.
+    fn hourly(start: &str, bars: &[(f64, f64, f64, f64)]) -> Vec<Candle> {
+        let t0 = parse_iso(start).unwrap();
+        bars.iter().enumerate().map(|(i, &(high, low, close, volume))| Candle { open_time: t0 + i as i64 * HOUR, open: close, high, low, close, volume, quote_volume: None, taker_buy: None }).collect()
+    }
+
+    #[test]
+    fn vwap_weights_by_volume_with_bands_at_its_weighted_deviation() {
+        let candles = hourly("2026-08-03", &[(100.0, 100.0, 100.0, 1.0), (200.0, 200.0, 200.0, 3.0)]);
+        let study = compute_study(&parse_studies("vwap:0:1:2:0", 12)[0], &candles);
+        assert_eq!(study.id, "vwap:0:1:2:0");
+        assert_eq!(study.label, "VWAP Session ±1 ±2");
+        assert_eq!(study.lines.iter().map(|l| l.key).collect::<Vec<_>>(), ["vwap", "upper1", "lower1", "upper2", "lower2"], "a band of 0 is left out");
+        assert!(study.lines.iter().filter(|l| l.key != "vwap").all(|l| !l.badge), "only the VWAP itself gets a badge");
+        assert_eq!(line(&study, "vwap"), &vec![Some(100.0), Some(175.0)]);
+        // One lot 75 under the mean and three lots 25 over it: (75² + 3 × 25²) / 4.
+        let deviation = 1875.0f64.sqrt();
+        assert_eq!(line(&study, "upper1"), &vec![Some(100.0), Some(175.0 + deviation)]);
+        assert_eq!(line(&study, "lower2"), &vec![Some(100.0), Some(175.0 - 2.0 * deviation)]);
+    }
+
+    #[test]
+    fn vwap_starts_again_when_its_anchor_turns_over() {
+        // The third bar is the next UTC day.
+        let t0 = parse_iso("2026-08-03").unwrap() + 22 * HOUR;
+        let candles: Vec<Candle> = [100.0, 200.0, 300.0, 500.0].iter().enumerate().map(|(i, &p)| Candle { open_time: t0 + i as i64 * HOUR, open: p, high: p, low: p, close: p, volume: 1.0, quote_volume: None, taker_buy: None }).collect();
+        let session = compute_study(&parse_studies("vwap", 12)[0], &candles);
+        assert_eq!(session.id, "vwap:0:1:0:0", "the one band on by default");
+        assert_eq!(line(&session, "vwap"), &vec![Some(100.0), Some(150.0), Some(300.0), Some(400.0)]);
+        let week = compute_study(&parse_studies("vwap:1:0:0:0", 12)[0], &candles);
+        assert_eq!(week.label, "VWAP Week");
+        assert_eq!(line(&week, "vwap"), &vec![Some(100.0), Some(150.0), Some(200.0), Some(275.0)], "the same week throughout");
+    }
+
+    #[test]
+    fn a_gap_at_the_start_is_not_taken_for_the_bars_length() {
+        let mut bars = series("2026-08-03", 30, HOUR, |_| (None, None, None, None, None));
+        bars[0].open_time -= 3 * DAY;
+        let vwap = compute_study(&parse_studies("vwap", 12)[0], &bars);
+        assert!(line(&vwap, "vwap").iter().any(Option::is_some) && vwap.stats.is_empty());
+        assert!(!compute_study(&parse_studies("sessions", 12)[0], &bars).boxes.is_empty());
+    }
+
+    #[test]
+    fn vwap_says_why_it_draws_nothing() {
+        let days = series("2026-08-03", 5, DAY, |_| (None, None, None, None, None));
+        let study = compute_study(&parse_studies("vwap", 12)[0], &days);
+        assert!(line(&study, "vwap").iter().all(Option::is_none), "a session is no longer than a daily bar");
+        assert_eq!(study.stats[0].0, "Anchor");
+        let weekly = compute_study(&parse_studies("vwap:1:1:0:0", 12)[0], &days);
+        assert!(line(&weekly, "vwap").iter().all(Option::is_some) && weekly.stats.is_empty(), "a week folds daily bars");
+
+        let silent = series("2026-08-03", 5, HOUR, |_| (None, None, None, None, Some(0.0)));
+        let study = compute_study(&parse_studies("vwap", 12)[0], &silent);
+        assert!(line(&study, "vwap").iter().all(Option::is_none), "never the last price");
+        assert_eq!(study.stats[0].0, "Volume");
+        assert!(compute_study(&parse_studies("vwap", 12)[0], &[]).stats.is_empty(), "no bars yet is not a complaint");
+    }
+
+    #[test]
+    fn keltner_is_an_ema_with_bands_at_multiples_of_atr() {
+        let candles = series("2026-08-01", 60, DAY, |i| (None, Some(101.0 + i as f64), Some(99.0 + i as f64), Some(100.0 + i as f64), None));
+        let study = compute_study(&parse_studies("keltner:20:2.5:10", 12)[0], &candles);
+        assert_eq!(study.id, "keltner:20:2.5:10");
+        assert_eq!(study.label, "KC 20 2.5 10");
+        let close: Series = candles.iter().map(|c| Some(c.close)).collect();
+        let (basis, atr) = (indicators::ema(&close, 20), indicators::atr(&candles, 10));
+        assert_eq!(line(&study, "basis")[59], basis[59]);
+        assert_eq!(line(&study, "upper")[59], Some(basis[59].unwrap() + 2.5 * atr[59].unwrap()));
+        assert_eq!(line(&study, "lower")[59], Some(basis[59].unwrap() - 2.5 * atr[59].unwrap()));
+        assert_eq!((study.fills[0].upper, study.fills[0].lower, study.fills[0].key), ("upper", "lower", "fill"));
+        assert_eq!(parse_studies("keltner", 12)[0].id(), "keltner:20:2:10");
+    }
+
+    #[test]
+    fn the_ichimoku_cloud_runs_ahead_of_the_bars_and_price_behind_them() {
+        let candles = series("2026-08-01", 120, DAY, |i| (None, Some(110.0 + i as f64), Some(90.0 + i as f64), Some(100.0 + i as f64), None));
+        let study = compute_study(&parse_studies("ichimoku", 12)[0], &candles);
+        assert_eq!(study.id, "ichimoku:9:26:52:26");
+        let (conversion, base, a, b, lag) = (line(&study, "conversion"), line(&study, "base"), line(&study, "leadA"), line(&study, "leadB"), line(&study, "lagging"));
+        assert_eq!(conversion.len(), 120);
+        // The mid of the last nine highs and lows.
+        assert_eq!(conversion[119], Some(((110.0 + 119.0) + (90.0 + 111.0)) / 2.0));
+        assert_eq!(base[119], Some(((110.0 + 119.0) + (90.0 + 94.0)) / 2.0));
+        // Displacement 26 moves it 25 bars, as TradingView's offset does.
+        assert_eq!(a.len(), 145, "past the last bar");
+        assert_eq!(a[144], Some((conversion[119].unwrap() + base[119].unwrap()) / 2.0));
+        assert_eq!(b[144], Some(((110.0 + 119.0) + (90.0 + 68.0)) / 2.0));
+        assert_eq!(lag[94], Some(candles[119].close), "today's close, 25 bars back");
+        assert_eq!(lag.len(), 120);
+        assert_eq!(lag[95], None);
+        assert!(study.lines.iter().filter(|l| l.badge).all(|l| l.key == "conversion" || l.key == "base"), "no axis badge for a value in the future");
+        assert_eq!(study.fills[0].crossed_key, "cloudDown");
+        let few = compute_study(&parse_studies("ichimoku", 12)[0], &[]);
+        assert!(few.lines.iter().all(|l| l.values.is_empty()), "no bars, no lines");
+    }
+
+    #[test]
+    fn sessions_box_each_day_from_first_bar_to_last_and_high_to_low() {
+        let spiky = |i: usize| if i == 9 { (None, Some(999.0), Some(1.0), None, None) } else { (None, None, None, None, None) };
+        // Midnight UTC on a summer weekday, 48 hours.
+        let candles = series("2026-07-15", 48, HOUR, spiky);
+        let study = compute_study(&parse_studies("sessions", 12)[0], &candles);
+        assert_eq!(study.boxes.len(), 6, "three a day");
+        let t0 = candles[0].open_time;
+        let asia = &study.boxes[0];
+        assert_eq!((asia.key, asia.from, asia.to), ("asia", t0, t0 + 7 * HOUR), "midnight to 08:00");
+        let london = study.boxes.iter().find(|b| b.key == "london").unwrap();
+        assert_eq!((london.from, london.to), (t0 + 7 * HOUR, t0 + 15 * HOUR), "07:00 to 15:30 in summer, in hourly bars");
+        assert_eq!((london.top, london.bottom), (999.0, 1.0), "holds the spike at 09:00");
+        let ny = study.boxes.iter().find(|b| b.key == "ny").unwrap();
+        assert_eq!(ny.from, t0 + 14 * HOUR, "13:30 falls in the 14:00 bar's hour");
+        let daily = compute_study(&parse_studies("sessions", 12)[0], &series("2026-07-15", 10, DAY, |_| (None, None, None, None, None)));
+        assert!(daily.boxes.is_empty());
+        assert_eq!(daily.stats[0].0, "Needs", "says why it draws nothing");
+    }
+
+    #[test]
+    fn moon_phases_mark_the_bar_they_fall_in() {
+        let candles = series("2024-04-01", 30, DAY, |_| (None, None, None, None, None));
+        let study = compute_study(&parse_studies("moon", 12)[0], &candles);
+        let new = study.markers.iter().find(|m| m.plot == "new").unwrap();
+        assert_eq!(new.time, parse_iso("2024-04-08").unwrap());
+        assert!(!new.above && new.hollow);
+        let full = study.markers.iter().find(|m| m.plot == "full").unwrap();
+        assert_eq!(full.time, parse_iso("2024-04-23").unwrap());
+        assert!(full.above && !full.hollow);
+        assert!(compute_study(&parse_studies("moon", 12)[0], &[]).markers.is_empty());
+    }
+
+    #[test]
+    fn volume_delta_reads_the_exchanges_buyers_and_says_when_it_cannot() {
+        let t0 = parse_iso("2026-08-03").unwrap();
+        let bar = |i: i64, close: f64, volume: f64, taker_buy: Option<f64>| Candle { open_time: t0 + i * HOUR, open: 100.0, high: 110.0, low: 90.0, close, volume, quote_volume: None, taker_buy };
+        let exact = [bar(0, 100.0, 10.0, Some(7.0)), bar(1, 100.0, 10.0, Some(2.0))];
+        let study = compute_study(&parse_studies("volumedelta", 12)[0], &exact);
+        assert_eq!(study.label, "Vol Delta");
+        assert_eq!(study.group, Group::Delta);
+        assert_eq!(line(&study, "histogram"), &vec![Some(4.0), Some(-6.0)]);
+        assert_eq!(study.lines[0].kind, LineType::Histogram);
+        assert!(study.stats.is_empty(), "the real thing");
+        let cumulative = compute_study(&parse_studies("volumedelta:1", 12)[0], &exact);
+        assert_eq!(cumulative.label, "CVD");
+        assert_eq!(line(&cumulative, "cvd"), &vec![Some(4.0), Some(-2.0)]);
+
+        // No buyers reported: from where it closed, top of the range all bought.
+        let guess = [bar(0, 110.0, 10.0, None), bar(1, 100.0, 10.0, None), bar(2, 90.0, 10.0, None)];
+        let study = compute_study(&parse_studies("volumedelta", 12)[0], &guess);
+        assert_eq!(line(&study, "histogram"), &vec![Some(10.0), Some(0.0), Some(-10.0)]);
+        assert_eq!(study.stats, vec![("Estimated", "3 of 3 bars".to_string())]);
+
+        let silent = [bar(0, 100.0, 0.0, None)];
+        let study = compute_study(&parse_studies("volumedelta", 12)[0], &silent);
+        assert_eq!(line(&study, "histogram"), &vec![None]);
+        assert_eq!(study.stats[0].0, "Volume");
+    }
+
+    #[test]
+    fn a_multiplier_keeps_its_tenths_and_a_length_stays_whole() {
+        assert_eq!(ids("bb:20:2.5"), ["bb:20:2.5"]);
+        assert_eq!(ids("bb:20:0.3"), ["bb:20:0.3"], "not 0.30000000000000004");
+        assert_eq!(ids("ema:50.4"), ["ema:50"]);
+        assert_eq!(ids("bb"), ["bb:20:2"], "older ids read as they did");
+        assert_eq!(parse_studies("bb:20:2.5", 12)[0].label(), "BB 20 2.5");
+        assert_eq!(ids("bb:20:11,vwap:9"), Vec::<String>::new(), "out of range is dropped");
+        assert_eq!(ids("oi:255:1:0"), ["oi:255:1:0"]);
+    }
+
     #[test]
     fn swing_map_tags_confirmed_turns() {
         let mut prices = Vec::new();
@@ -865,7 +1319,7 @@ mod tests {
         let candles: Vec<Candle> = prices
             .iter()
             .enumerate()
-            .map(|(i, &p)| Candle { open_time: t0 + i as i64 * DAY, open: p, high: p + 0.5, low: p - 0.5, close: p, volume: 1.0, quote_volume: None })
+            .map(|(i, &p)| Candle { open_time: t0 + i as i64 * DAY, open: p, high: p + 0.5, low: p - 0.5, close: p, volume: 1.0, quote_volume: None, taker_buy: None })
             .collect();
         let study = compute_study(&parse_studies("swingmap:3:3", 12)[0], &candles);
         assert!(study.markers.len() >= 2);

@@ -222,9 +222,36 @@ button:has(> svg) > span, .venue-name, .sig-score .div { text-box: trim-both cap
 .list .row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .list .row .col { min-width: 86px; text-align: right; }
 .list .row .col.s { min-width: 64px; }
-.study { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 5px 8px; border-bottom: 1px solid var(--border); }
-.study:hover { background: var(--surface-2); }
-.study .about { flex-basis: 100%; order: 3; color: var(--muted); font-size: 11px; }
+/* ---- the indicator picker: one short row each, what one is about under the list */
+.dialog.picker { max-width: 540px; height: 690px; }
+.picker > header { padding-left: 10px; gap: 6px; }
+.ind-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; padding: 6px 10px 2px; background: var(--surface); color: var(--dim); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.ind-hint { color: var(--dim); font-size: 10px; letter-spacing: 0; text-transform: none; }
+.ind-hint:hover { color: var(--primary); }
+.ind-none { display: flex; align-items: center; gap: 6px; padding: 3px 10px 5px; color: var(--dim); font-size: 11px; }
+.ind { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px 0 5px; white-space: nowrap; cursor: pointer; }
+.ind.cur { background: var(--surface-3); }
+.ind.on { box-shadow: inset 2px 0 0 var(--primary); }
+.ind > button { flex: none; display: inline-flex; align-items: center; }
+.ind .star { padding: 3px; color: var(--dim); }
+.ind.cur .star { color: var(--muted); }
+.ind .star:hover, .ind .star.on { color: var(--warn); }
+.ind .iname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-size: 12px; }
+.ind .ishort { flex: none; color: var(--dim); font-size: 11px; }
+.ind .spacer { flex: 1 1 8px; }
+.ind .where { flex: none; color: var(--dim); font-size: 10px; }
+.ind .inst { gap: 4px; height: 18px; padding: 0 5px; border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent); color: var(--primary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ind .inst:hover { background: color-mix(in oklab, var(--primary) 14%, transparent); }
+.ind .iadd { justify-content: center; width: 20px; height: 18px; color: var(--dim); }
+.ind.cur .iadd { color: var(--muted); }
+.ind .iadd:hover { color: var(--primary); }
+.dialog > footer.ind-about { align-items: flex-start; flex: 0 0 44px; padding: 5px 10px; font-size: 11px; line-height: 1.35; color: var(--muted); overflow: hidden; }
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .picker > header { flex-wrap: nowrap; padding: 4px 6px 4px 10px; }
+  .dialog.picker input.q { flex: 1 1 auto; order: 0; }
+}
+@media (pointer: coarse) { .ind { min-height: 36px; } .ind .star { padding: 7px; } .ind .iadd { width: 32px; height: 28px; } .ind .inst { height: 24px; } }
+@media (max-width: 520px) { .ind .ishort, .ind .where { display: none; } .dialog > footer.ind-about { flex-basis: 62px; } }
 .field { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--dim); }
 input.box { width: 56px; border: 1px solid var(--border); background: var(--surface-2); padding: 1px 4px; font-size: 11px; color: var(--text); }
 input.box.wide { width: 100%; }
@@ -680,6 +707,15 @@ table.venues tr.off td { color: var(--dim); }
 .dtoolbar .dinput { height: 24px; }
 /* A position's Inputs: rsalianto's trade form, one compact column; a sheet from the bottom on a phone. */
 .dsettings.wide { width: 500px; }
+/* An indicator's settings: on the page, not in a panel, so a small chart does not cut them off. */
+.dsettings.study-settings { position: fixed; right: auto; z-index: 60; }
+.dsettings.study-settings > header { touch-action: none; }
+.dbits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+.dplot { display: flex; align-items: center; gap: 6px; min-height: 28px; }
+.dplot-name { min-width: 0; color: var(--text); }
+.dplot-name.indent { padding-left: 21px; }
+.dinput.dwidth { width: 76px; }
+.dnote.warn { color: var(--warn); }
 .ticket { display: flex; flex-direction: column; gap: 10px; }
 .tgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .tgrid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -754,6 +790,12 @@ table.venues tr.off td { color: var(--dim); }
   .dsettings.wide .strategy-cards { grid-auto-flow: column; grid-auto-columns: 76px; grid-template-columns: none; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 2px; }
   .dsettings.wide .strategy-card { scroll-snap-align: start; }
   .dsettings.wide > footer { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+}
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .dsettings.study-settings { inset: auto 0 0 0 !important; width: auto; max-width: none; max-height: 70dvh !important; border-radius: 12px 12px 0 0; }
+  .dsettings.study-settings > header { cursor: default; }
+  .dsettings.study-settings .dinput { height: 34px; font-size: 16px; }
+  .dsettings.study-settings > footer { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 }
 @media (max-width: 520px) {
   .dsettings { right: 8px; left: 8px; width: auto; }

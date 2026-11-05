@@ -5,8 +5,7 @@
 //! evenly, when in reality it clustered somewhere inside the range, so the levels
 //! are ZONES rather than tick-exact prices.
 
-use std::collections::BTreeMap;
-
+use crate::num::Within;
 use crate::{Candle, ChartTimeframe};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,7 +110,7 @@ fn add_candle(buckets: &mut [f64], candle: &Candle, low: f64, bucket_size: f64, 
     let bins = buckets.len();
     let lo = candle.low.max(low);
     let hi = candle.high.min(low + bins as f64 * bucket_size);
-    let index = |price: f64| ((price - low) / bucket_size).floor().clamp(0.0, (bins - 1) as f64) as usize;
+    let index = |price: f64| ((price - low) / bucket_size).floor().within(0.0, (bins - 1) as f64) as usize;
     let (first, last) = (index(lo), index(hi));
 
     if basis == ProfileBasis::Tpo {
@@ -186,17 +185,26 @@ pub fn value_area(buckets: &[f64], poc_index: usize, pct: f64) -> (usize, usize)
 /// Profile every session in `candles`. Sessions with fewer than `min_bars` are
 /// dropped: three hourly candles of a 24h session are noise wearing a value
 /// area's name.
+/// Oldest-first candles into their sessions, oldest first.
+pub(crate) fn by_session(candles: &[Candle], session: ChartTimeframe) -> Vec<(i64, Vec<Candle>)> {
+    let mut groups: Vec<(i64, Vec<Candle>)> = Vec::new();
+    for c in candles {
+        let start = session.align(c.open_time);
+        match groups.last_mut() {
+            Some(group) if group.0 == start => group.1.push(*c),
+            _ => groups.push((start, vec![*c])),
+        }
+    }
+    groups
+}
+
 pub fn profile_by_session(
     candles: &[Candle],
     session: ChartTimeframe,
     opts: &ProfileOptions,
     min_bars: usize,
-) -> BTreeMap<i64, SessionProfile> {
-    let mut groups: BTreeMap<i64, Vec<Candle>> = BTreeMap::new();
-    for c in candles {
-        groups.entry(session.align(c.open_time)).or_default().push(*c);
-    }
-    groups
+) -> Vec<(i64, SessionProfile)> {
+    by_session(candles, session)
         .into_iter()
         .filter(|(_, g)| g.len() >= min_bars)
         .filter_map(|(start, g)| session_profile(&g, start, opts).map(|p| (start, p)))
@@ -239,6 +247,7 @@ mod tests {
                 close: high,
                 volume,
                 quote_volume: None,
+                taker_buy: None,
             })
             .collect()
     }
@@ -304,12 +313,12 @@ mod tests {
         candles.extend(humped(110.0, 24, DAY));
         let profiles = profile_by_session(&candles, ChartTimeframe::D1, &ProfileOptions::default(), 5);
         assert_eq!(profiles.len(), 2);
-        assert!(profiles[&DAY].poc > profiles[&0].poc);
+        assert!(profiles[1].0 == DAY && profiles[1].1.poc > profiles[0].1.poc);
 
         let mut candles = humped(100.0, 24, 0);
         candles.extend(humped(110.0, 2, DAY));
         let profiles = profile_by_session(&candles, ChartTimeframe::D1, &ProfileOptions::default(), 5);
-        assert!(profiles.contains_key(&0) && !profiles.contains_key(&DAY));
+        assert_eq!(profiles.iter().map(|p| p.0).collect::<Vec<_>>(), [0]);
     }
 
     #[test]

@@ -570,6 +570,12 @@ person. Signing out of a browser ends its session (`DELETE
 /api/account/sessions`, or `/signout` to the bot) ends every session of the
 account; the account keeps everything.
 
+The indicators an account stars in the picker are kept per row
+(`indicator_favourite`, `/api/account/favourites`), not in the workspace, which
+is saved whole and whichever copy changed last wins: a star on the phone must not
+be lost to a desktop tab open all along. A browser that has not signed in keeps
+its stars in localStorage, and signing in carries them into the account, once.
+
 An alert that fires is also sent to Telegram, where the reader has linked a
 chat (`telegram`, `TRADOOR_TELEGRAM_TOKEN`). A bot cannot open a conversation,
 so Settings opens `t.me/<bot>?start=<code>` with a one-use code that says which

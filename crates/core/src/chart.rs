@@ -21,8 +21,13 @@ pub struct EngineSeries {
 }
 
 pub fn engine_series(candles: &[Candle]) -> EngineSeries {
+    engine_series_with(candles, (12, 25, 200))
+}
+
+/// The same with the reader's lengths: the ribbon's fast and slow, and the long average.
+pub fn engine_series_with(candles: &[Candle], (fast, slow, long): (usize, usize, usize)) -> EngineSeries {
     let close: Series = candles.iter().map(|c| Some(c.close)).collect();
-    let (ema12, ema25) = (ema(&close, 12), ema(&close, 25));
+    let (ema12, ema25) = (ema(&close, fast), ema(&close, slow));
     let (up, down) = (cross_over(&ema12, &ema25), cross_under(&ema12, &ema25));
     let crosses = (0..candles.len())
         .filter_map(|i| match (up[i], down[i]) {
@@ -31,7 +36,7 @@ pub fn engine_series(candles: &[Candle]) -> EngineSeries {
             _ => None,
         })
         .collect();
-    EngineSeries { ema200: ema(&close, 200), ema12, ema25, crosses }
+    EngineSeries { ema200: ema(&close, long), ema12, ema25, crosses }
 }
 
 /// Which session a timeframe's profile describes, and which candles build it.
@@ -77,7 +82,7 @@ pub fn profile_overlay(candles: &[Candle], source: &[Candle], spec: ProfileSpec,
     }
     let profiles = profile_by_session(source, spec.session, &ProfileOptions { basis, ..Default::default() }, PROFILE_MIN_BARS);
     for (i, c) in candles.iter().enumerate() {
-        if let Some(p) = profiles.get(&session_start_back(c.open_time, spec.session, 1)) {
+        if let Some((_, p)) = profiles.binary_search_by_key(&session_start_back(c.open_time, spec.session, 1), |e| e.0).ok().map(|at| &profiles[at]) {
             out.vah[i] = Some(p.vah);
             out.val[i] = Some(p.val);
             out.poc[i] = Some(p.poc);

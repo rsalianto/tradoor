@@ -808,6 +808,7 @@ pub(crate) fn candles_of(klines: &[OwnedKline]) -> anyhow::Result<(Vec<Candle>, 
                 close: k.close.parse()?,
                 volume: k.volume.parse()?,
                 quote_volume: k.quote_volume.as_deref().and_then(|q| q.parse().ok()),
+                taker_buy: None,
             })
         })
         .collect::<anyhow::Result<Vec<Candle>>>()?;
