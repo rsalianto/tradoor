@@ -999,13 +999,19 @@ table.venues tr.off td { color: var(--dim); }
 .sig-row.strong.shown { background: color-mix(in oklab, var(--primary) 7%, transparent); box-shadow: inset 2px 0 0 var(--primary); }
 .sig-limit .tag.entry { color: var(--info); }
 .sig-limit .gone, .sig-limit .gone .tag { color: var(--dim); }
-@container (max-width: 440px) {
+/* The flow figures need about 150px, so they go before the symbol has to give way. */
+.sig-row.played { grid-template-columns: 72px minmax(0, 1fr) auto 52px 40px; }
+@container (max-width: 540px) {
   .sig-row { grid-template-columns: 84px minmax(0, 1fr) minmax(74px, auto) 28px; column-gap: 6px; }
   .sig-drives { display: none; }
   .sig-row.played { grid-template-columns: 72px minmax(0, 1fr) 52px 40px; }
 }
+/* Narrower still, the symbol keeps the room the market's kind and a wide column took. */
+@container (max-width: 400px) {
+  .sig-row { grid-template-columns: 84px minmax(0, 1fr) minmax(40px, auto) 28px; }
+  .sig-coin .venue .kind { display: none; }
+}
 .sig-out { font-size: 10px; white-space: nowrap; color: var(--dim); }
-.sig-row.played { grid-template-columns: 72px minmax(0, 1fr) auto 52px 40px; }
 .sig-row.ended { opacity: 0.7; }
 .sig-row.ended:hover { opacity: 1; }
 .sig .sig-cap { display: flex; align-items: baseline; gap: 8px; padding: 8px 8px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
