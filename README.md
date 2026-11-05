@@ -20,6 +20,7 @@
   <a href="https://github.com/rsalianto/tradoor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rsalianto/tradoor?style=flat-square&color=aafd35&labelColor=3a3a3a"></a>
   <br>
   <img alt="Binance · Bybit · OKX · Bitget · Hyperliquid · Kraken · Lighter" src="https://img.shields.io/badge/Binance%20%C2%B7%20Bybit%20%C2%B7%20OKX%20%C2%B7%20Bitget%20%C2%B7%20Hyperliquid%20%C2%B7%20Kraken%20%C2%B7%20Lighter-live-aafd35?style=flat-square">
+  <img alt="Gate · Aster · HTX · Bitfinex · Deribit · Coinbase · Bitstamp" src="https://img.shields.io/badge/Gate%20%C2%B7%20Aster%20%C2%B7%20HTX%20%C2%B7%20Bitfinex%20%C2%B7%20Deribit%20%C2%B7%20Coinbase%20%C2%B7%20Bitstamp-live-aafd35?style=flat-square">
 </p>
 
 <p align="center">
@@ -52,7 +53,7 @@
 
 **📊 Order flow and market profile.** A DOM and a tape on seven exchanges, TPO profiles by session, footprints with bid and ask at every price, value areas, and a Values panel that reads a market at a glance.
 
-**🔥 Live from the source.** Exchange streams straight to the browser: trades fold into the forming bar, order books fill the DOM, liquidations land from eleven exchanges, and net taker flow is counted per venue.
+**🔥 Live from the source.** Fourteen exchanges, streamed straight to the browser: trades fold into the forming bar, order books fill the DOM, liquidations land from eleven exchanges, and net taker flow is counted per venue.
 
 **📓 Journal and training.** Every position you draw becomes a trade that price settles, and a paper account trades Binance's perpetuals at their live prices, from the chart or the DOM.
 
@@ -69,6 +70,26 @@ Every screenshot is the live site, or for the journal and training a local one w
 </p>
 
 Up to 20 charts on screen, all drawing: the first four with WebGL, the rest in 2D. Pick a grid from the menu in the top bar, keep Symbol, Interval, Crosshair or Time in step across the charts, and draw on any of them from one toolbar: what you draw, move or delete shows at once on every chart of that market. Maximize any chart to fill the workspace and minimize it back (Alt+Enter), and each chart's toolbar folds to fit its width. Every panel splits, tabs and docks by drag: drop a tab on a tab strip to reorder it, or on a panel's edge to set it beside. Four layouts are ready to start from (Classic, Multi-timeframe, Order flow, and DOM & Tape), your own are saved by name when signed in, and your watchlists stay whichever you open.
+
+### Fourteen exchanges
+
+<p align="center">
+  <img src="docs/screenshots/exchanges.webp" alt="The symbol search for BTC: fourteen exchanges' marks across the top, and BTC's markets on each of them, spot and perpetual, with price, change and volume, the busiest first" width="100%">
+  <br>
+  <sub>One search across some 16,500 markets, the busiest first.</sub>
+</p>
+
+Every market on Binance, Bybit, OKX, Bitget, Kraken, Hyperliquid, Lighter, Gate, Aster, HTX, Bitfinex, Deribit, Coinbase and Bitstamp, in one search, to chart and to keep in a watchlist, live from the exchange's own feed. The DOM, the tape and footprints are on the first seven. The server does not watch the last seven yet, so a price alert on one of them fires only while tradoor is open in a browser, and the journal does not settle trades on them.
+
+### Indicators
+
+<p align="center">
+  <img src="docs/screenshots/indicators.webp" alt="The indicator picker: a search box, favourites, then the indicators by what they are for: trend and averages, VWAP, momentum, volatility, levels and structure, flow and positioning" width="440">
+  <br>
+  <sub>The picker: starred ones first, then the rest by what they are for.</sub>
+</p>
+
+Search for an indicator or pick one from its group. A click adds it with its usual settings and leaves the list open for the next. Each has settings of its own, and adding another of the same with other settings puts both on the chart. Star the ones you use and they stay at the top on every device you sign in on.
 
 ### DOM and Tape
 
@@ -148,9 +169,9 @@ A screener scans 200 coins on the 4H, 1D and 1W for three drives into a line, wi
 ### Flow
 
 <p align="center">
-  <img src="docs/screenshots/flow.webp" alt="The flow panel: BTC's net taker flow on each exchange over the last minute, hour, 4 hours, 12 hours and day, and below it the minutes that crossed a size" width="440">
+  <img src="docs/screenshots/flow.webp" alt="The flow panel: BTC's net taker flow on each exchange over the last minute, hour, 4 hours, 12 hours and day" width="440">
   <br>
-  <sub>BTC's net taker flow per exchange, and the big minutes.</sub>
+  <sub>BTC's net taker flow per exchange, spot and perpetual.</sub>
 </p>
 
 Net taker flow on each exchange, spot and perpetual, over the last minute to day, and the minutes that ran hard one way marked on the chart where they traded.
@@ -253,7 +274,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 - **UI**: SolidJS (about 58 KB brotli): splits, tabs, docking by drag, link groups, command palette, theme; one chart and a menu on a phone.
 
 ```text
-crates/core      candles, timeframes, indicators and studies with Pine Script semantics; no dependencies
+crates/core      candles, timeframes, indicators and studies; no dependencies
 crates/codec     the TDC1 partition format (docs/format.md)
 crates/venues    the exchanges: market lists, klines, Binance's archives
 crates/store     the data directory and PostgreSQL metadata
