@@ -37,7 +37,7 @@ const DEFAULT_VISIBLE_BARS: f64 = 150.0;
 const MAX_SHOWN_SHORT_BARS: f64 = 1_500.0;
 const SHORT_BAR_MS: i64 = 15 * 60_000;
 const RIGHT_MARGIN_BARS: f64 = 2.0;
-/// How many bars past the last one a key level still in force runs.
+/// How many bars past the last one a key level still in force runs, unless its settings say otherwise.
 const LEVEL_AHEAD_BARS: f64 = 8.0;
 const CLICK_SLOP: f32 = 5.0;
 /// How near an anchor handle counts as grabbing it.
@@ -1946,6 +1946,7 @@ impl Chart {
                 }
             }
             let last = self.times.len().saturating_sub(1) as f64;
+            let ahead = self.styles.number(&study.id, "ahead", LEVEL_AHEAD_BARS).within(0.0, 500.0).round();
             for seg in &study.segments {
                 let own = self.styles.of(&study.id, seg.key);
                 if own.off {
@@ -1954,9 +1955,9 @@ impl Chart {
                 let (Some(l0), Some(l1)) = (time_to_logical(&self.times, seg.from as f64), time_to_logical(&self.times, seg.to as f64)) else { continue };
                 let (x0, mut x1) = (self.time.x(l0) as f32, self.time.x(l1) as f32);
                 // A level still in force runs on into the space ahead, as far as its label still fits.
-                if l1 >= last {
+                if l1 >= last && ahead > 0.0 {
                     let label = seg.label.len() as f32 * self.char_width * (t.font_px - 1.0) / t.font_px;
-                    x1 = x1.max((self.time.x(last + LEVEL_AHEAD_BARS) as f32).min(plot_w - label - 9.0));
+                    x1 = x1.max((self.time.x(last + ahead) as f32).min(plot_w - label - 9.0));
                 }
                 if x1 < 0.0 || x0 > plot_w {
                     continue;
@@ -3644,6 +3645,16 @@ mod tests {
         let far = reach(&mut c);
         let ahead = c.time.x(last + LEVEL_AHEAD_BARS) as f32;
         assert!((far - ahead).abs() < 2.0, "ends at {far}, eight bars on is {ahead}");
+
+        // A length of its own, and none at all: then it stops at the last bar.
+        c.time.right_offset = 40.0;
+        c.set_styles(&format!("{id}/wo=#ff0000,1,,0;{id}/ahead=20"));
+        let twenty = c.time.x(last + 20.0) as f32;
+        assert!((reach(&mut c) - twenty).abs() < 2.0, "twenty bars on is {twenty}");
+        c.set_styles(&format!("{id}/wo=#ff0000,1,,0;{id}/ahead=0"));
+        let at_last = c.time.x(last) as f32;
+        assert!((reach(&mut c) - at_last).abs() < 2.0, "stops at the last bar, {at_last}");
+        c.set_styles(&format!("{id}/wo=#ff0000,1,,0"));
 
         // With the last bar near the edge, only as far as leaves its label on screen.
         c.time.right_offset = 2.0;

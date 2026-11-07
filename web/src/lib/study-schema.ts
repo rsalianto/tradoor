@@ -264,7 +264,11 @@ const PANE_GUIDES: readonly NumberInput[] = [
 ];
 const GUIDES_PLOT: StylePlot = { owner: 'pct', key: 'guides', label: 'Guides', theme: 'border', width: 1, noPattern: true };
 
-export const studyNumbers = (kind: string): readonly NumberInput[] => (kind === 'rsi' || kind === 'stochrsi' ? PANE_GUIDES : []);
+const KEY_LEVEL_NUMBERS: readonly NumberInput[] = [
+  { key: 'ahead', label: 'Line past the last bar', default: 8, min: 0, max: 500, hint: 'How many bars a level still in force runs on into the space ahead; 0 stops it at the last bar' },
+];
+
+export const studyNumbers = (kind: string): readonly NumberInput[] => (kind === 'rsi' || kind === 'stochrsi' ? PANE_GUIDES : kind === 'keylevels' ? KEY_LEVEL_NUMBERS : []);
 /** The owners besides a study's own that its settings change. */
 export const otherOwners = (kind: string): readonly string[] => (kind === 'rsi' || kind === 'stochrsi' ? ['pct'] : []);
 
