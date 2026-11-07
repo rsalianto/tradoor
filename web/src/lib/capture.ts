@@ -26,12 +26,25 @@ function keep(blob: Blob, name: string): void {
 
 const canWrite = (): boolean => typeof ClipboardItem === 'function' && typeof navigator.clipboard?.write === 'function';
 
+/** What a picture says it is of, top left: see capture-title. */
+export interface CaptureTitle {
+  symbol: string;
+  /** Its timeframe and exchange, as the legend has them. */
+  detail: string;
+  /** The bar's prices and its change, as the legend shows them; empty for none. */
+  ohlc: string;
+  change: string;
+  up: boolean;
+  /** When the picture was taken, or the replay's time. */
+  time: string;
+}
+
 /**
  * Copy the chart in `slot`; `save` writes the file instead, as does a browser
  * that refuses the clipboard. `name` is what the file is called.
  */
-export function captureChart(slot: string, name: string, save = false): void {
-  const picture = call('capture', { id: slot, wide: CAPTURE_WIDE });
+export function captureChart(slot: string, name: string, title: CaptureTitle, save = false): void {
+  const picture = Promise.all([call('capture', { id: slot, wide: CAPTURE_WIDE }), import('./capture-title')]).then(([shot, { titled }]) => titled(shot, title));
   const failed = (e: unknown) => toast({ tone: 'warn', title: 'Picture not taken', body: errorText(e) });
   if (save || !canWrite()) {
     picture.then((blob) => keep(blob, name), failed);

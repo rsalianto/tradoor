@@ -29,7 +29,7 @@ import { Icon } from '../lib/icons';
 import { VenueTag } from '../lib/exchanges';
 import { WatchlistToggle } from '../components/WatchlistToggle';
 import { liquidationVenues } from '../lib/liquidation-venues';
-import { formatClock, formatDateTime, formatFileTime, zoneLabel } from '../lib/timezone';
+import { formatAlertTime, formatClock, formatDateTime, formatFileTime, timeZone, zoneLabel } from '../lib/timezone';
 import { dropOwner, numberOf, plotStyle, serializeStyles, splitList, withoutLayer } from '../lib/study-style';
 import { serializeTpo, tpoValue, withTpoValue } from '../lib/tpo-settings';
 import { isRatio, symbolOf, venueLabel } from '../lib/markets';
@@ -1066,7 +1066,20 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   }
 
   /** A picture of this chart, to the clipboard — or to a file when `save`. */
-  const capture = (save: boolean) => captureChart(sid, `tradoor ${symbolOf(market())} ${tfLabel(timeframe())} ${formatFileTime(Date.now())}.png`, save);
+  const capture = (save: boolean) => {
+    const l = legend();
+    const at = replayAt();
+    const tpo = split() ? ` · TPO ${TPO_SPLITS.find((t) => t.value === split())?.label}` : '';
+    const title = {
+      symbol: symbolOf(market()),
+      detail: `${tfLabel(timeframe())}${tpo} · ${venueLabel(market())}`,
+      ohlc: l?.ohlc ?? '',
+      change: l?.change ?? '',
+      up: l?.up !== false,
+      time: `${at === null ? '' : 'Replay · '}${formatAlertTime(at ?? Date.now())} ${zoneLabel(timeZone())}`,
+    };
+    captureChart(sid, `tradoor ${symbolOf(market())} ${tfLabel(timeframe())} ${formatFileTime(Date.now())}.png`, title, save);
+  };
 
   const undo = () => {
     const step = history.takeUndo();

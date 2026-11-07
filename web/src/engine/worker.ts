@@ -1176,7 +1176,7 @@ const MAX_CAPTURE_SCALE = 6;
  * pixels across. Nothing on screen changes: the engine goes back to the size it
  * was at the moment it is done.
  */
-async function captureCall({ id, wide }: Calls['capture']['args']): Promise<Blob> {
+async function captureCall({ id, wide }: Calls['capture']['args']): Promise<Calls['capture']['result']> {
   const slot = slots.get(id);
   if (!slot) throw new Error('that chart is not open');
   const { width, height, dpr } = slot.size();
@@ -1192,7 +1192,8 @@ async function captureCall({ id, wide }: Calls['capture']['args']): Promise<Blob
   if (!ctx) throw new Error('this browser will not draw the picture');
   ctx.drawImage(shapes, 0, 0);
   ctx.drawImage(labels, 0, 0);
-  return await out.convertToBlob({ type: 'image/png' });
+  // Made a PNG on the page, once its title is on.
+  return { picture: out.transferToImageBitmap(), px: dpr * scale };
 }
 
 async function answer(req: number, name: CallName, args: unknown): Promise<void> {

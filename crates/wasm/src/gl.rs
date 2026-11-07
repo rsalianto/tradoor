@@ -227,6 +227,11 @@ pub fn fill_triangles(ctx: &web_sys::OffscreenCanvasRenderingContext2d, frame: &
             }
             let at = |i: usize| (f64::from(p[i * 2]), f64::from(p[i * 2 + 1]));
             let (a, b, d) = (at(v), at(v + 1), at(v + 2));
+            // Every triangle turned the same way: a run is filled as one path by
+            // the nonzero rule, where two that overlap turning opposite ways cancel
+            // out. A line's joints are squares turning against it, and a brush
+            // stroke came out of a picture in dashes.
+            let (b, d) = if (b.0 - a.0) * (d.1 - a.1) < (b.1 - a.1) * (d.0 - a.0) { (d, b) } else { (b, d) };
             ctx.move_to(a.0, a.1);
             ctx.line_to(b.0, b.1);
             ctx.line_to(d.0, d.1);
