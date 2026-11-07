@@ -1200,7 +1200,7 @@ table.venues tr.off td { color: var(--dim); }
 .jx-week { display: flex; align-items: center; justify-content: center; min-height: 50px; padding: 2px; background: var(--surface-2); font-size: 10.5px; font-weight: 600; }
 .jx-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 /* Every group, ten rows or so in view and the rest a scroll away, under a header that stays. */
-.jx-scroll { max-height: 336px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.jx-scroll { max-height: 336px; overflow-y: auto; overscroll-behavior: contain; }
 .jx-scroll thead th { position: sticky; top: 0; z-index: 1; padding-top: 2px; background: var(--surface); }
 .jx-table tr.go { cursor: pointer; }
 .jx-table tr.go:hover td { background: var(--surface-2); }
