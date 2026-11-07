@@ -37,6 +37,8 @@ const DEFAULT_VISIBLE_BARS: f64 = 150.0;
 const MAX_SHOWN_SHORT_BARS: f64 = 1_500.0;
 const SHORT_BAR_MS: i64 = 15 * 60_000;
 const RIGHT_MARGIN_BARS: f64 = 2.0;
+/// How many bars past the last one a key level still in force runs.
+const LEVEL_AHEAD_BARS: f64 = 8.0;
 const CLICK_SLOP: f32 = 5.0;
 /// How near an anchor handle counts as grabbing it.
 const HANDLE_HIT: f32 = 9.0;
@@ -1943,13 +1945,19 @@ impl Chart {
                     (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, far, self.line_color(&study.id, line, index, li), own.width.unwrap_or(line.width), style, own.pattern.unwrap_or(line.pattern)),
                 }
             }
+            let last = self.times.len().saturating_sub(1) as f64;
             for seg in &study.segments {
                 let own = self.styles.of(&study.id, seg.key);
                 if own.off {
                     continue;
                 }
                 let (Some(l0), Some(l1)) = (time_to_logical(&self.times, seg.from as f64), time_to_logical(&self.times, seg.to as f64)) else { continue };
-                let (x0, x1) = (self.time.x(l0) as f32, self.time.x(l1) as f32);
+                let (x0, mut x1) = (self.time.x(l0) as f32, self.time.x(l1) as f32);
+                // A level still in force runs on into the space ahead, as far as its label still fits.
+                if l1 >= last {
+                    let label = seg.label.len() as f32 * self.char_width * (t.font_px - 1.0) / t.font_px;
+                    x1 = x1.max((self.time.x(last + LEVEL_AHEAD_BARS) as f32).min(plot_w - label - 9.0));
+                }
                 if x1 < 0.0 || x0 > plot_w {
                     continue;
                 }
@@ -3614,6 +3622,34 @@ mod tests {
         let (above, below) = (c.theme.bull.with_alpha(0x80), c.theme.bear.with_alpha(0x80));
         assert!(inked(&mut c, above) > 0 && inked(&mut c, below) > 0);
         assert!(c.studies[0].stats.is_empty(), "nothing estimated");
+    }
+
+    #[test]
+    fn a_key_level_in_force_runs_on_past_the_last_bar_while_its_label_fits() {
+        let mut c = chart();
+        c.set_hidden("ribbon,ema200,volume,liquidations");
+        c.set_studies("keylevels");
+        let id = c.studies[0].id.clone();
+        c.set_styles(&format!("{id}/wo=#ff0000,1,,0"));
+        // The plot's own red: the price axis carries the level's tag in it too.
+        let reach = |c: &mut Chart| {
+            let frame = c.render(1_800_000_000_000).clone();
+            let plot_w = c.panes[0].plot.w;
+            frame.positions.chunks(2).zip(frame.colors.chunks(4)).filter(|(xy, p)| *p == [255u8, 0, 0, 255] && xy[0] < plot_w).map(|(xy, _)| xy[0]).fold(f32::MIN, f32::max)
+        };
+        let last = (c.times.len() - 1) as f64;
+
+        // With room ahead, eight bars on.
+        c.time.right_offset = 20.0;
+        let far = reach(&mut c);
+        let ahead = c.time.x(last + LEVEL_AHEAD_BARS) as f32;
+        assert!((far - ahead).abs() < 2.0, "ends at {far}, eight bars on is {ahead}");
+
+        // With the last bar near the edge, only as far as leaves its label on screen.
+        c.time.right_offset = 2.0;
+        let near = reach(&mut c);
+        let plot_w = c.panes[0].plot.w;
+        assert!(near > c.time.x(last) as f32 && near < plot_w - 2.0 * c.char_width, "ends at {near} of {plot_w}");
     }
 
     #[test]
