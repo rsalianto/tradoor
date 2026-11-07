@@ -217,11 +217,13 @@ const MINUTE = 60_000;
 Deno.test('candles: each exchange\'s order of columns comes out the same', async () => {
   const end = 1793876160000;
   const range = { end };
-  const gateSpot = answering([['1793875860', '393863.33', '80305.7', '80310', '80244.6', '80250', '4.906', 'true']]);
-  assertEquals(await rows(ref('gate-spot:BTCUSDT'), 'BTC_USDT', '1m', { start: 0, end: Date.now() }, 999, gateSpot.getJson, MINUTE), [[1793875860000, 80250, 80310, 80244.6, 80305.7, 4.906]]);
+  // Gate's reach is counted back from now, so its bar is a recent one.
+  const recent = Math.floor(Date.now() / MINUTE) * MINUTE - 5 * MINUTE;
+  const gateSpot = answering([[String(recent / 1000), '393863.33', '80305.7', '80310', '80244.6', '80250', '4.906', 'true']]);
+  assertEquals(await rows(ref('gate-spot:BTCUSDT'), 'BTC_USDT', '1m', { start: 0, end: Date.now() }, 999, gateSpot.getJson, MINUTE), [[recent, 80250, 80310, 80244.6, 80305.7, 4.906]]);
   assert(gateSpot.asked[0]!.includes('/spot/candlesticks?currency_pair=BTC_USDT&interval=1m&from='));
-  const gatePerp = answering([{ o: '80250', h: '80400', l: '80200', c: '80000', sum: '160000', t: 1793875860, v: 565419 }]);
-  assertEquals(await rows(ref('gate-perp:BTCUSDT'), 'BTC_USDT', '1m', {}, 1999, gatePerp.getJson, MINUTE), [[1793875860000, 80250, 80400, 80200, 80000, 2]]);
+  const gatePerp = answering([{ o: '80250', h: '80400', l: '80200', c: '80000', sum: '160000', t: recent / 1000, v: 565419 }]);
+  assertEquals(await rows(ref('gate-perp:BTCUSDT'), 'BTC_USDT', '1m', {}, 1999, gatePerp.getJson, MINUTE), [[recent, 80250, 80400, 80200, 80000, 2]]);
   const aster = answering([[1793875800000, '80304.8', '80321.3', '80213.8', '80231.4', '22.06', 1793875859999, '1770617.84', 97, '6.543', '524']]);
   assertEquals(await rows(ref('aster-perp:BTCUSDT'), 'BTCUSDT', '1m', range, 999, aster.getJson, MINUTE), [[1793875800000, 80304.8, 80321.3, 80213.8, 80231.4, 22.06, 6.543]]);
   assert(aster.asked[0]!.startsWith('https://fapi.asterdex.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=999&endTime='));
