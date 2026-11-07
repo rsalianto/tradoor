@@ -439,6 +439,8 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .legend { position: absolute; top: 4px; left: 6px; z-index: 5; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; max-width: calc(100% - 90px); pointer-events: none; font-size: 11px; }
 .legend .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; padding: 0 3px; }
 .legend .title { font-weight: 700; color: var(--text); }
+.legend .ohlc { display: inline-flex; gap: 9px; }
+.legend .ohlc i { margin-right: 3px; color: var(--dim); font-style: normal; }
 .layer { display: flex; align-items: center; gap: 6px; padding: 0 3px; pointer-events: auto; background: color-mix(in oklab, var(--surface) 72%, transparent); }
 .layer .name { color: var(--muted); }
 .layer.off .name { color: var(--dim); text-decoration: line-through; }

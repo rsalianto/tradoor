@@ -2132,6 +2132,11 @@ impl Chart {
 
         // ---- crosshair
         let hover = self.crosshair.filter(|(x, y)| *x >= 0.0 && *x < plot_w && *y >= 0.0 && *y < avail && !matches!(self.drag, Drag::Separator { .. } | Drag::Table { .. }));
+        // With the magnet on, the crosshair stands where an anchor would land, as
+        // TradingView's does: on the bar's open, high, low or close — always when
+        // strong, when near one when weak (or Ctrl held), else on a whole tick.
+        let snapped = hover.and_then(|(x, y)| self.point_in(0, x, y).filter(|_| self.magnet_now() != Magnet::Off && self.pane_at(y) == Some(0))).map(|a| a.price);
+        let hover = hover.map(|(x, y)| (x, snapped.map_or(y, |p| price.scale.y(p) as f32)));
         // Another chart's crosshair, in a layout keeping them in step, stands where this one's is not.
         let hover_slot = match hover {
             Some((x, _)) => self.slot_at(x),
@@ -2250,7 +2255,8 @@ impl Chart {
         if let Some((pi, cy)) = crosshair_price {
             let pane = self.panes[pi];
             f.crisp_rect(plot_w + 1.0, cy - badge_h / 2.0, self.axis_width - 1.0, badge_h, t.label_background);
-            f.text(plot_w + 6.0, cy, self.format_value(pane.group, pane.scale.price(f64::from(cy))), t.countdown_text, Align::Left, Baseline::Middle, font, None, None);
+            let value = snapped.filter(|_| pi == 0).unwrap_or_else(|| pane.scale.price(f64::from(cy)));
+            f.text(plot_w + 6.0, cy, self.format_value(pane.group, value), t.countdown_text, Align::Left, Baseline::Middle, font, None, None);
         }
 
         // ---- time labels
@@ -2707,7 +2713,11 @@ impl Chart {
     }
 
     fn anchor_at(&self, x: f32, y: f32) -> Option<Anchor> {
-        let pane = self.panes.get(self.draw_pane)?;
+        self.anchor_in(self.draw_pane, x, y)
+    }
+
+    fn anchor_in(&self, pane: usize, x: f32, y: f32) -> Option<Anchor> {
+        let pane = self.panes.get(pane)?;
         let time = logical_to_time(&self.times, self.time.logical(f64::from(x)))?;
         let price = pane.scale.price(f64::from(y));
         (time.is_finite() && price.is_finite()).then_some(Anchor { time, price })
@@ -2715,10 +2725,14 @@ impl Chart {
 
     /// An anchor where the pointer is, pulled by the magnet when it is on.
     fn point_at(&self, x: f32, y: f32) -> Option<Anchor> {
-        let raw = self.anchor_at(x, y)?;
+        self.point_in(self.draw_pane, x, y)
+    }
+
+    fn point_in(&self, pane: usize, x: f32, y: f32) -> Option<Anchor> {
+        let raw = self.anchor_in(pane, x, y)?;
         let magnet = self.magnet_now();
         // A lower pane has no candles to hold on to.
-        if magnet == Magnet::Off || self.draw_pane > 0 {
+        if magnet == Magnet::Off || pane > 0 {
             return Some(raw);
         }
         let pane = self.panes.first()?;
@@ -4559,6 +4573,21 @@ mod tests {
         assert_eq!(c.point_at(x, y_close + 3.0).unwrap().price, bar.close);
         c.set_ctrl(false);
         assert_ne!(c.point_at(x, y_close + 3.0).unwrap().price, bar.close);
+
+        // The crosshair stands where the anchor would: its price tag reads the high, not the pointer's price.
+        let tag = |c: &mut Chart, y: f32| {
+            c.pointer_move(x, y);
+            let frame = c.render(0).clone();
+            frame.texts.iter().any(|t| t.text == c.format_value(Group::Price, bar.high))
+        };
+        let near_high = c.panes[0].scale.y(bar.high) as f32 + 3.0;
+        c.set_magnet(Magnet::Strong);
+        assert!(tag(&mut c, far_y), "strong: on the high from far off");
+        c.set_magnet(Magnet::Weak);
+        assert!(!tag(&mut c, far_y), "weak: free far from the bar");
+        assert!(tag(&mut c, near_high), "weak: on the high three pixels off");
+        c.set_magnet(Magnet::Off);
+        assert!(!tag(&mut c, near_high), "off: where the pointer is");
     }
 
     #[test]

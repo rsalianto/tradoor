@@ -1863,7 +1863,17 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               <Show when={legend()}>
                 {(l) => (
                   <>
-                    <span class="num muted">{l().ohlc}</span>
+                    {/* Each figure apart from its letter, coloured as its bar, as TradingView reads them: run together, O3.2316H… was hard to read. */}
+                    <span class="num ohlc" classList={{ bull: l().up, bear: !l().up }}>
+                      <For each={l().ohlc.split(/\s+/)}>
+                        {(part) => (
+                          <span>
+                            <i>{part[0]}</i>
+                            {part.slice(1)}
+                          </span>
+                        )}
+                      </For>
+                    </span>
                     <span class="num" classList={{ bull: l().up, bear: !l().up }}>
                       {l().change}
                     </span>
