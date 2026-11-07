@@ -12,6 +12,7 @@ import { parseMarket, type MarketRef, type Venue } from '../lib/markets';
 import { nativeOf } from '../lib/native';
 import { INTERVALS, lacksUtc, marketInterval } from './intervals';
 import { block, isBlocked, reached } from './reach';
+import { isBinance, quietUntil, Throttled, throttled } from '../lib/binance-quiet';
 
 export interface Cols {
   time: Float64Array;
@@ -207,9 +208,14 @@ async function fetchExchange(url: string): Promise<Response> {
 }
 
 async function getJson(url: string): Promise<unknown> {
+  const host = new URL(url).host;
   for (let attempt = 0; ; attempt += 1) {
+    // Binance asked to be left alone: not asked again until its minute turns, or it bans the address.
+    const quiet = isBinance(host) ? quietUntil(host) : 0;
+    if (quiet) throw new Throttled(quiet);
     const res = await fetchExchange(url);
     if (res.ok) return res.json();
+    if ((res.status === 429 || res.status === 418) && isBinance(host)) throw new Throttled(throttled(host, res.status));
     const retryable = res.status === 429 || res.status === 418 || res.status >= 500;
     if (!retryable || attempt >= 3) throw new Error(`${new URL(url).host} answered ${res.status}`);
     await sleep(1000 * 2 ** attempt);

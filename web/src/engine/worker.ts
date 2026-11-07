@@ -19,6 +19,7 @@ import { serverTicker } from '../lib/liquidation-venues';
 import { coinOf, oiVenues, OpenInterestFeed } from './open-interest';
 import { StreamHub, type KlineMsg, type SocketState, type StreamListener, type StreamMsg } from './streams';
 import { onWake } from './reach';
+import { Throttled } from '../lib/binance-quiet';
 
 /** Closed bars a chart opens with: enough for EMA 200 to settle, with room to scroll. */
 const CHART_BARS = 1_500;
@@ -96,6 +97,13 @@ interface ProfileSpec {
 const scope = self as unknown as { postMessage(msg: FromWorker): void; onmessage: ((e: MessageEvent<ToWorker>) => void) | null };
 const post = (msg: FromWorker): void => scope.postMessage(msg);
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+/**
+ * When a load that failed is tried again by itself: a throttled exchange once
+ * it may be asked, one down or out of reach a little later. Before, the
+ * chart stayed blank until the page was reloaded.
+ */
+const againAt = (e: unknown): number =>
+  e instanceof Throttled ? e.until : /answered (429|5\d\d)\b|timed out|abort|failed to fetch|networkerror|load failed/i.test(message(e)) ? Date.now() + 15_000 : 0;
 const EMPTY = new Float64Array(0);
 /** An alert line's style as the engine reads it: see `set_alerts`. */
 const DASHES: Record<string, number> = { solid: 1, dashed: 2, dotted: 3 };
@@ -520,7 +528,7 @@ class Slot {
       if (this.replayAt !== null) this.postReplay();
       if (!early) this.startLive(gen, tf);
     } catch (e) {
-      if (gen === this.gen) this.fail(message(e));
+      if (gen === this.gen) this.fail(message(e), againAt(e));
     }
   }
 
@@ -561,12 +569,24 @@ class Slot {
     this.setStatus({ loading: false, error: `not loaded: ${message(e)}` });
   }
 
-  private fail(error: string): void {
+  /** `again`: when to load once more by itself, counted down on the chart; 0 for never. */
+  private fail(error: string, again = 0): void {
     this.fresh = false;
     this.engine.set_loading(false);
     this.engine.set_candles(EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY);
     this.engine.set_message(`Could not load candles — ${error}`);
     this.setStatus({ loading: false, error });
+    if (!again) return;
+    const { gen, market, timeframe, bars } = this;
+    const tick = () => {
+      if (gen !== this.gen) return clearInterval(timer);
+      const s = Math.ceil((again - Date.now()) / 1000);
+      if (s > 0) return this.engine.set_message(`Could not load candles — ${error} · trying again in ${s} s`);
+      clearInterval(timer);
+      void this.load(market, timeframe, bars);
+    };
+    const timer = setInterval(tick, 1000);
+    tick();
   }
 
   private lastClosedTime(): number {

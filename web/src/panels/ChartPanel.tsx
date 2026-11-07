@@ -287,7 +287,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
    * What the footprint is doing, said in the legend, and how far along a thin
    * line over the chart shows: a share done, `busy` while there is no telling, or none.
    */
-  const fpNote = (): { text: string; tip: string; progress: number | 'busy' | null } | null => {
+  const fpNote = (): { text: string; tip: string; progress: number | 'busy' | null; warn?: true } | null => {
     if (!footprintOn() && !tpoFlow()) return null;
     if (replaying() && fpNone() && !fpLoading()) return { text: 'no footprint this far back', tip: 'The server keeps footprint minutes for a month, and hours for good only where they were archived. These bars replay as candles.', progress: null };
     const venue = venueLabel(market());
@@ -304,6 +304,17 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     }
     if (fpLoading()) return { text: 'reading footprint…', tip: 'What this browser recorded, from its own storage', progress: 'busy' };
     if (!status?.live) return { text: `footprint: connecting to ${venue}…`, tip: 'Trades come from the exchange itself, the same socket as the DOM and tape', progress: 'busy' };
+    // Binance kept its history from this network: said, or the bars it would fill look like a footprint gone wrong.
+    const stopped = status.stopped;
+    if (stopped) {
+      const why = { refused: 'refuses its trade history to', throttled: 'is limiting calls from', unreachable: 'does not answer' }[stopped.why];
+      return {
+        text: `Binance ${why} this network (a VPN?) · trying again at ${formatClock(stopped.retry).slice(0, 5)}`,
+        tip: 'Bars this browser did not record come from Binance\'s trade history, and none came: a VPN, a firewall or a region Binance does not serve keeps it away. Those bars stay candles until a call gets through.',
+        progress: null,
+        warn: true,
+      };
+    }
     const since = fpSince();
     if (since === null) return { text: 'footprint: recording, the first cells come with the next trades', tip: 'Recorded in this browser from now on', progress: null };
     const at = Date.now() - since < 86_400_000 ? formatClock(since).slice(0, 5) : formatDateTime(since).slice(0, 16);
@@ -1829,7 +1840,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
                 {split() ? ` · TPO ${TPO_SPLITS.find((t) => t.value === split())?.label}` : ''} · {venueLabel(market())}
                 <Show when={fpNote()}>
                   {(note) => (
-                    <span class="dim" data-tip={note().tip}>
+                    <span class="dim" classList={{ warn: note().warn }} data-tip={note().tip}>
                       {` · ${note().text}`}
                     </span>
                   )}

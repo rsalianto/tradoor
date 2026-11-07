@@ -13,27 +13,21 @@
 import { createSignal } from 'solid-js';
 import { digitsFor } from './alerts';
 import { foldMinutes, recordedMarkets, type Footprint, type Minute, type Settings } from './footprint';
-import { cover, gaps, levelFor, merge, MINUTE, MinuteBook, pack, readAggTrades, toMinute, trimSpans, unpack, type Levels, type Span } from './fp-minutes';
+import type { Filling, Stopped } from './fp-fill';
+import { cover, levelFor, merge, MINUTE, MinuteBook, pack, toMinute, trimSpans, unpack, type Levels } from './fp-minutes';
 import { addMinutes, forget, prune, readMarket, readMinutes, writeMarket, type MarketRecord } from './fp-store';
 import { isRatio, parseMarket } from './markets';
 import { listenPrints } from './orderflow';
 
+export type { Stopped };
+
 const DAY = 86_400_000;
-const HOUR = 3_600_000;
 /** How often finished minutes are written down. */
 const FLUSH_MS = 10_000;
 /** How often charts hear of trades not written down yet: often enough to read as live. */
 const LIVE_MS = 1_000;
 /** A market no chart shows any more keeps recording this long, for a chart put back. */
 const LINGER_MS = 60_000;
-/** How far back a gap is filled from the exchange's history, and how many calls that may take. */
-const BACKFILL_MS = 24 * HOUR;
-const BACKFILL_CALLS = 120;
-/**
- * Time between those calls: a futures call weighs 20 of the 2,400 a minute
- * Binance allows an address, a spot one 4 — paced, the charts' own calls keep room.
- */
-const BACKFILL_PACE: Record<'binance-spot' | 'binance-perp', number> = { 'binance-spot': 100, 'binance-perp': 600 };
 const SETTINGS_KEY = 'tradoor.footprint';
 
 export interface RecorderSettings {
@@ -98,10 +92,13 @@ export interface RecordStatus {
    * much (ms), the oldest time reached, and the share of the calls it may make
    * used — a busy market runs out of calls before the day is in.
    */
-  filling: { done: number; of: number; back: number; calls: number } | null;
+  filling: Filling | null;
+  /** Why the last fill stopped short, and when it tries again: Binance would not give its history to this network. */
+  stopped: Stopped | null;
   /** Recording live since then; 0 while the socket is not up. */
   live: number;
 }
+
 const [statuses, setStatuses] = createSignal(new Map<string, RecordStatus>());
 /** The markets this tab records, whose status it answers for. */
 const here = new Set<string>();
@@ -207,12 +204,35 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
   let filling = false;
   const venue = parseMarket(market)?.venue;
   here.add(market);
-  let status: RecordStatus = { filling: null, live: 0 };
+  let status: RecordStatus = { filling: null, stopped: null, live: 0 };
   const report = (patch: Partial<RecordStatus>) => {
     status = { ...status, ...patch };
     if (!signal.aborted) setStatus(market, status);
   };
   report({});
+  let again: ReturnType<typeof setTimeout> | undefined;
+  /** The gaps up to when this recording went live filled; a fill Binance stopped is tried again later. */
+  const fillUpTo = (until: number, venue: 'binance-spot' | 'binance-perp') => {
+    clearTimeout(again);
+    filling = true;
+    report({ stopped: null });
+    const wrote = () => {
+      channel?.postMessage({ market, full: true });
+      tell(market, true);
+    };
+    void import('./fp-fill')
+      .then(
+        ({ backfill }) => backfill(market, venue, until, until - settings().days * DAY, () => meta, (m) => (meta = m), (f) => report({ filling: f }), wrote, signal),
+        // Not loaded: the network, as for a call that did not answer.
+        (): Stopped => ({ why: 'unreachable', retry: Date.now() + 120_000 }),
+      )
+      .then((stopped) => {
+        if (!stopped || signal.aborted) return;
+        filling = false;
+        report({ stopped });
+        again = setTimeout(() => liveSince && fillUpTo(liveSince, venue), stopped.retry - Date.now());
+      });
+  };
   // Trades since charts last heard, and a write under way: the minutes it takes are neither here nor there until it is done.
   let changed = false;
   let writing = false;
@@ -231,10 +251,8 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
         liveSince = now;
         book?.resume(now);
         report({ live: now });
-        if (!filling && (venue === 'binance-spot' || venue === 'binance-perp')) {
-          filling = true;
-          void backfill(market, venue, now, () => meta, (m) => (meta = m), (f) => report({ filling: f }), signal);
-        }
+        // A throttled fill waits for its time, a reconnect or not.
+        if (!filling && !(status.stopped && now < status.stopped.retry) && (venue === 'binance-spot' || venue === 'binance-perp')) fillUpTo(now, venue);
       } else if (state !== 'live' && liveSince) {
         meta = { ...meta, spans: cover(meta.spans, liveSince, now) };
         liveSince = 0;
@@ -267,92 +285,13 @@ async function record(market: string, signal: AbortSignal): Promise<void> {
   await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
   clearInterval(timer);
   clearInterval(ticker);
+  clearTimeout(again);
   off();
   if (liveSince) meta = { ...meta, spans: cover(meta.spans, liveSince, Date.now()) };
   liveSince = 0;
   await flush(true);
   here.delete(market);
   setStatus(market, null);
-}
-
-/** Binance's trades for the gaps of the last day, newest first, as far as the calls allow; `progress` hears how far. */
-async function backfill(
-  market: string,
-  venue: 'binance-spot' | 'binance-perp',
-  until: number,
-  get: () => MarketRecord,
-  set: (m: MarketRecord) => void,
-  progress: (filling: RecordStatus['filling']) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const holes = gaps(get().spans, Math.max(until - BACKFILL_MS, until - settings().days * DAY), until).reverse();
-  const of = holes.reduce((sum, [a, b]) => sum + (b - a), 0);
-  if (of < MINUTE) return;
-  let done = 0;
-  progress({ done, of, back: until, calls: 0 });
-  try {
-    await fill(market, venue, holes, get, set, signal, (ms, back, calls) => progress({ done: (done += ms), of, back, calls }));
-  } finally {
-    progress(null);
-  }
-}
-
-async function fill(
-  market: string,
-  venue: 'binance-spot' | 'binance-perp',
-  holes: Span[],
-  get: () => MarketRecord,
-  set: (m: MarketRecord) => void,
-  signal: AbortSignal,
-  filled: (ms: number, back: number, calls: number) => void,
-): Promise<void> {
-  const symbol = parseMarket(market)?.symbol;
-  if (!symbol) return;
-  const hosts = venue === 'binance-perp' ? ['https://fapi.binance.com/fapi/v1/aggTrades'] : ['https://api.binance.com/api/v3/aggTrades', 'https://data-api.binance.vision/api/v3/aggTrades'];
-  let calls = BACKFILL_CALLS;
-  const ask = async (query: string): Promise<ReturnType<typeof readAggTrades> | null> => {
-    for (const host of hosts) {
-      if (calls <= 0 || signal.aborted) return null;
-      calls -= 1;
-      await new Promise((resolve) => setTimeout(resolve, BACKFILL_PACE[venue]));
-      try {
-        const res = await fetch(`${host}?symbol=${symbol}&${query}&limit=1000`, { signal: AbortSignal.any([signal, AbortSignal.timeout(7_000)]) });
-        if (res.ok) return readAggTrades(await res.json());
-        // Throttled or refused: no more this time.
-        if (res.status === 418 || res.status === 429) calls = 0;
-      } catch {
-        // Unreachable from this network: the next host, or none.
-      }
-    }
-    return null;
-  };
-  for (const [from, to] of holes) {
-    // An hour a window, the newest first: a window is as far as one start and end may span.
-    for (let end = to; end > from && calls > 0 && !signal.aborted; end -= HOUR) {
-      const start = Math.max(from, end - HOUR);
-      const trades = [];
-      let page = await ask(`startTime=${start}&endTime=${end - 1}`);
-      while (page) {
-        trades.push(...page.filter((t) => t.time < end));
-        if (page.length < 1000 || page[page.length - 1]!.time >= end) break;
-        page = await ask(`fromId=${page[page.length - 1]!.id + 1}`);
-      }
-      if (trades.length === 0 && page === null) return;
-      // As far as the trades reach: a window too busy for the calls left is kept only so far.
-      const reached = page === null ? (trades[trades.length - 1]?.time ?? start) + 1 : end;
-      const meta = get();
-      const level = meta.level > 0 ? meta.level : levelFor(trades[0]?.price ?? 1, digitsFor(market, trades[0]?.price ?? 1));
-      const book = new MinuteBook(level, start);
-      for (const t of trades) book.add(t.time, t.price, t.qty, t.buy);
-      await addMinutes(market, book.take(Number.POSITIVE_INFINITY));
-      set({ ...get(), level, spans: cover(get().spans, start, reached) });
-      await writeMarket(get());
-      channel?.postMessage({ market, full: true });
-      tell(market, true);
-      filled(reached - start, start, 1 - calls / BACKFILL_CALLS);
-      if (reached < end) return;
-    }
-  }
 }
 
 /** Minutes older than the days kept let go: when recording starts, and now and then after. */
