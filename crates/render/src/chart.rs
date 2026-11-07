@@ -40,9 +40,10 @@ const RIGHT_MARGIN_BARS: f64 = 2.0;
 /// The tradoor mark's size, in CSS pixels.
 const MARK: f32 = 34.0;
 
-/// Where the mark stands: bottom left of the price pane, where it has room.
-fn mark_at(plot: Rect) -> Option<(f32, f32)> {
-    (plot.w >= 160.0 && plot.h >= 110.0).then(|| (plot.x + 12.0, plot.bottom() - 12.0 - MARK))
+/// Where the mark stands: bottom left of the price pane, where it has room —
+/// above `bottom`, the footprint's stats table where it is shown, whose names it covered.
+fn mark_at(plot: Rect, bottom: f32) -> Option<(f32, f32)> {
+    (plot.w >= 160.0 && bottom - plot.y >= 110.0).then(|| (plot.x + 12.0, bottom - 12.0 - MARK))
 }
 
 /// How many bars past the last one a key level still in force runs, unless its settings say otherwise.
@@ -1824,7 +1825,7 @@ impl Chart {
     /// sixteen-unit grid. Part of the frame itself, so every capture of a chart
     /// carries it — the name is not written out; the door is what is known.
     fn paint_watermark(&self, f: &mut Frame, plot: Rect) {
-        let Some((x, y)) = mark_at(plot).filter(|_| !self.page_mark) else { return };
+        let Some((x, y)) = mark_at(plot, self.table_top().unwrap_or(plot.bottom())).filter(|_| !self.page_mark) else { return };
         let u = MARK / 16.0;
         let (at, line) = (|dx: f32, dy: f32| (x + dx * u, y + dy * u), (1.5 * u).max(1.0));
         let accent = self.theme.ribbon_fast;
@@ -2605,7 +2606,7 @@ impl Chart {
                 .tpo_hovered()
                 .filter(|_| self.tool.is_none())
                 .and_then(|(k, bar)| tpo::hover(self.tpo_profiles.as_ref()?, &self.tpo_settings, k, self.bar(bar).map(|b| (bar, b.time)))),
-            mark: mark_at(pane.plot).filter(|_| self.page_mark).map(|(x, y)| (x, y, self.theme.ribbon_fast, self.theme.bear)),
+            mark: mark_at(pane.plot, self.table_top().unwrap_or(pane.plot.bottom())).filter(|_| self.page_mark).map(|(x, y)| (x, y, self.theme.ribbon_fast, self.theme.bear)),
         }
     }
 
@@ -4904,6 +4905,19 @@ mod tests {
         assert!(!frame.colors.chunks(4).any(|c| *c == [accent.r, accent.g, accent.b, 205]), "not painted twice");
         let (x, y, ink, _) = c.legend().mark.expect("the page is told where");
         assert_eq!((x, y, ink), (price.x + 12.0, price.bottom() - 46.0, accent));
+
+        // Over a footprint's stats table it stood on the rows' names: it stands above the table.
+        c.set_footprint_shown(true);
+        c.set_footprint_options("delta;1;1;1");
+        let last = *c.candles().last().unwrap();
+        c.set_footprint(vec![footprint::Bar { time: last.open_time, levels: vec![(last.close.floor(), 1.0, 2.0)], ..Default::default() }], 1.0, false);
+        c.render(1_800_000_000_000);
+        let top = c.table_top().expect("the table is shown");
+        let (_, y, _, _) = c.legend().mark.expect("still there");
+        assert_eq!(y, top - 46.0);
+        c.set_footprint_options("delta;1;0;1");
+        c.render(1_800_000_000_000);
+        assert_eq!(c.legend().mark.map(|m| m.1), Some(c.panes[0].plot.bottom() - 46.0), "back down with the table off");
     }
 
     #[test]
