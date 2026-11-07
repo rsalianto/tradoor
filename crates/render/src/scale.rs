@@ -139,6 +139,19 @@ impl TimeScale {
         self.right_offset = self.right_offset.within(min.min(max), max.max(min));
     }
 
+    /// Bars `from` to `to` (logical, either way round) fill the plot centred,
+    /// `margin` columns of room either side; as near as the zoom allows.
+    pub fn show_between(&mut self, from: f64, to: f64, margin: f64) {
+        if self.width <= 0.0 || self.bars == 0 {
+            return;
+        }
+        let (a, b) = (self.column(from.min(to)), self.column(from.max(to)));
+        self.bar_spacing = (self.width / (b - a + 1.0 + 2.0 * margin)).within(self.min_spacing, self.max_spacing());
+        let right = (a + b) / 2.0 + self.width / self.bar_spacing / 2.0 - 0.5;
+        self.right_offset = right - self.column(self.bars as f64 - 1.0);
+        self.clamp();
+    }
+
     /// The last `count` bars fill the plot, with `margin` columns of room at the right.
     pub fn show_last(&mut self, count: f64, margin: f64) {
         if self.width <= 0.0 {

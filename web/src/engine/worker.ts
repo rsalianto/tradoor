@@ -297,6 +297,8 @@ class Slot {
       schedule();
     }, { signal });
     this.engine = new ChartEngine(gl, textCanvas, feedCanvas, '1h', flat);
+    // The page draws the mark, to move it (components/ChartMark); a capture paints its own.
+    this.engine.set_page_mark(true);
     for (const [key, value] of theme) this.engine.set_theme_value(key, value);
     this.engine.set_utc_offset(utcOffset);
     // Every exchange's mark, once: a liquidation names the one it came from.
@@ -1380,6 +1382,9 @@ function handle(msg: ToWorker): void {
       break;
     case 'range':
       slot.engine.show_range(msg.days ?? Number.NaN);
+      break;
+    case 'span':
+      slot.engine.show_span(msg.from, msg.to);
       break;
     case 'pointer':
       slot.pointer(msg.kind, msg.x, msg.y, msg.button, msg.shift, msg.ctrl, msg.touch);

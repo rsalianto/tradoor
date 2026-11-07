@@ -7,9 +7,9 @@
  * is kept for an account: until the browser signs in with Telegram, it shows
  * how, and nothing is written down.
  */
-import { createMemo, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
+import { batch, createMemo, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { setDrawingsChanged, setJournalOpen } from '../app/ui';
+import { setDrawingsChanged, setJournalOpen, setShownPattern, setShownTrades } from '../app/ui';
 import { AccountCard } from '../components/Account';
 import { NumField } from '../components/NumField';
 import { SymbolSearch } from '../components/SymbolSearch';
@@ -17,12 +17,14 @@ import { api, catalog, errorText, type AccountStatus } from '../lib/api';
 import { readPref, writePref } from '../lib/prefs';
 import { rememberSize } from '../lib/drawing-options';
 import { defaultStyle } from '../lib/drawing-style';
-import { formatPrice } from '../lib/format';
+import { formatPrice, roughDecimals } from '../lib/format';
 import { VenueTag } from '../lib/exchanges';
 import { Icon } from '../lib/icons';
 import { isMarket, symbolOf, venueLabel } from '../lib/markets';
-import { focusPanel, marketOf, setPanelMarket, setPanelTimeframe, targetChart } from '../workspace/store';
+import { activate, tabsOf, type ChartPanelState } from '../workspace/model';
+import { doc, focusPanel, marketOf, setPanelMarket, setPanelTimeframe, targetChart, update } from '../workspace/store';
 import { smoothPath } from './curve';
+import { frameFor, marketOf as marketOfTrades, summaryOf, tradePicture } from './picture';
 import { cents, coinsFor, figures, figuresOf, fits, lossPerCoin, marginFor, type DrawnLeg } from './legs';
 import { Readout } from './Readout';
 import { StrategyPicker } from './strategies';
@@ -82,6 +84,32 @@ export function Journal() {
   const [tab, setTab] = createSignal<Tab>('dashboard');
   const [focus, setFocus] = createSignal<Focus | null>(null);
   let body: HTMLDivElement | undefined;
+  /** The trades as History lists them, drawn on the chart where each went, and the journal out of the way. */
+  /** The chart in use if it draws candles, else the first on screen that does: a TPO profile draws no positions. */
+  const candleChart = (): ChartPanelState | null => {
+    const used = targetChart();
+    if (used && !used.tpo) return used;
+    const charts = Object.values(doc.panels).filter((p): p is ChartPanelState => p.type === 'chart' && !p.tpo);
+    return charts.find((p) => tabsOf(doc.root, p.id)?.active === p.id) ?? charts[0] ?? used;
+  };
+  const showOnChart = (list: Trade[]) => {
+    const chart = candleChart();
+    const now = Date.now();
+    const picture = tradePicture(list, now);
+    const on = marketOfTrades(list);
+    if (!chart || !picture || !on) return;
+    const timeframe = frameFor(picture.from, picture.to, now);
+    const tabs = tabsOf(doc.root, chart.id);
+    batch(() => {
+      if (tabs && tabs.active !== chart.id) update((d) => activate(d, tabs.id, chart.id));
+      setShownPattern(null);
+      setShownTrades({ market: on, timeframe, from: picture.from, to: picture.to, parts: picture.parts, title: symbolOf(on), summary: summaryOf(picture), tone: picture.pnl > 0 ? 'bull' : picture.pnl < 0 ? 'bear' : '' });
+      if (marketOf(chart) !== on) setPanelMarket(chart.id, on);
+      setPanelTimeframe(chart.id, timeframe);
+      focusPanel(chart.id);
+    });
+    setJournalOpen(false);
+  };
   /** One row of the breakdown's trades, in History, from its top. */
   const openFocus = (f: Focus) => {
     setFocus(f);
@@ -114,8 +142,17 @@ export function Journal() {
     }
     await load();
   };
+  // Each market's tick, so a dragged anchor's 81,234.56789 reads as the exchange quotes it;
+  // asked again with the trades while the first asking has not answered.
+  const readDecimals = () =>
+    void catalog()
+      .then((c) => setDecimals(new Map(c.products.flatMap((p) => (p.priceDecimals === null ? [] : [[p.market, p.priceDecimals] as [string, number]])))))
+      .catch(() => {});
   /** Whatever is still to be read: the account while that is unknown, then the trades. */
-  const refresh = () => (account() ? load() : readAccount());
+  const refresh = () => {
+    if (decimals().size === 0) readDecimals();
+    return account() ? load() : readAccount();
+  };
   onMount(() => {
     void readAccount();
     // Asked again only while the page is in view, and either a first read has
@@ -131,10 +168,7 @@ export function Journal() {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', shown);
     });
-    // Each market's tick, so a dragged anchor's 81,234.56789 reads as the exchange quotes it.
-    void catalog()
-      .then((c) => setDecimals(new Map(c.products.flatMap((p) => (p.priceDecimals === null ? [] : [[p.market, p.priceDecimals] as [string, number]])))))
-      .catch(() => {});
+    readDecimals();
   });
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== 'Escape') return;
@@ -147,7 +181,9 @@ export function Journal() {
     onCleanup(() => window.removeEventListener('keydown', onKey));
   });
 
-  const price = (market: string, v: number | null) => formatPrice(v, decimals().get(market));
+  /** A market's own decimals; where those are not known, by the price's size, never by its float tail. */
+  const digits = (market: string, v: number) => decimals().get(market) ?? roughDecimals(v);
+  const price = (market: string, v: number | null) => formatPrice(v, v === null ? undefined : digits(market, v));
   const replace = (t: Trade) => setTrades((list) => list.map((x) => (x.id === t.id ? t : x)));
   const current = () => trades().find((t) => t.id === selected());
   const waiting = () => <p class="jr-empty muted">{error() ? 'Not read yet. Asking again shortly…' : 'Reading…'}</p>;
@@ -206,7 +242,7 @@ export function Journal() {
                 <Dashboard trades={trades()} price={price} onSelect={setSelected} onAll={() => setTab('history')} onFocus={openFocus} />
               </Match>
               <Match when={tab() === 'history' && trades().length > 0}>
-                <History trades={trades()} price={price} onSelect={setSelected} focus={focus()} onUnfocus={() => setFocus(null)} />
+                <History trades={trades()} price={price} onSelect={setSelected} focus={focus()} onUnfocus={() => setFocus(null)} onChart={showOnChart} />
               </Match>
               <Match when={tab() === 'review'}>
                 <ReviewTab trades={trades()} />
@@ -220,6 +256,7 @@ export function Journal() {
           <Editor
             trade={t()}
             price={price}
+            digits={digits}
             onClose={() => setSelected(null)}
             onChange={replace}
             onRemove={(id) => {
@@ -732,7 +769,7 @@ const clock = (ms: number): string => stamp(ms).slice(6);
  * Every trade, as a statement reads: those still to play out on top, then the
  * rest by the day each closed — the latest first — with what the day made.
  */
-function History(props: { trades: Trade[]; price: (market: string, v: number | null) => string; onSelect: (id: number) => void; focus: Focus | null; onUnfocus: () => void }) {
+function History(props: { trades: Trade[]; price: (market: string, v: number | null) => string; onSelect: (id: number) => void; focus: Focus | null; onUnfocus: () => void; onChart: (trades: Trade[]) => void }) {
   const [view, setView] = createSignal<View>('all');
   const [side, setSide] = createSignal<'all' | Side>('all');
   const [query, setQuery] = createSignal('');
@@ -775,6 +812,9 @@ function History(props: { trades: Trade[]; price: (market: string, v: number | n
       .map(([day, list]) => ({ day, trades: list.sort((a, b) => when(b) - when(a)), pnl: list.reduce((s, t) => s + (pnl(t) ?? 0), 0), r: list.reduce((s, t) => s + (rMultiple(t) ?? 0), 0) }));
   });
   const many = (n: number) => `${n} trade${n === 1 ? '' : 's'}`;
+  /** What is listed, and whether it is one pair's with something entered to draw. */
+  const listed = createMemo(() => [...live(), ...days().flatMap((d) => d.trades)]);
+  const drawable = createMemo(() => new Set(listed().map((t) => symbolOf(t.market))).size === 1 && tradePicture(listed(), Date.now()) !== null);
   return (
     <div class="jh">
       <div class="jh-bar">
@@ -805,6 +845,15 @@ function History(props: { trades: Trade[]; price: (market: string, v: number | n
             </button>
           )}
         </Show>
+        <button
+          class="tb jh-chart"
+          disabled={!drawable()}
+          data-tip={drawable() ? 'Draw these trades on the chart, each where it was entered and closed' : 'Narrow the list to one pair to draw its trades on the chart'}
+          onClick={() => props.onChart(listed())}
+        >
+          <Icon name="long" size={12} />
+          <span>Show on chart</span>
+        </button>
         <label class="jh-search">
           <Icon name="search" size={12} />
           <input placeholder="Search market, strategy, notes" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
@@ -973,6 +1022,7 @@ function SizeFields(props: {
 function Editor(props: {
   trade: Trade;
   price: (market: string, v: number | null) => string;
+  digits: (market: string, v: number) => number;
   onClose: () => void;
   onChange: (t: Trade) => void;
   onRemove: (id: number) => void;
@@ -990,19 +1040,23 @@ function Editor(props: {
   const [exit, setExit] = createSignal('');
   const [closedAt, setClosedAt] = createSignal('');
   // The form from the trade: when it opens, and again from what the server kept once saved.
-  // A price as typed, without the float's tail an average leaves: 80311.69999999998 is 80311.7.
-  const plain = (v: number) => String(Number(v.toPrecision(12)));
+  // A price to the market's decimals, as its chart quotes it: not the float's tail an average
+  // leaves (80311.69999999998), nor where a dragged anchor let go (0.0797612345).
+  const plain = (v: number) => String(Number(v.toFixed(props.digits(t().market, v))));
+  /** The prices as the form was filled with them: a field left as it is changes nothing. */
+  let base = { entry: '', stop: '', target: '', exit: '' };
   const fill = (x: Trade) => {
-    setEntry(plain(x.entry));
-    setStop(plain(x.stop));
-    setTarget(plain(x.target));
+    base = { entry: plain(x.entry), stop: plain(x.stop), target: plain(x.target), exit: x.exit === null ? '' : plain(x.exit) };
+    setEntry(base.entry);
+    setStop(base.stop);
+    setTarget(base.target);
     setLeverage(x.leverage > 0 ? x.leverage : 1);
     setMargin(marginFor(x.qty, x.entry, x.leverage > 0 ? x.leverage : 1));
     setFees(x.fees ? String(x.fees) : '');
     setStrategy(x.strategy);
     setNotes(x.notes);
     setMode(modeOf(x));
-    setExit(x.exit === null ? '' : plain(x.exit));
+    setExit(base.exit);
     setClosedAt(localInput(x.closedAt ?? Date.now()));
   };
   fill(t());
@@ -1013,14 +1067,14 @@ function Editor(props: {
   const coins = () => coinsFor(margin(), Number(entry()), leverage());
   const dir = () => (t().side === 'long' ? 1 : -1);
   const legs = (): DrawnLeg[] => t().legs.map((l) => ({ kind: l.kind, price: l.price, percent: l.share * 100 }));
-  const moved = () => entry() !== plain(t().entry) || stop() !== plain(t().stop) || target() !== plain(t().target);
+  const moved = () => entry() !== base.entry || stop() !== base.stop || target() !== base.target;
   /** What the form comes to, before it is saved; null where only price can say. */
   const result = createMemo((): number | null => {
     const [x, m, feesNow] = [t(), mode(), Number(fees() || 0)];
     if (m === 'cancelled' || !(coins() > 0)) return null;
     if (m === 'auto') return isClosed(x) && !moved() && x.qty > 0 ? ((pnl(x)! + x.fees) * coins()) / x.qty - feesNow : null;
     if (m === 'closed' && !(Number(exit()) > 0)) return null;
-    return closedPnl(x, { entry: entry() === plain(x.entry) ? x.entry : Number(entry()), qty: coins(), exit: m === 'closed' ? Number(exit()) : null, fees: feesNow });
+    return closedPnl(x, { entry: entry() === base.entry ? x.entry : Number(entry()), qty: coins(), exit: m === 'closed' ? (exit() === base.exit && x.exit !== null ? x.exit : Number(exit())) : null, fees: feesNow });
   });
   const heroTone = () => {
     const r = result();
@@ -1036,9 +1090,9 @@ function Editor(props: {
   const patch = (): TradePatch => {
     const x = t();
     const p: TradePatch = {};
-    if (entry() !== plain(x.entry)) p.entry = Number(entry());
-    if (stop() !== plain(x.stop)) p.stop = Number(stop());
-    if (target() !== plain(x.target)) p.target = Number(target());
+    if (entry() !== base.entry) p.entry = Number(entry());
+    if (stop() !== base.stop) p.stop = Number(stop());
+    if (target() !== base.target) p.target = Number(target());
     // A margin rounds to the cent as it shows; only a real change is a new size.
     if (coins() > 0 && Math.abs(coins() - x.qty) > x.qty * 1e-9) p.qty = coins();
     if (leverage() !== x.leverage) p.leverage = leverage();
@@ -1051,7 +1105,7 @@ function Editor(props: {
     if (m === 'auto') {
       if (!x.auto) p.auto = true;
     } else if (m === 'closed') {
-      if (changed || exit() !== (x.exit === null ? '' : plain(x.exit))) Object.assign(p, { status: 'closed', exit: Number(exit()), closedAt: at });
+      if (changed || exit() !== base.exit) Object.assign(p, { status: 'closed', exit: exit() === base.exit && x.exit !== null ? x.exit : Number(exit()), closedAt: at });
     } else if (changed) Object.assign(p, { status: m, closedAt: at });
     return p;
   };

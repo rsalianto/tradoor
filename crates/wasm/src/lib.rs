@@ -103,6 +103,8 @@ impl ChartEngine {
         let mut text = text::TextLayer::new(labels)?;
         let smooth = matches!(self.gl, gl::Surface::Gpu(_));
         self.chart.set_smooth_lines(false);
+        // A picture carries the mark in it, as it stands still.
+        self.chart.set_page_mark(false);
         self.chart.resize(width, height, dpr * scale);
         self.chart.touch();
         let frame = self.chart.render(now as i64);
@@ -111,6 +113,7 @@ impl ChartEngine {
         text.draw_layer(self.chart.render_feed(now as i64), false);
         // Back to the size and the renderer it is shown at.
         self.chart.set_smooth_lines(smooth);
+        self.chart.set_page_mark(true);
         self.chart.resize(width, height, dpr);
         self.chart.touch();
         Ok(())
@@ -294,6 +297,11 @@ impl ChartEngine {
     /// NaN shows every bar.
     pub fn show_range(&mut self, days: f64) {
         self.chart.show_range((!days.is_nan()).then_some(days));
+    }
+
+    /// The bars from `from` to `to`, in ms, fill the plot.
+    pub fn show_span(&mut self, from: f64, to: f64) {
+        self.chart.show_span(from as i64, to as i64);
     }
 
     pub fn pointer_move(&mut self, x: f32, y: f32) {
@@ -537,7 +545,23 @@ impl ChartEngine {
             }
             None => set(&o, "tpo", JsValue::NULL),
         }
+        match l.mark {
+            Some((x, y, accent, bear)) => {
+                let m = obj();
+                set(&m, "x", f64::from(x));
+                set(&m, "y", f64::from(y));
+                set(&m, "accent", accent.css());
+                set(&m, "bear", bear.css());
+                set(&o, "mark", m);
+            }
+            None => set(&o, "mark", JsValue::NULL),
+        }
         o.into()
+    }
+
+    /// The page draws the mark over this chart; a capture still paints its own.
+    pub fn set_page_mark(&mut self, on: bool) {
+        self.chart.set_page_mark(on);
     }
 
     /// The market's active price alerts, as `[id, price, id, price, …]`.

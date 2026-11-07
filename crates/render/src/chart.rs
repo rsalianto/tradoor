@@ -37,6 +37,14 @@ const DEFAULT_VISIBLE_BARS: f64 = 150.0;
 const MAX_SHOWN_SHORT_BARS: f64 = 1_500.0;
 const SHORT_BAR_MS: i64 = 15 * 60_000;
 const RIGHT_MARGIN_BARS: f64 = 2.0;
+/// The tradoor mark's size, in CSS pixels.
+const MARK: f32 = 34.0;
+
+/// Where the mark stands: bottom left of the price pane, where it has room.
+fn mark_at(plot: Rect) -> Option<(f32, f32)> {
+    (plot.w >= 160.0 && plot.h >= 110.0).then(|| (plot.x + 12.0, plot.bottom() - 12.0 - MARK))
+}
+
 /// How many bars past the last one a key level still in force runs, unless its settings say otherwise.
 const LEVEL_AHEAD_BARS: f64 = 8.0;
 const CLICK_SLOP: f32 = 5.0;
@@ -184,6 +192,9 @@ pub struct Legend {
     pub footprint: Option<FootprintCell>,
     /// The TPO profile under the pointer, for the page's menu on it.
     pub tpo: Option<tpo::Hover>,
+    /// The tradoor mark's top left and its inks, where the page draws it over a
+    /// live chart (`set_page_mark`).
+    pub mark: Option<(f32, f32, Color, Color)>,
 }
 
 /// One footprint row under the pointer: its bar, the prices it covers, what
@@ -513,6 +524,12 @@ pub struct Chart {
     log_scale: bool,
     time: TimeScale,
     view_ready: bool,
+    /// A span of time asked to fill the plot, framed again as bars arrive — a
+    /// market opens on a few bars and fills in behind them — until the reader
+    /// moves the view or another is asked for.
+    span: Option<(i64, i64)>,
+    /// The page draws the mark over a live chart, to move it; a capture paints its own.
+    page_mark: bool,
     pane_state: PaneStates,
     panes: Vec<PaneView>,
     axis_width: f32,
@@ -599,6 +616,8 @@ impl Chart {
             log_scale: false,
             time: TimeScale::new(),
             view_ready: false,
+            span: None,
+            page_mark: false,
             pane_state: PaneStates::default(),
             panes: Vec::new(),
             axis_width: MIN_AXIS_WIDTH,
@@ -651,6 +670,14 @@ impl Chart {
 
     /// The width of one glyph of the axis font, measured by the backend. Axis
     /// labels are monospace, so this sizes every label box exactly.
+    /// Whether the page draws the mark over this chart (`Legend::mark`) rather than the frame.
+    pub fn set_page_mark(&mut self, on: bool) {
+        if on != self.page_mark {
+            self.page_mark = on;
+            self.touch();
+        }
+    }
+
     pub fn set_char_width(&mut self, width: f32) {
         if width > 1.0 {
             self.char_width = width;
@@ -722,6 +749,9 @@ impl Chart {
             self.view_ready = false;
             // Another market on its way: the last one's footprint is not its.
             self.footprint.clear();
+        }
+        if let Some((from, to)) = self.span {
+            self.frame_span(from, to);
         }
         self.touch();
     }
@@ -1330,6 +1360,7 @@ impl Chart {
 
     /// Back at the newest bars, at the zoom they are being read at.
     pub fn show_newest(&mut self) {
+        self.span = None;
         self.time.bars = self.total_bars();
         self.time.right_offset = RIGHT_MARGIN_BARS;
         self.time.clamp();
@@ -1338,6 +1369,7 @@ impl Chart {
     }
 
     pub fn reset_view(&mut self) {
+        self.span = None;
         self.view_ready = false;
         let was = self.auto_scale();
         for (group, state) in self.pane_state.iter_mut() {
@@ -1350,6 +1382,7 @@ impl Chart {
     /// Zoom to the last `days` of bars (all of them for `None`), counted from the
     /// candles so a gap in the tape cannot stretch the view past the data.
     pub fn show_range(&mut self, days: Option<f64>) {
+        self.span = None;
         let n = self.candles.len();
         if n == 0 {
             return;
@@ -1361,7 +1394,30 @@ impl Chart {
                 self.candles.iter().rev().take_while(|c| c.open_time as f64 >= from).count().max(8.min(n))
             }
         };
+        self.time.bars = self.total_bars();
         self.time.show_last(bars as f64 + if self.live.is_some() { 1.0 } else { 0.0 }, RIGHT_MARGIN_BARS);
+        self.view_ready = true;
+        let was = self.auto_scale();
+        if let Some(state) = self.pane_state.get_mut(&Group::Price) {
+            state.auto = true;
+            state.manual = None;
+        }
+        self.note_auto(was);
+        self.touch();
+    }
+
+    /// The bars from `from` to `to` (ms) fill the plot, a few bars of room either
+    /// side: journal trades drawn where they went (web journal/picture.ts).
+    pub fn show_span(&mut self, from: i64, to: i64) {
+        self.span = Some((from, to));
+        self.frame_span(from, to);
+    }
+
+    fn frame_span(&mut self, from: i64, to: i64) {
+        let (Some(a), Some(b)) = (time_to_logical(&self.times, from as f64), time_to_logical(&self.times, to as f64)) else { return };
+        // Asked for as the bars arrive, before a frame has counted them.
+        self.time.bars = self.total_bars();
+        self.time.show_between(a, b, 3.0);
         self.view_ready = true;
         let was = self.auto_scale();
         if let Some(state) = self.pane_state.get_mut(&Group::Price) {
@@ -1768,12 +1824,8 @@ impl Chart {
     /// sixteen-unit grid. Part of the frame itself, so every capture of a chart
     /// carries it — the name is not written out; the door is what is known.
     fn paint_watermark(&self, f: &mut Frame, plot: Rect) {
-        const MARK: f32 = 34.0;
-        if plot.w < 160.0 || plot.h < 110.0 {
-            return;
-        }
+        let Some((x, y)) = mark_at(plot).filter(|_| !self.page_mark) else { return };
         let u = MARK / 16.0;
-        let (x, y) = (plot.x + 12.0, plot.bottom() - 12.0 - MARK);
         let (at, line) = (|dx: f32, dy: f32| (x + dx * u, y + dy * u), (1.5 * u).max(1.0));
         let accent = self.theme.ribbon_fast;
         f.stroke_rect(x + 1.8 * u, y + 3.0 * u, 7.6 * u, 10.0 * u, line, accent.with_alpha(150));
@@ -2553,6 +2605,7 @@ impl Chart {
                 .tpo_hovered()
                 .filter(|_| self.tool.is_none())
                 .and_then(|(k, bar)| tpo::hover(self.tpo_profiles.as_ref()?, &self.tpo_settings, k, self.bar(bar).map(|b| (bar, b.time)))),
+            mark: mark_at(pane.plot).filter(|_| self.page_mark).map(|(x, y)| (x, y, self.theme.ribbon_fast, self.theme.bear)),
         }
     }
 
@@ -2896,6 +2949,7 @@ impl Chart {
         if button != 0 {
             return;
         }
+        self.span = None;
         let free = self.tool.is_none();
         // A finger passing over an alert on its way to scale or pan is not
         // taking hold of it: on a touch screen the alert waits for a hold.
@@ -3182,6 +3236,7 @@ impl Chart {
         if self.tool.is_some() {
             return false;
         }
+        self.span = None;
         let used = match self.zone(x, y) {
             Zone::PriceAxis(p) => {
                 // The same scaling as dragging the axis, without a limit: scrolling
@@ -3623,6 +3678,48 @@ mod tests {
         let (above, below) = (c.theme.bull.with_alpha(0x80), c.theme.bear.with_alpha(0x80));
         assert!(inked(&mut c, above) > 0 && inked(&mut c, below) > 0);
         assert!(c.studies[0].stats.is_empty(), "nothing estimated");
+    }
+
+    #[test]
+    fn a_span_of_time_fills_the_plot_and_a_position_carries_its_label_over_it() {
+        let mut c = chart();
+        // Asked for the moment new bars arrive, before any frame has counted them.
+        c.set_candles(candles(800));
+        let (from, to) = (c.times[100] as i64, c.times[140] as i64);
+        c.show_span(from, to);
+        c.render(1_800_000_000_000);
+        let plot_w = c.panes[0].plot.w as f64;
+        let (x0, x1) = (c.time.x(100.0), c.time.x(140.0));
+        assert!(x0 > 0.0 && x1 < plot_w, "both ends on screen: {x0}, {x1} of {plot_w}");
+        assert!((x0 + x1 - plot_w).abs() < c.time.bar_spacing * 2.0, "centred");
+        assert!(x1 - x0 > plot_w * 0.8, "filling the plot");
+        // More bars come in behind the first few a market opens on: still framed.
+        c.set_candles(candles(1200));
+        c.render(1_800_000_000_000);
+        assert!((c.time.x(100.0) - x0).abs() < 1.0 && (c.time.x(140.0) - x1).abs() < 1.0, "framed again as the bars came");
+        // Until the reader takes the view: then it is theirs.
+        c.wheel(400.0, 200.0, 0.0, -120.0);
+        c.set_candles(candles(1300));
+        c.render(1_800_000_000_000);
+        assert!((c.time.x(100.0) - x0).abs() > 5.0, "not framed again once the reader zoomed: {} against {x0}", c.time.x(100.0));
+        c.set_candles(candles(800));
+        c.render(1_800_000_000_000);
+        c.show_span(from, to);
+        c.render(1_800_000_000_000);
+
+        let price = c.candles[120].close;
+        let mut long = DrawingShape::new(
+            Some(4),
+            DrawingKind::Long,
+            vec![Anchor { time: c.times[110], price }, Anchor { time: c.times[110], price: price * 0.99 }, Anchor { time: c.times[125], price: price * 1.02 }],
+        );
+        long.label = Some("#1 Long · Won +2.00R".into());
+        c.set_drawings(vec![long]);
+        let frame = c.render(1_800_000_000_000).clone();
+        let tag = frame.texts.iter().find(|t| t.text == "#1 Long · Won +2.00R").expect("the label is drawn");
+        let top = c.panes[0].scale.y(price * 1.02) as f32;
+        assert!(tag.y < top && tag.y > top - 12.0, "just over the box, at {} for a top at {top}", tag.y);
+        assert!((tag.x - c.time.x(110.0) as f32).abs() < c.time.bar_spacing as f32, "from its left edge");
     }
 
     #[test]
@@ -4799,6 +4896,14 @@ mod tests {
             .collect();
         assert!(!corner.is_empty(), "the mark is painted");
         assert!(corner.iter().all(|(x, y)| *x < price.x + 60.0 && *y > price.bottom() - 60.0 && *y < price.bottom()), "bottom left of the price pane");
+        assert_eq!(c.legend().mark, None, "the frame draws it: the page need not");
+
+        // Drawn by the page instead, over a live chart: the frame leaves it out and says where it goes.
+        c.set_page_mark(true);
+        let frame = c.render(1_800_000_000_000).clone();
+        assert!(!frame.colors.chunks(4).any(|c| *c == [accent.r, accent.g, accent.b, 205]), "not painted twice");
+        let (x, y, ink, _) = c.legend().mark.expect("the page is told where");
+        assert_eq!((x, y, ink), (price.x + 12.0, price.bottom() - 46.0, accent));
     }
 
     #[test]

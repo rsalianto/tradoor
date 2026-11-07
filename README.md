@@ -184,7 +184,7 @@ Net taker flow on each exchange, spot and perpetual, over the last minute to day
   <sub>The journal's dashboard, with sample trades.</sub>
 </p>
 
-Every Long or Short position drawn on a chart is a trade, kept in step as you move it and settled by price — entry, then target or stop — with partial exits, averaged entries, strategies and notes. A position keeps its margin when its stop moves, and the chart and the journal both work out what it risks and what it can make as you type. The dashboard reads it back: the net first, then the figures behind it, the equity curve, a P&L calendar in money or in R, where it was made by pair, side or strategy with each a click from its trades, the latest trades, and a weekly review.
+Every Long or Short position drawn on a chart is a trade, kept in step as you move it and settled by price — entry, then target or stop — with partial exits, averaged entries, strategies and notes. A position keeps its margin when its stop moves, and the chart and the journal both work out what it risks and what it can make as you type. The dashboard reads it back: the net first, then the figures behind it, the equity curve, a P&L calendar in money or in R, where it was made by pair, side or strategy with each a click from its trades, the latest trades, and a weekly review. History draws a pair's trades back on the chart, each where it was entered and closed, numbered and marked with how it went.
 
 ### Training
 

@@ -5,6 +5,7 @@
  * for the page's search and the engine's exchange names alike. Solid-free, so
  * the chart's worker reads it too.
  */
+import { read } from './read';
 import type { Product, VenueStatus } from './api';
 
 /** A market as listed, with the exchange's own name for it where that is not ours. */
@@ -45,7 +46,7 @@ let held: { at: number; value: Promise<Listing> } | null = null;
 /** The catalogue, fetched and read once a half hour, shared by whoever asks in this page or worker. */
 export function listing(): Promise<Listing> {
   if (held && Date.now() - held.at < 30 * 60_000) return held.value;
-  const value = fetch('/api/catalog')
+  const value = read('/api/catalog', {})
     .then((res) => {
       if (!res.ok) throw new Error(`the catalogue answered ${res.status}`);
       return res.json() as Promise<Wire>;

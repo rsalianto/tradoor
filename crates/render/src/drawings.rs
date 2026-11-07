@@ -668,6 +668,13 @@ fn paint_position(frame: &mut Frame, d: &Placed<'_>, plot: Rect, theme: &Theme, 
         frame.hline(left, right, target_y, 1.0, profit_line);
         frame.hline(left, right, stop_y, 1.0, stop_line);
     }
+    // Its name over the box, or under it where the top is off the plot: a journal
+    // trade drawn where it went says which and how it did (web journal/picture.ts).
+    if let Some(text) = &d.shape.label {
+        let (top, bottom) = (target_y.min(stop_y), target_y.max(stop_y));
+        let (y, baseline) = if top - font - 6.0 < plot.y { (bottom + 4.0, Baseline::Top) } else { (top - 4.0, Baseline::Bottom) };
+        frame.text(left, y, text.clone(), theme.text, Align::Left, baseline, font, None, Some(plot));
+    }
     // Its legs, those its prices allow (bins/server journal, `legs_of`): a
     // dashed line each across the box, named once the figures are up.
     let between = |p: f64, a: f64, b: f64| p > a.min(b) && p < a.max(b);

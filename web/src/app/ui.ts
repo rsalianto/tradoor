@@ -1,7 +1,8 @@
 /** Page-wide UI state that is not part of the saved workspace. */
 import { createSignal } from 'solid-js';
-import type { MagnetMode } from '../engine/protocol';
+import type { DrawingPoint, MagnetMode } from '../engine/protocol';
 import type { ChartKind, Drawing } from '../lib/api';
+import type { Style } from '../lib/drawing-style';
 import { readPref, writePref } from '../lib/prefs';
 
 export type Overlay =
@@ -139,6 +140,23 @@ export interface ShownPattern {
   limit?: { price: number; from: number; until: number };
 }
 export const [shownPattern, setShownPattern] = createSignal<ShownPattern | null>(null);
+
+/** Journal trades drawn where each was entered and closed (journal/picture.ts), on
+ *  the charts of their market until closed or saved (ChartPanel). Shown, not saved. */
+export interface ShownTrades {
+  market: string;
+  /** The length of bar the chart frames them at. */
+  timeframe: string;
+  /** The first entry and the last close. */
+  from: number;
+  to: number;
+  parts: { kind: string; points: DrawingPoint[]; label: string | null; style: Style }[];
+  /** Over the chart: the pair, and how the trades went. */
+  title: string;
+  summary: string;
+  tone: 'bull' | 'bear' | '';
+}
+export const [shownTrades, setShownTrades] = createSignal<ShownTrades | null>(null);
 
 /** The panel whose tab is being dragged, while it is. */
 export const [dragging, setDragging] = createSignal<string | null>(null);

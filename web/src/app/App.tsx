@@ -113,7 +113,7 @@ function commands(): Command[] {
   list.push(
     { group: 'App', label: 'Settings and colours…', run: () => setOverlay({ kind: 'settings' }) },
     { group: 'App', label: 'Keyboard shortcuts', hint: '?', run: () => setOverlay({ kind: 'help' }) },
-    { group: 'App', label: 'Partner exchanges — Nado, Bybit and Binance', run: () => setOverlay({ kind: 'referrals' }) },
+    { group: 'App', label: 'Partners — Breakout, Nado, Bybit and Binance', run: () => setOverlay({ kind: 'referrals' }) },
     {
       group: 'App',
       label: 'Reset workspace to default',
@@ -528,7 +528,7 @@ export function App() {
             <LayoutPicker onClose={() => setTopMenu(null)} />
           </Show>
         </span>
-        <button class="item ref-btn" data-tip="Partner exchanges: Nado, Bybit and Binance" onClick={() => setOverlay({ kind: 'referrals' })}>
+        <button class="item ref-btn" data-tip="Partners: Breakout, Nado, Bybit and Binance" onClick={() => setOverlay({ kind: 'referrals' })}>
           <Icon name="gift" size={13} /> <span>Rewards</span>
         </button>
         <Health />

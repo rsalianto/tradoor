@@ -4,7 +4,7 @@
  * from the panel, a link in a Telegram message, or a notice of a new one.
  */
 import { batch } from 'solid-js';
-import { setShownPattern } from '../app/ui';
+import { setShownPattern, setShownTrades } from '../app/ui';
 import type { Signal, SignalLimit, SignalPoint, SignalTouch } from './api';
 import { activate, tabsOf } from '../workspace/model';
 import { doc, setPanelMarket, setPanelTimeframe, targetChart, update } from '../workspace/store';
@@ -52,6 +52,7 @@ export function openPattern(s: Openable, target: { id: string } | null = targetC
   batch(() => {
     if (tabs && tabs.active !== target.id) update((d) => activate(d, tabs.id, target.id));
     const limit = s.limit ? { price: s.limit.price, from: s.limit.setAt, until: s.limit.until ?? s.limit.setAt } : undefined;
+    setShownTrades(null);
     setShownPattern({ market: s.market, side: s.side, drives: s.drives, score: s.score, divergence: s.divergence, stage: s.stage, levels: (s.levels ?? s.limit?.levels) ?? undefined, enteredAt: s.enteredAt ?? s.limit?.setAt, limit, timeframe: s.timeframe });
     setPanelMarket(target.id, s.market);
     setPanelTimeframe(target.id, s.timeframe ?? '4h');

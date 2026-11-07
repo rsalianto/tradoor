@@ -5,7 +5,7 @@
  */
 import { batch, createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, onMount, Show, untrack } from 'solid-js';
 import { lazy } from '../lib/lazy';
-import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, setStudyEditing, sharedRail, shownPattern, studyEditing, type ShownPattern } from '../app/ui';
+import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, setShownTrades, setStudyEditing, sharedRail, shownPattern, shownTrades, studyEditing, type ShownPattern, type ShownTrades } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
 import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, ReplayState, StudyMeta, TpoHover } from '../engine/protocol';
@@ -44,6 +44,7 @@ import { behindMaximized, doc, marketOf, maximized, patchPanel, setPanelTimefram
 const DrawingSettings = lazy(() => import('../components/DrawingSettings').then((m) => ({ default: m.DrawingSettings })));
 const StudySettings = lazy(() => import('../components/StudySettings').then((m) => ({ default: m.StudySettings })));
 const AlertStyleSettings = lazy(() => import('../components/AlertStyleSettings').then((m) => ({ default: m.AlertStyleSettings })));
+const ChartMark = lazy(() => import('../components/ChartMark').then((m) => ({ default: m.ChartMark })));
 const DrawingToolbar = lazy(() => import('../components/DrawingToolbar').then((m) => ({ default: m.DrawingToolbar })));
 
 
@@ -810,6 +811,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           .filter((d) => visibleOn(d.style, tf))
           .map((d) => ({ id: d.id, kind: d.kind, points: d.points, label: d.label, style: d.style, timeframe: d.timeframe })),
         ...(p ? patternParts(p).map((d, i) => ({ id: -1_000_000 - i, ...d, style: { ...d.style, locked: true } })) : []),
+        ...(traded()?.parts ?? []).map((d, i) => ({ id: -3_000_000 - i, ...d, style: { ...d.style, locked: true } })),
         ...(props.training?.overlay() ?? []).map((d, i) => ({ id: -2_000_000 - i, ...d, style: { ...d.style, locked: true } })),
       ],
     });
@@ -844,6 +846,37 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     setShownPattern(null);
     void (async () => {
       for (const part of patternParts(p)) await saveDrawing(part);
+    })();
+  };
+
+  // ---------------------------------------------------------------- journal trades shown
+
+  /** The journal's trades drawn where they went, on this chart when it is on their market's candles. */
+  const traded = () => {
+    const s = shownTrades();
+    return s && !props.training && s.market === market() && chartKind() === 'candles' ? s : null;
+  };
+  // Brought into view once its market's bars of their length are in: from the first entry to the last close.
+  let framedTrades: ShownTrades | null = null;
+  createEffect(() => {
+    const s = traded();
+    const st = status();
+    // On the bars of the length the chart is at: the one asked for, unless the chart could not take it.
+    if (!s || s === framedTrades || st.loading || st.bars === 0 || st.market !== s.market || st.timeframe !== timeframe()) return;
+    framedTrades = s;
+    send({ t: 'span', id: sid, from: s.from, to: s.to });
+  });
+  createEffect(
+    on(market, (m, prev) => {
+      const s = untrack(shownTrades);
+      if (s && prev === s.market && m !== s.market) setShownTrades(null);
+    }, { defer: true }),
+  );
+  /** Saved as this chart's own drawings: pictures of the trades, which the journal does not take for new ones. */
+  const keepTrades = (s: ShownTrades) => {
+    setShownTrades(null);
+    void (async () => {
+      for (const part of s.parts) await saveDrawing(part);
     })();
   };
 
@@ -1683,9 +1716,24 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               </div>
             )}
           </Show>
+          <Show when={traded()}>
+            {(s) => (
+              <div class="pattern-bar" onPointerDown={(e) => e.stopPropagation()}>
+                <span>{s().title}</span>
+                <span class={s().tone}>{s().summary}</span>
+                <button class="tb" data-tip="Save them as drawings on this chart: pictures of these trades, not new ones" onClick={() => keepTrades(s())}>
+                  Save drawings
+                </button>
+                <button class="iconbtn" aria-label="Close the trades" data-tip="Close — nothing is saved" onClick={() => setShownTrades(null)}>
+                  <Icon name="close" size={11} />
+                </button>
+              </div>
+            )}
+          </Show>
           <Show when={editing() === null && selectedDrawing()}>
             {(d) => <DrawingToolbar drawing={d()} onRestyle={(patch) => restyle(d(), patch)} onSettings={() => setEditing(d().id)} onDelete={() => void deleteDrawing(d().id)} />}
           </Show>
+          <Show when={legend()?.mark}>{(m) => <ChartMark x={m().x} y={m().y} accent={m().accent} bear={m().bear} paused={paused()} />}</Show>
           <Show when={clock()}>
             {(c) => (
               <button

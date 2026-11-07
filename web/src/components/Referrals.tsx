@@ -1,5 +1,5 @@
 /**
- * The exchanges to open an account on through tradoor's referral links: a
+ * The partners to sign up with through tradoor's referral links: a
  * dialog anyone can open from the top bar or the phone's menu, and the card
  * that offers them once (lib/referral). A link opens the exchange's own page in
  * a new tab, carrying the referral code and nothing about the visitor.
@@ -19,6 +19,27 @@ interface Partner {
   more?: string;
   /** Led with, on its own row above the rest. */
   lead?: boolean;
+  /** A word on the badge beside its name. */
+  badge?: string;
+}
+
+/** Breakout's mark, from its site: the two halves of its "b", blue over white, on the black disc every partner's mark sits on. */
+function BreakoutLogo(props: { size?: number }) {
+  return (
+    <svg class="xlogo" width={props.size ?? 14} height={props.size ?? 14} viewBox="0 0 256 256" aria-hidden="true">
+      <circle cx="128" cy="128" r="128" fill="#000" />
+      <g transform="translate(62.5 46.3) scale(3.9)">
+        <path
+          fill="#008df3"
+          d="M27.56 23.96c-.34-2.27-1.41-4.37-3.05-5.99a10.84 10.84 0 0 0-7.65-3.13c-2.86 0-5.61 1.12-7.65 3.13a10.6 10.6 0 0 0-3.05 5.99H0V0c1.44.3 2.77 1.01 3.81 2.05a7.5 7.5 0 0 1 2.24 5.34v5.07l2.38-1.36C11 9.63 13.9 8.86 16.86 8.87c4.46 0 8.75 1.75 11.92 4.88 1.54 1.51 2.76 3.32 3.61 5.3a16.4 16.4 0 0 1 1.25 4.92h-6.09Z"
+        />
+        <path
+          fill="#fff"
+          d="M27.56 27.1c-.34 2.27-1.41 4.37-3.05 5.99a10.84 10.84 0 0 1-7.65 3.13c-2.86 0-5.61-1.12-7.65-3.13a10.6 10.6 0 0 1-3.05-5.99H2.25L0 27v7.51c0 2.02.79 3.91 2.24 5.34a7.6 7.6 0 0 0 3.81 2.05v-3.58c3.04 2.51 6.87 3.89 10.81 3.88 4.46 0 8.75-1.75 11.92-4.88 1.54-1.51 2.76-3.31 3.61-5.3a16.4 16.4 0 0 0 1.25-4.92h-6.09Z"
+        />
+      </g>
+    </svg>
+  );
 }
 
 /** Nado's mark, from its site, on the black disc every exchange's mark sits on. tradoor does not chart Nado, so it is not among EXCHANGES. */
@@ -41,12 +62,20 @@ const exchangeLogo =
 
 const PARTNERS: readonly Partner[] = [
   {
+    name: 'Breakout',
+    Logo: BreakoutLogo,
+    url: 'https://portal.breakoutprop.com/buy-evaluation?ref=C595806',
+    offer: "Powered by Kraken · trade the firm's capital, up to $200K · keep 80–90% of the profits",
+    more: 'Crypto, stocks and commodities · payouts 24/7 on demand · two loss limits, no time limits · evaluations from $20, paid once',
+    lead: true,
+    badge: 'New',
+  },
+  {
     name: 'Nado',
     Logo: NadoLogo,
     url: 'https://app.nado.xyz?join=tradoor',
     offer: 'Backed by the team behind Kraken',
     more: 'Self-custody perps and spot on Ink · up to 20× · orders matched in 5–15 ms',
-    lead: true,
   },
   { name: 'Bybit', Logo: exchangeLogo('bybit'), url: 'https://www.bybitglobal.com/invite?ref=P5RO8W&medium=referral&utm_campaign=evergreen&share_to=post', offer: 'Perpetuals · spot · copy trading' },
   { name: 'Binance', Logo: exchangeLogo('binance'), url: 'https://www.bmwweb.biz/referral/earn-together/refer2earn-usdc/claim?hl=en&ref=GRO_28502_YJYU6&utm_source=referral_entrance', offer: 'Spot · futures · the deepest books' },
@@ -67,14 +96,15 @@ export function ReferralDialog(props: { onClose(): void }) {
         }}
       >
         <header>
-          <span class="title caps">Partner exchanges</span>
+          <span class="title caps">Partners</span>
           <span class="spacer" />
           <button class="x" onClick={() => props.onClose()}>
             esc ✕
           </button>
         </header>
+        <div class="ref-body">
         <p class="ref-intro">
-          Open an account through these links and tradoor earns a share of the fees, at no extra cost to you — it keeps the charts free. Bybit and Binance add their new-user rewards.
+          Sign up through these links and tradoor earns a share, at no extra cost to you — it keeps the charts free. Bybit and Binance add their new-user rewards.
         </p>
         <div class="ref-list">
           <For each={PARTNERS}>
@@ -84,7 +114,7 @@ export function ReferralDialog(props: { onClose(): void }) {
                 <span class="who">
                   <b>
                     {p.name}
-                    {p.lead && <i class="new">New</i>}
+                    {p.badge && <i class="new">{p.badge}</i>}
                   </b>
                   <span>{p.offer}</span>
                   {p.more && <span>{p.more}</span>}
@@ -95,6 +125,20 @@ export function ReferralDialog(props: { onClose(): void }) {
               </a>
             )}
           </For>
+        </div>
+        <p class="ref-note">Breakout is a funded-trader evaluation, not an exchange: its fee is paid once and not refunded, and most traders need more than one attempt to pass.</p>
+        <a class="ref-sponsor" href="https://github.com/sponsors/rsalianto" target="_blank" rel="noopener">
+          <span class="heart" aria-hidden="true">
+            ♥
+          </span>
+          <span class="who">
+            <b>Sponsor tradoor on GitHub</b>
+            <span>Free and open source, with nothing behind a paywall. If it helps your trading, a sponsorship keeps it that way and keeps it moving.</span>
+          </span>
+          <span class="go">
+            Sponsor <Icon name="external" size={11} stroke={2} />
+          </span>
+        </a>
         </div>
         <footer>
           <span>Referral links · open in a new tab</span>
@@ -109,7 +153,7 @@ export function ReferralCard() {
     <aside class="ref-card" aria-label="Partner exchanges">
       <header>
         <span class="eyebrow">
-          <Icon name="gift" size={12} /> New to Nado, Bybit or Binance?
+          <Icon name="gift" size={12} /> Partner offers
         </span>
         <button class="x" aria-label="Close" onClick={dismissReferralCard}>
           <Icon name="close" size={10} stroke={2.4} />
@@ -123,7 +167,7 @@ export function ReferralCard() {
             <span class="who">
               <b>
                 {p.name}
-                <i class="new">New</i>
+                {p.badge && <i class="new">{p.badge}</i>}
               </b>
               <span>{p.offer}</span>
             </span>

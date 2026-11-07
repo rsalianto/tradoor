@@ -30,6 +30,11 @@ export function priceDecimals(v: number | null | undefined): number {
   return Math.min(MAX_PRICE_DECIMALS, Math.max(bucket(Math.abs(v)), decimalsOf(v)));
 }
 
+/** Decimals for a price worked out or dragged rather than quoted, where the
+ *  instrument's precision is not known: by its size alone, its own digits being
+ *  an average's float tail (80311.69999999998) or where a pointer let go. */
+export const roughDecimals = (v: number): number => (Number.isFinite(v) ? bucket(Math.abs(v)) : 2);
+
 const formatters = new Map<number, Intl.NumberFormat>();
 
 export function formatPrice(v: number | null | undefined, digits?: number): string {

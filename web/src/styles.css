@@ -866,6 +866,10 @@ table.venues tr.off td { color: var(--dim); }
 .al-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; margin-left: 4px; padding: 0 4px; border-radius: 8px; background: var(--bear); color: #fff; font-size: 9px; font-weight: 700; line-height: 1; }
 .alerts-btn { position: relative; }
 .alerts-btn .al-badge { position: absolute; top: 1px; right: -2px; margin: 0; }
+/* The tradoor mark over a live chart (components/ChartMark): it plays now and then, and opens the rewards. */
+.chart-mark { position: absolute; z-index: 5; display: block; width: 34px; height: 34px; padding: 0; border: 0; background: none; cursor: pointer; }
+.chart-mark svg { display: block; overflow: visible; transition: filter 0.15s; }
+.chart-mark:hover svg { filter: brightness(1.3) drop-shadow(0 0 4px color-mix(in oklab, var(--primary) 45%, transparent)); }
 .alert-add { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; color: var(--text); background: var(--surface-3); border: 1px solid var(--border); }
 .alert-add:hover { color: #fff; background: #22ab94; border-color: #22ab94; }
 .alert-label { position: absolute; z-index: 6; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 2px 0 8px; border: 1px solid var(--al, #22ab94); border-radius: 3px; background: var(--surface); color: var(--al, #22ab94); font-size: 11px; white-space: nowrap; box-shadow: 0 3px 12px #0008; }
@@ -926,6 +930,8 @@ table.venues tr.off td { color: var(--dim); }
 
 /* ------------------------------------------------------------ partner exchanges */
 .topbar .ref-btn svg, .mdrawer .ref-item svg { color: var(--primary); }
+/* What lies between the header and the footer scrolls, on a screen too short for all of it. */
+.ref-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .ref-intro { margin: 0; padding: 12px 14px 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .ref-list { display: flex; flex-direction: column; gap: 6px; padding: 0 14px 14px; }
 .ref-row { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); text-decoration: none; transition: border-color 0.12s, background 0.12s; }
@@ -939,6 +945,16 @@ table.venues tr.off td { color: var(--dim); }
 .ref-row .who span { color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-row .go { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent); color: var(--primary); font-size: 11px; white-space: nowrap; transition: background 0.12s, color 0.12s; }
 .ref-row:hover .go { background: var(--primary); color: var(--bg); }
+.ref-note { margin: -4px 14px 12px; color: var(--dim); font-size: 10.5px; line-height: 1.5; }
+/* At the foot, and meant to be seen: GitHub Sponsors' own pink. */
+.ref-sponsor { display: flex; align-items: center; gap: 12px; margin: 0 14px 14px; padding: 11px 12px; border: 1px solid color-mix(in oklab, #db61a2 45%, transparent); background: color-mix(in oklab, #db61a2 7%, var(--surface-2)); color: var(--text); text-decoration: none; transition: border-color 0.12s, background 0.12s; }
+.ref-sponsor:hover { border-color: #db61a2; background: color-mix(in oklab, #db61a2 12%, var(--surface-2)); }
+.ref-sponsor .heart { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: color-mix(in oklab, #db61a2 18%, transparent); color: #db61a2; font-size: 15px; line-height: 1; }
+.ref-sponsor .who { flex: 1; display: grid; gap: 4px; min-width: 0; }
+.ref-sponsor .who b { font-size: 13px; font-weight: 600; }
+.ref-sponsor .who span { color: var(--dim); font-size: 11px; line-height: 1.45; }
+.ref-sponsor .go { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid color-mix(in oklab, #db61a2 55%, transparent); color: #db61a2; font-size: 11px; white-space: nowrap; transition: background 0.12s, color 0.12s; }
+.ref-sponsor:hover .go { background: #db61a2; color: #fff; }
 .ref-card { position: fixed; left: 12px; bottom: 34px; z-index: 79; width: min(330px, calc(100vw - 24px)); border: 1px solid var(--border); border-top: 2px solid var(--primary); background: var(--surface); box-shadow: 0 14px 44px #000d; font-size: 12px; animation: toast-in 0.25s ease-out; }
 .ref-card > header { display: flex; align-items: center; padding: 8px 4px 0 12px; }
 .ref-card .eyebrow { display: flex; align-items: center; gap: 6px; flex: 1; color: var(--primary); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
@@ -952,7 +968,7 @@ table.venues tr.off td { color: var(--dim); }
 .ref-card .lead .who b { display: flex; align-items: center; gap: 7px; font-weight: 600; }
 .ref-card .lead .who span { color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-card .lead > svg:last-child { flex: none; color: var(--dim); }
-.ref-card .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 12px; }
+.ref-card .pair { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 12px; }
 .ref-card .pair a { display: flex; align-items: center; justify-content: center; gap: 7px; height: 36px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); text-decoration: none; transition: border-color 0.12s, color 0.12s; }
 .ref-card .pair a svg:last-child { color: var(--dim); }
 .ref-card .pair a:hover { border-color: color-mix(in oklab, var(--primary) 55%, transparent); color: var(--primary); }
@@ -1268,6 +1284,8 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 .jh-views, .jh-sides { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); background: var(--surface); }
 .jh-focus { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid var(--primary); background: var(--surface); color: var(--text); font-size: 12px; }
 .jh-focus:hover { background: var(--surface-2); }
+.jh-chart { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--border); font-size: 12px; }
+.jh-chart:disabled { opacity: 0.45; }
 .jh-views button, .jh-sides button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12px; color: var(--muted); }
 .jh-views button:hover, .jh-sides button:hover { color: var(--text); }
 .jh-views button.on, .jh-sides button.on { background: var(--surface-3); color: var(--text); }

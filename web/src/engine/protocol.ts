@@ -28,6 +28,8 @@ export interface Legend {
   footprint: { time: number; price: number; step: number; buy: number; sell: number; x: number; y: number } | null;
   /** The TPO profile under the pointer, for the menu on it. */
   tpo: TpoHover | null;
+  /** Where the page draws the tradoor mark over the price pane, and in what inks; null where it has no room. */
+  mark: { x: number; y: number; accent: string; bear: string } | null;
 }
 
 /** A TPO profile under the pointer: when it runs, its neighbours' starts, how it
@@ -231,6 +233,8 @@ export type ToWorker =
   | { t: 'resetView'; id: string }
   | { t: 'autoScale'; id: string }
   | { t: 'range'; id: string; days: number | null }
+  /** The bars from `from` to `to` (ms) fill the plot. */
+  | { t: 'span'; id: string; from: number; to: number }
   /** `shift`: held, so lines being drawn stay level. `ctrl` (or Cmd): a weak magnet while held. */
   | { t: 'pointer'; id: string; kind: PointerKind; x: number; y: number; button: number; shift?: boolean; ctrl?: boolean; touch?: boolean }
   | { t: 'wheel'; id: string; x: number; y: number; dx: number; dy: number }

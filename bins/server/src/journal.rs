@@ -453,6 +453,12 @@ pub fn tracked(market: &str) -> bool {
 
 // ---------------------------------------------------------------- the drawings' side
 
+/// A position saved from the journal's own trades drawn on a chart, `ofTrade`
+/// naming the one it shows: a picture of a trade, not another trade.
+fn pictures_a_trade(drawing: &Value) -> bool {
+    !drawing["style"]["ofTrade"].is_null()
+}
+
 /// Keep the trade of a long or short drawing in step with it: made when the
 /// drawing is, its plan moved when the drawing moves — and then weighed
 /// against price again from the start. A drawing put back by an undo takes
@@ -460,7 +466,7 @@ pub fn tracked(market: &str) -> bool {
 /// ratio chart's positions, are no trade.
 pub async fn sync_drawing(client: &tokio_postgres::Client, owner: &str, drawing: &Value) -> Result<(), tokio_postgres::Error> {
     let (Some(id), Some(market), Some(kind)) = (drawing["id"].as_i64(), drawing["market"].as_str(), drawing["kind"].as_str()) else { return Ok(()) };
-    if Side::of(kind).is_none() || MarketRef::parse(market).is_none() {
+    if Side::of(kind).is_none() || MarketRef::parse(market).is_none() || pictures_a_trade(drawing) {
         return Ok(());
     }
     let points: Vec<Point> = drawing["points"].as_array().map_or_else(Vec::new, |a| {
@@ -1102,6 +1108,14 @@ mod tests {
         assert_eq!((plan.qty, plan.start_at), (2.0, 0), "ten risked over five a coin; a box wholly on bars past, weighed from its edge");
         assert!(plan_of("long", &pts(100.0, 105.0, 110.0, 0.0), &Map::new(), 0, "1h").is_none(), "a long's stop is under its entry");
         assert!(plan_of("trendline", &pts(100.0, 95.0, 110.0, 0.0), &Map::new(), 0, "1h").is_none());
+    }
+
+    #[test]
+    fn a_position_saved_from_the_journal_pictures_its_trade_and_is_not_another() {
+        let drawn = |style: Value| json!({ "id": 9, "market": "bybit-perp:XPLUSDT", "kind": "short", "style": style, "points": [] });
+        assert!(pictures_a_trade(&drawn(json!({ "ofTrade": 41, "sizeBy": "margin" }))));
+        assert!(!pictures_a_trade(&drawn(json!({ "sizeBy": "margin" }))), "one drawn by hand is a trade");
+        assert!(!pictures_a_trade(&json!({ "id": 9, "market": "bybit-perp:XPLUSDT", "kind": "short" })), "nor does a drawing with no style picture one");
     }
 
     #[test]
