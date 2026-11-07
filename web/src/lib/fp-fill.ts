@@ -5,12 +5,14 @@
  * Loaded with the first fill, so a page that never fills never carries it.
  */
 import { digitsFor } from './alerts';
-import { quietUntil, throttled } from './binance-quiet';
+import { listen, quietUntil, throttled } from './binance-quiet';
 import { cover, gaps, levelFor, MINUTE, MinuteBook, readAggTrades, type Span } from './fp-minutes';
 import { addMinutes, writeMarket, type MarketRecord } from './fp-store';
 import { parseMarket } from './markets';
 
 const HOUR = 3_600_000;
+// A chart Binance throttled stops the fill too.
+listen();
 /** How far back a gap is filled from the exchange's history, and how many calls that may take. */
 const BACKFILL_MS = 24 * HOUR;
 const BACKFILL_CALLS = 120;
