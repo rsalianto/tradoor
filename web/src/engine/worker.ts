@@ -145,6 +145,24 @@ function precisionOf(c: Cols): number {
 }
 
 /** Base bars needed for `bars` bars of `tf` from this series. */
+/** Bars a VWAP's period may need, at most: a week of minutes, a month of 5m, a year of hours. */
+const ANCHOR_MAX_BARS = 12_000;
+
+/**
+ * Bars back to the open of the longest period a VWAP on the chart is anchored
+ * to (core's VWAP_ANCHORS: session, week, month, year, quarter, in UTC), and
+ * one before: a VWAP draws nothing for a period whose open the chart does not
+ * hold. A minute chart held a day, and its weekly VWAP was gone from Tuesday.
+ */
+function anchorBars(studies: string, at: number, barMs: number): number {
+  const anchor = Math.max(-1, ...studies.split(',').map((id) => (id.split(':')[0] === 'vwap' ? Number(id.split(':')[1]) || 0 : -1)));
+  if (anchor < 0 || !(barMs > 0)) return 0;
+  const d = new Date(at);
+  const [y, m] = [d.getUTCFullYear(), d.getUTCMonth()];
+  const start = [at - (at % 86_400_000), at - ((at - MONDAY_MS) % WEEK_MS), Date.UTC(y, m, 1), Date.UTC(y, 0, 1), Date.UTC(y, m - (m % 3), 1)][Math.min(anchor, 4)]!;
+  return Math.min(ANCHOR_MAX_BARS, Math.ceil((at - start) / barMs) + 2);
+}
+
 const baseBars = (series: CandleSeries, tf: TfInfo, bars: number): number =>
   // A ratio is folded to the chart's bars already, and asks each side for its own.
   series.source === 'ratio'
@@ -359,6 +377,31 @@ class Slot {
     this.engine.set_studies(value);
     this.metaDirty = true;
     this.syncOpenInterest();
+    this.reach();
+  }
+
+  /** The base bars asked for so far, for a VWAP's period. */
+  private reached = 0;
+
+  /**
+   * A VWAP put on may want bars from further back than the chart holds: asked
+   * for once its history is in — a study set while it loads is seen then.
+   */
+  private reach(): void {
+    const series = this.series;
+    if (!series || this.status.loading) return;
+    const tf = info(this.timeframe);
+    const need = baseBars(series, tf, this.anchored(tf));
+    if (need <= this.reached) return;
+    this.reached = need;
+    this.rest = this.restWindow(tf);
+    this.window = Math.max(this.window, this.rest);
+    void series.ensure(need).catch(() => undefined);
+  }
+
+  /** Bars the chart's VWAP needs back to its period's open, where it is in the replay or now. */
+  private anchored(tf: TfInfo): number {
+    return anchorBars(this.studies, this.replayAt ?? Date.now(), tf.barMs);
   }
 
   /** Open interest follows the chart's market, bars and the study's venues. */
@@ -483,6 +526,7 @@ class Slot {
     if (market === this.market && timeframe === this.timeframe && bars === this.bars && !this.status.error) return;
     this.detach();
     const gen = this.gen;
+    this.reached = 0;
     this.market = market;
     this.timeframe = timeframe;
     this.bars = bars;
@@ -522,9 +566,10 @@ class Slot {
       const early = this.liveEarly(tf);
       if (early) this.startLive(gen, tf);
       this.seed(gen, tf);
-      await series.ensure(baseBars(series, tf, bars) + this.replayBack(series));
+      await series.ensure(baseBars(series, tf, Math.max(bars, this.anchored(tf))) + this.replayBack(series));
       if (gen !== this.gen) return;
       this.refold();
+      this.reach();
       if (this.replayAt !== null) this.postReplay();
       if (!early) this.startLive(gen, tf);
     } catch (e) {
@@ -626,7 +671,7 @@ class Slot {
   private restWindow(tf: TfInfo): number {
     if (tf.barMs > WINDOW_MAX_BAR_MS) return Number.POSITIVE_INFINITY;
     const sinceMonday = Math.ceil((((this.replayAt ?? Date.now()) - MONDAY_MS) % WEEK_MS) / tf.barMs);
-    return Math.max(WINDOW_BARS, this.bars, sinceMonday + 100);
+    return Math.max(WINDOW_BARS, this.bars, sinceMonday + 100, this.anchored(tf));
   }
 
   /**
