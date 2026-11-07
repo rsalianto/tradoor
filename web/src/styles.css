@@ -1186,6 +1186,8 @@ table.venues tr.off td { color: var(--dim); }
 .jx-tip b { font-size: 13px; }
 .jx-cal-head { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
 .jx-cal-month { min-width: 124px; color: var(--text); text-align: center; }
+.jx-unit { margin-left: 8px; }
+.jx-unit button { min-width: 26px; justify-content: center; padding: 2px 8px; font-size: 11px; }
 .jx-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)) minmax(48px, 1.1fr); gap: 2px; }
 .jx-wd { padding-bottom: 3px; color: var(--dim); font-size: 10.5px; text-align: center; }
 .jx-day { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; min-height: 50px; padding: 4px 5px; background: var(--surface-2); font-size: 10.5px; }
@@ -1197,6 +1199,12 @@ table.venues tr.off td { color: var(--dim); }
 .jx-date { color: var(--muted); }
 .jx-week { display: flex; align-items: center; justify-content: center; min-height: 50px; padding: 2px; background: var(--surface-2); font-size: 10.5px; font-weight: 600; }
 .jx-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+/* Every group, ten rows or so in view and the rest a scroll away, under a header that stays. */
+.jx-scroll { max-height: 336px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.jx-scroll thead th { position: sticky; top: 0; z-index: 1; padding-top: 2px; background: var(--surface); }
+.jx-table tr.go { cursor: pointer; }
+.jx-table tr.go:hover td { background: var(--surface-2); }
+.jx-table tr.go:focus-visible { outline: 1px solid var(--primary); outline-offset: -1px; }
 .jx-table th { padding: 0 8px 6px; color: var(--dim); font-size: 10.5px; font-weight: 400; text-align: right; white-space: nowrap; }
 .jx-table td { padding: 7px 8px; border-top: 1px solid var(--surface-2); text-align: right; white-space: nowrap; }
 .jx-table th:first-child, .jx-table td:first-child { padding-left: 0; text-align: left; }
@@ -1258,6 +1266,8 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 .jh { display: flex; flex-direction: column; min-height: 100%; container-type: inline-size; }
 .jh-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px max(12px, calc((100% - 1080px) / 2 + 12px)); background: var(--bg); border-bottom: 1px solid var(--border); }
 .jh-views, .jh-sides { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); background: var(--surface); }
+.jh-focus { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid var(--primary); background: var(--surface); color: var(--text); font-size: 12px; }
+.jh-focus:hover { background: var(--surface-2); }
 .jh-views button, .jh-sides button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12px; color: var(--muted); }
 .jh-views button:hover, .jh-sides button:hover { color: var(--text); }
 .jh-views button.on, .jh-sides button.on { background: var(--surface-3); color: var(--text); }
