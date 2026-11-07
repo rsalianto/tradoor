@@ -67,6 +67,9 @@ const TOOL_STEPS: Record<string, string> = {
   short: 'Short: click where the entry goes',
 };
 
+/** A finger's way with any tool but the brush: the crosshair pinned by a tap, moved by sliding, a tap for each point. */
+const TOUCH_STEPS = 'Tap for the crosshair, slide anywhere to aim it, tap to place each point';
+
 const LAYERS = [
   { id: 'ribbon', label: 'EMA 12/25 ribbon', candles: true },
   { id: 'ema200', label: 'EMA 200', candles: true },
@@ -1720,7 +1723,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           </Show>
           <Show when={tool() !== '' || selected() !== null || drawError() || replayPicking()}>
             <div class="hint" classList={{ 'over-replay': replayOpen() && !(footprintOn() && props.panel.footprintStats === true) }}>
-              {replayPicking() ? `${mobile() ? 'Tap' : 'Click'} the bar to replay from: every bar after it is hidden${mobile() ? '' : ' · esc cancels'}` : tool() ? TOOL_STEPS[tool()] : selected() !== null ? 'Drawing selected · double-click for settings · Delete removes it, esc deselects' : ''}
+              {replayPicking() ? `${mobile() ? 'Tap' : 'Click'} the bar to replay from: every bar after it is hidden${mobile() ? '' : ' · esc cancels'}` : tool() ? (mobile() && tool() !== 'brush' ? TOUCH_STEPS : TOOL_STEPS[tool()]) : selected() !== null ? 'Drawing selected · double-click for settings · Delete removes it, esc deselects' : ''}
               <Show when={drawError()}>{(err) => <span class="warn"> ▲ {err()}</span>}</Show>
             </div>
           </Show>

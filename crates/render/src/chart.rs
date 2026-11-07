@@ -422,6 +422,9 @@ enum Drag {
     Held,
     /// Pressed with a tool armed: a drag places its next anchors in one gesture.
     Draw { kind: DrawingKind, start: Anchor, start_px: (f32, f32), moved: bool },
+    /// A finger on a chart whose crosshair is pinned: the crosshair moves by the
+    /// finger's motion, not to the finger, and a tap is the crosshair's.
+    Nudge { start: (f32, f32), last: (f32, f32), moved: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -561,6 +564,8 @@ pub struct Chart {
     ctrl: bool,
     /// The press under way is a finger's, not a mouse's.
     touch_input: bool,
+    /// A tap showed the crosshair on a touch screen: it stays until the next tap.
+    pinned: bool,
     placed: Vec<Anchor>,
     draft: Option<DrawingShape>,
     /// The pane the drawing being placed is in: its first anchor's.
@@ -637,6 +642,7 @@ impl Chart {
             magnet: Magnet::Off,
             ctrl: false,
             touch_input: false,
+            pinned: false,
             selected: None,
             selected_alert: None,
             tool: None,
@@ -1312,6 +1318,7 @@ impl Chart {
 
     pub fn set_touch(&mut self, touch: bool) {
         self.touch_input = touch;
+        self.pinned &= touch;
     }
 
     /// The magnet in force: the chosen one, or a weak one while Ctrl is held over none.
@@ -2903,6 +2910,18 @@ impl Chart {
     }
 
     pub fn pointer_move(&mut self, x: f32, y: f32) {
+        // A pinned crosshair goes by the finger's motion, once it is more than a tap's.
+        if let Drag::Nudge { start, last, moved } = self.drag {
+            if !moved && (x - start.0).hypot(y - start.1) <= CLICK_SLOP {
+                return;
+            }
+            let (cx, cy) = self.crosshair.unwrap_or(start);
+            let to = ((cx + x - last.0).max(0.0).min(self.plot_width() - 1.0), (cy + y - last.1).max(0.0).min(self.time_axis_top() - 1.0));
+            self.drag = Drag::None;
+            self.pointer_move(to.0, to.1);
+            self.drag = Drag::Nudge { start, last: (x, y), moved: true };
+            return;
+        }
         self.crosshair = Some((x, y));
         match self.drag {
             Drag::Press { start, last_x, last_y, pane, panning, price_pan } => {
@@ -2941,7 +2960,7 @@ impl Chart {
                     self.touch();
                 }
             }
-            Drag::Held => {}
+            Drag::Held | Drag::Nudge { .. } => {}
             Drag::Alert { id, .. } => {
                 if let Some(pane) = self.panes.first() {
                     let step = 10f64.powi(-(self.precision() as i32));
@@ -2998,6 +3017,10 @@ impl Chart {
             return;
         }
         self.span = None;
+        if self.pinned && self.tool != Some(DrawingKind::Brush) && matches!(self.zone(x, y), Zone::Plot(_)) {
+            self.drag = Drag::Nudge { start: (x, y), last: (x, y), moved: false };
+            return;
+        }
         let free = self.tool.is_none();
         // A finger passing over an alert on its way to scale or pan is not
         // taking hold of it: on a touch screen the alert waits for a hold.
@@ -3092,8 +3115,20 @@ impl Chart {
 
     pub fn pointer_up(&mut self, x: f32, y: f32) {
         match std::mem::replace(&mut self.drag, Drag::None) {
-            Drag::Press { start, panning: false, .. } if (x - start.0).hypot(y - start.1) <= CLICK_SLOP => self.click(x, y),
+            Drag::Press { start, panning: false, .. } if (x - start.0).hypot(y - start.1) <= CLICK_SLOP => {
+                if !self.pin(x, y) {
+                    self.click(x, y);
+                }
+            }
             Drag::Held if self.tool.is_some() => self.click(x, y),
+            // A tap with the crosshair up: a tool's next anchor where it stands, or the crosshair put away.
+            Drag::Nudge { moved: false, .. } => match (self.tool, self.crosshair) {
+                (Some(_), Some((cx, cy))) => self.click(cx, cy),
+                _ => {
+                    self.pinned = false;
+                    self.crosshair = None;
+                }
+            },
             Drag::Brush { .. } => {
                 let points = std::mem::take(&mut self.placed);
                 self.draft = None;
@@ -3115,7 +3150,9 @@ impl Chart {
             }
             Drag::Draw { kind, start, start_px, moved } => {
                 if !moved || (x - start_px.0).hypot(y - start_px.1) <= CLICK_SLOP {
-                    self.click(x, y);
+                    if !self.pin(x, y) {
+                        self.click(x, y);
+                    }
                 } else if let Some(end) = self.point_at(x, y) {
                     let mut points = std::mem::take(&mut self.placed);
                     if kind.arity() == 1 {
@@ -3143,7 +3180,10 @@ impl Chart {
     }
 
     pub fn pointer_leave(&mut self) {
-        self.crosshair = None;
+        // A finger lifting leaves too: a pinned crosshair stays for it.
+        if !self.pinned {
+            self.crosshair = None;
+        }
         if !matches!(self.drag, Drag::Brush { .. }) {
             self.drag = Drag::None;
         }
@@ -3190,6 +3230,24 @@ impl Chart {
         self.time.clamp();
         self.view_ready = true;
         self.touch();
+    }
+
+    /// A finger's tap where nothing takes it: the crosshair shown there and kept,
+    /// as on TradingView's app. A finger then moves it by its motion, so it never
+    /// covers the point, a tap with a tool places the next anchor where the
+    /// crosshair stands, and a tap without one puts it away. A tap on a drawing
+    /// or an alert picks it instead; the brush draws under the finger.
+    fn pin(&mut self, x: f32, y: f32) -> bool {
+        let takes = match self.tool {
+            Some(tool) => tool != DrawingKind::Brush,
+            None => self.drawing_at(x, y).is_none() && self.alert_at(x, y).is_none(),
+        };
+        if !self.touch_input || self.pinned || !takes || !matches!(self.zone(x, y), Zone::Plot(_)) {
+            return false;
+        }
+        self.pinned = true;
+        self.crosshair = Some((x, y));
+        true
     }
 
     fn finish_tool(&mut self) {
@@ -4860,6 +4918,53 @@ mod tests {
         c.set_studies("");
         c.render(1_800_000_000_000);
         assert!(c.place(&c.drawings[0], false).is_none());
+    }
+
+    #[test]
+    fn a_tap_pins_the_crosshair_a_finger_moves_it_and_a_tool_places_there() {
+        let mut c = chart();
+        c.render(1_800_000_000_000);
+        c.set_touch(true);
+        let tap = |c: &mut Chart, x: f32, y: f32| {
+            c.pointer_down(x, y, 0);
+            c.pointer_up(x, y);
+            c.pointer_leave();
+        };
+        tap(&mut c, 300.0, 200.0);
+        assert_eq!(c.crosshair, Some((300.0, 200.0)), "shown where tapped, and kept when the finger lifts");
+
+        // A finger anywhere moves it by its motion; the chart does not pan.
+        let before = c.time.right_offset;
+        c.pointer_down(500.0, 300.0, 0);
+        c.pointer_move(520.0, 290.0);
+        c.pointer_move(540.0, 280.0);
+        c.pointer_up(540.0, 280.0);
+        c.pointer_leave();
+        assert_eq!(c.crosshair, Some((340.0, 180.0)));
+        assert_eq!(c.time.right_offset, before);
+
+        tap(&mut c, 600.0, 300.0);
+        assert_eq!(c.crosshair, None, "the next tap puts it away");
+
+        // With a tool: the first tap shows it, a tap places an anchor where it stands, not under the finger.
+        c.set_tool(Some(DrawingKind::Trendline));
+        tap(&mut c, 300.0, 200.0);
+        assert!(c.placed.is_empty() && c.crosshair == Some((300.0, 200.0)));
+        tap(&mut c, 700.0, 350.0);
+        let first = c.anchor_at(300.0, 200.0).unwrap();
+        assert_eq!(c.placed, vec![first], "placed at the crosshair");
+        c.pointer_down(700.0, 350.0, 0);
+        c.pointer_move(760.0, 330.0);
+        c.pointer_up(760.0, 330.0);
+        tap(&mut c, 100.0, 100.0);
+        let events = c.take_events();
+        let Some(Event::DrawingCreated { points, .. }) = events.iter().find(|e| matches!(e, Event::DrawingCreated { .. })) else { panic!("{events:?}") };
+        assert_eq!(points[1], c.anchor_at(360.0, 180.0).unwrap());
+
+        // A mouse again: no pinned crosshair.
+        c.set_touch(false);
+        c.pointer_leave();
+        assert_eq!(c.crosshair, None);
     }
 
     #[test]
