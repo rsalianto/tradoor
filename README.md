@@ -186,6 +186,12 @@ Net taker flow on each exchange, spot and perpetual, over the last minute to day
 
 Every Long or Short position drawn on a chart is a trade, kept in step as you move it and settled by price — entry, then target or stop — with partial exits, averaged entries, strategies and notes. A position keeps its margin when its stop moves, and the chart and the journal both work out what it risks and what it can make as you type. The dashboard reads it back: the net first, then the figures behind it, the equity curve, a P&L calendar in money or in R, where it was made by pair, side or strategy with each a click from its trades, the latest trades, and a weekly review. History draws a pair's trades back on the chart, each where it was entered and closed, numbered and marked with how it went.
 
+<p align="center">
+  <img src="docs/screenshots/journal-chart.webp" alt="Seven BTCUSDT trades from the journal drawn on its hourly chart as long and short positions, each from its entry to its close and labelled with its number, side, result, R and P&L; a bar over the chart totals them: 3 won, 3 lost, 1 even, +4.18R, +$41.76" width="100%">
+  <br>
+  <sub>A pair's trades from History, back on its chart.</sub>
+</p>
+
 ### Training
 
 <p align="center">
