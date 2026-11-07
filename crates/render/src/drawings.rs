@@ -3,6 +3,7 @@
 use tradoor_core::num::Within;
 use tradoor_core::format::fixed;
 use tradoor_core::format::format_price;
+use tradoor_core::studies::Group;
 use tradoor_core::ChartTimeframe;
 
 use crate::color::Color;
@@ -174,6 +175,9 @@ pub struct DrawingStyle {
     pub always_stats: bool,
     /// Shown but not picked up: the pointer passes through it.
     pub locked: bool,
+    /// The lower pane it is drawn in, by its group (`pct` for RSI and Stoch
+    /// RSI, `oi`…), on that pane's values; `None` in the price pane.
+    pub pane: Option<Group>,
 }
 
 impl DrawingStyle {
@@ -237,6 +241,7 @@ impl DrawingStyle {
             "compact" => self.compact = flag(),
             "alwaysStats" => self.always_stats = flag(),
             "locked" => self.locked = flag(),
+            "pane" => self.pane = [Group::Pct, Group::Macd, Group::Atr, Group::Oi, Group::Delta].into_iter().find(|g| g.as_str() == value),
             _ => {}
         }
     }
@@ -332,6 +337,8 @@ pub struct Placed<'a> {
     pub precision: usize,
     /// The last close, for a position's open P&L.
     pub last: Option<f64>,
+    /// The plot of the pane it stands in.
+    pub plot: Rect,
 }
 
 impl Placed<'_> {

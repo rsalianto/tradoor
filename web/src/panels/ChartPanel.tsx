@@ -998,7 +998,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     }
   }
 
-  const createDrawing = (kind: string, points: DrawingPoint[], label?: string) => saveDrawing({ kind, points, label, style: defaultStyle(kind) });
+  /** `pane`: the study pane it was drawn in, kept in its style; none for the candles. */
+  const createDrawing = (kind: string, points: DrawingPoint[], label?: string, pane?: string) => saveDrawing({ kind, points, label, style: pane ? { ...defaultStyle(kind), pane } : defaultStyle(kind) });
 
   /** `previous`: what the change replaces, when the list already shows it (a dialog's preview). */
   async function changeDrawing(drawingId: number, patch: DrawingChange, record = true, previous?: DrawingChange): Promise<void> {
@@ -1132,9 +1133,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   function onEvent(e: ChartEvent): void {
     switch (e.type) {
       case 'drawingCreated': {
-        const points = e.points;
-        if (e.kind === 'text') setOverlay({ kind: 'note', save: (label) => void createDrawing('text', points, label) });
-        else void createDrawing(e.kind, points);
+        const { points, pane } = e;
+        if (e.kind === 'text') setOverlay({ kind: 'note', save: (label) => void createDrawing('text', points, label, pane) });
+        else void createDrawing(e.kind, points, undefined, pane);
         break;
       }
       case 'selection':

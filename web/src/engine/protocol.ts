@@ -94,7 +94,8 @@ export interface DrawingShape {
 }
 
 export type ChartEvent =
-  | { type: 'drawingCreated'; kind: string; points: DrawingPoint[] }
+  /** `pane`: the study pane it was drawn in (`pct`, `oi`…), on its values; absent for the candles'. */
+  | { type: 'drawingCreated'; kind: string; points: DrawingPoint[]; pane?: string }
   | { type: 'selection'; id: number | null }
   | { type: 'delete'; id: number }
   | { type: 'drawingChanged'; id: number; points: DrawingPoint[] }

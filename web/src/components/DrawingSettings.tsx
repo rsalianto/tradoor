@@ -62,6 +62,8 @@ export function DrawingSettings(props: {
     preview();
   };
   const set = (key: string, value: string | number | boolean) => setStyle({ ...style(), [key]: value });
+  /** What is this drawing's and no template's: the study pane it stands in. */
+  const own = (): Style => (style().pane ? { pane: style().pane! } : {});
   const merge = (values: Style) => setStyle({ ...style(), ...values });
   const setLabel = (value: string) => {
     setLabelState(value.trim() === '' ? null : value);
@@ -344,7 +346,8 @@ export function DrawingSettings(props: {
             <div class="menu up" onPointerDown={(e) => e.stopPropagation()}>
               <button
                 onClick={() => {
-                  saveDefaultStyle(kind, style());
+                  const { pane: _, ...kept } = style();
+                  saveDefaultStyle(kind, kept);
                   setTemplateMenu(null);
                 }}
               >
@@ -352,7 +355,7 @@ export function DrawingSettings(props: {
               </button>
               <button
                 onClick={() => {
-                  setStyle({ ...defaultStyle(kind), hideOn: style().hideOn ?? '' });
+                  setStyle({ ...defaultStyle(kind), hideOn: style().hideOn ?? '', ...own() });
                   setTemplateMenu(null);
                 }}
               >
@@ -361,7 +364,7 @@ export function DrawingSettings(props: {
               <button
                 onClick={() => {
                   resetDefaultStyle(kind);
-                  setStyle(factoryStyle(kind));
+                  setStyle({ ...factoryStyle(kind), ...own() });
                   setTemplateMenu(null);
                 }}
               >

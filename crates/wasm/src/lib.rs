@@ -413,9 +413,12 @@ impl ChartEngine {
             .map(|e| {
                 let o = obj();
                 match e {
-                    Event::DrawingCreated { kind, points } => {
+                    Event::DrawingCreated { kind, points, pane } => {
                         set(&o, "type", "drawingCreated");
                         set(&o, "kind", kind.as_str());
+                        if let Some(group) = pane {
+                            set(&o, "pane", group.as_str());
+                        }
                         let list: Array = points.iter().map(|p| JsValue::from(js::point(p.time, p.price))).collect();
                         set(&o, "points", list);
                     }
