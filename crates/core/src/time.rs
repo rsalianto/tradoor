@@ -166,9 +166,18 @@ pub fn london(day: i64) -> (i64, i64) {
     (8 * 60 - shift, 16 * 60 + 30 - shift)
 }
 
+/// Minutes New York is behind UTC on the day starting at `day`.
+pub fn new_york_behind(day: i64) -> i64 {
+    if new_york_summer(day) {
+        4 * 60
+    } else {
+        5 * 60
+    }
+}
+
 /// New York's open and close on a day, in minutes past midnight UTC.
 pub fn new_york(day: i64) -> (i64, i64) {
-    let behind = if new_york_summer(day) { 4 * 60 } else { 5 * 60 };
+    let behind = new_york_behind(day);
     (9 * 60 + 30 + behind, 16 * 60 + behind)
 }
 

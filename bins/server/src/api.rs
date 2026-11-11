@@ -13,7 +13,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tradoor_store::DataDir;
 
-use crate::{account, alerts, catalog::Catalog, drawings, favourites, flow, footprint, footprint_history, indices, journal, limits, liquidations, open_interest, relay, session, signals, telegram, training, workspaces};
+use crate::{account, alerts, catalog::Catalog, drawings, econ, favourites, flow, footprint, footprint_history, indices, journal, limits, liquidations, open_interest, relay, session, signals, telegram, training, workspaces};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,6 +38,8 @@ pub struct AppState {
     pub training: Arc<training::Live>,
     /// Signed-in browsers' sessions, and which ids are accounts'.
     pub sessions: Arc<session::Sessions>,
+    /// The US economic calendar, read in the background.
+    pub econ: Arc<econ::Calendar>,
 }
 
 /// An error with the status it answers with. The message goes to the client,
@@ -120,6 +122,7 @@ pub fn router(state: AppState, data_dir: PathBuf, web_dir: Option<PathBuf>) -> R
         .route("/alerts/restart", axum::routing::post(alerts::restart_all))
         .route("/alerts/log", delete(alerts::clear_log))
         .route("/alerts/{id}", delete(alerts::delete_one).patch(alerts::update))
+        .route("/econ", get(econ::calendar))
         .route("/flow", get(flow::state))
         .route("/flow/minutes", get(flow::minutes))
         .route("/signals", get(signals::list))

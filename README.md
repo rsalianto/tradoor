@@ -248,6 +248,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 - Colour link groups: one symbol, many panels, each chart on its own timeframe
 - Command palette, symbol search across every venue, keyboard first
 - Watchlists, price alerts to Telegram, themes, light ones included
+- A US economic calendar panel: CPI, PPI, the FOMC, jobs and the rest, with forecasts, figures as they land and a countdown to the next
 - Signed in with Telegram, the same workspace on every device
 
 #### Markets

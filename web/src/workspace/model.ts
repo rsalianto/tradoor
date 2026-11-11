@@ -14,7 +14,7 @@ const isSectionItem = (v: unknown): v is string => typeof v === 'string' && isSe
 import { FAVORITE_TIMEFRAMES, isTimeframe, TIMEFRAMES, tfLonger, tfMs } from '../lib/timeframes';
 
 /** What a new panel can be. `tpo` is a preset: a chart drawn as TPO profiles. */
-export type PanelType = 'chart' | 'watchlist' | 'tpo' | 'values' | 'liquidations' | 'flow' | 'signals' | 'alerts' | 'dom' | 'tape';
+export type PanelType = 'chart' | 'watchlist' | 'tpo' | 'values' | 'liquidations' | 'flow' | 'signals' | 'alerts' | 'dom' | 'tape' | 'econ';
 
 /** How a footprint level reads, named as every footprint chart names them. */
 export const FOOTPRINT_MODES: readonly { value: string; label: string }[] = [
@@ -57,8 +57,8 @@ export function tpoFits(period: string, timeframe: string): boolean {
 export type LinkColor = 'green' | 'blue' | 'red' | 'yellow';
 
 export const LINK_COLORS: readonly LinkColor[] = ['green', 'blue', 'red', 'yellow'];
-export const PANEL_TYPES: readonly PanelType[] = ['chart', 'watchlist', 'tpo', 'values', 'dom', 'tape', 'liquidations', 'flow', 'signals', 'alerts'];
-export const PANEL_TITLE: Record<PanelType, string> = { chart: 'Chart', watchlist: 'Watchlist', tpo: 'TPO', values: 'Values', liquidations: 'Liquidations', flow: 'Flow', signals: 'Signal', alerts: 'Alerts', dom: 'DOM', tape: 'Tape' };
+export const PANEL_TYPES: readonly PanelType[] = ['chart', 'watchlist', 'tpo', 'values', 'dom', 'tape', 'liquidations', 'flow', 'signals', 'alerts', 'econ'];
+export const PANEL_TITLE: Record<PanelType, string> = { chart: 'Chart', watchlist: 'Watchlist', tpo: 'TPO', values: 'Values', liquidations: 'Liquidations', flow: 'Flow', signals: 'Signal', alerts: 'Alerts', dom: 'DOM', tape: 'Tape', econ: 'US Economic Calendar' };
 
 interface PanelBase {
   id: string;
@@ -180,7 +180,13 @@ export interface AlertsPanelState extends PanelBase {
   sort: AlertSort;
 }
 
-export type Panel = ChartPanelState | WatchlistPanelState | ValuesPanelState | LiquidationsPanelState | FlowPanelState | SignalsPanelState | AlertsPanelState | DomPanelState | TapePanelState;
+export interface EconPanelState extends PanelBase {
+  type: 'econ';
+  /** Every release followed, or only CPI, PPI and the FOMC. */
+  scope: 'all' | 'core';
+}
+
+export type Panel = ChartPanelState | WatchlistPanelState | ValuesPanelState | LiquidationsPanelState | FlowPanelState | SignalsPanelState | AlertsPanelState | DomPanelState | TapePanelState | EconPanelState;
 
 export interface SplitNode {
   kind: 'split';
@@ -287,6 +293,8 @@ export function newPanel(type: PanelType, from?: Partial<Pick<PanelBase, 'link' 
       return { ...base, type, ticks: 0, minUsd: 0, unit: 'usd', hidden: '', resetTrades: 0, resetProfile: 0 };
     case 'tape':
       return { ...base, type, minUsd: 0, unit: 'usd' };
+    case 'econ':
+      return { ...base, type, scope: 'all' };
   }
 }
 
@@ -365,6 +373,7 @@ function readPanel(id: string, raw: unknown): Panel | null {
     timeframe: isTimeframe(raw.timeframe) ? raw.timeframe : DEFAULT_TIMEFRAME,
   });
   p.id = id;
+  if (p.type === 'econ') p.scope = raw.scope === 'core' ? 'core' : 'all';
   if (p.type === 'chart') {
     p.studies = str(raw.studies, p.studies);
     p.hidden = str(raw.hidden, '');

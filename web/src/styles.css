@@ -477,6 +477,54 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 
 /* The symbol takes what the numbers leave; narrow panels drop the tag, then the change. */
 .wl { container-type: inline-size; }
+/* The US economic calendar. A bar down the left marks the releases markets wait for. */
+.ec { container-type: inline-size; }
+.ec-next { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 10px; padding: 7px 10px 7px 12px; border-bottom: 1px solid var(--border); box-shadow: inset 2px 0 var(--surface-3); }
+.ec-next.core { box-shadow: inset 2px 0 var(--warn); }
+.ec-next-name { overflow: hidden; font-size: 13px; font-weight: 600; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.ec-more { font-weight: 400; color: var(--dim); }
+.ec-count { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: 0.01em; }
+.ec-next.soon .ec-count { color: var(--warn); }
+.ec-sub { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0 12px; font-size: 10px; color: var(--dim); }
+.ec-sub > .num:first-child { color: var(--muted); }
+.ec-sub b { font-weight: 400; color: var(--muted); }
+.ec-note { font-size: 10px; color: var(--dim); }
+.ec-list { position: relative; flex: 1; min-height: 0; overflow: auto; }
+.ec-cols, .ec-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 68px 54px 54px; gap: 0 6px; align-items: baseline; padding: 3px 8px 3px 10px; }
+.ec-cols { position: sticky; top: 0; z-index: 2; height: 20px; font-size: 10px; color: var(--dim); background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ec-cols .r, .ec-row .r { text-align: right; }
+.ec-day { position: sticky; top: 20px; z-index: 1; padding: 3px 8px 3px 10px; font-size: 10px; color: var(--muted); background: var(--surface-2); }
+.ec-day b { margin-right: 7px; font-weight: 600; color: var(--text); }
+.ec-row { font-size: 11px; color: var(--muted); }
+.ec-row:hover { background: var(--surface-2); }
+.ec-row.core { box-shadow: inset 2px 0 var(--warn); }
+.ec-row.core .ec-name { font-weight: 600; color: var(--text); }
+.ec-t { color: var(--muted); }
+.ec-row.past .ec-t { color: var(--dim); }
+.ec-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-a { color: var(--text); font-weight: 600; white-space: nowrap; }
+.ec-a i { margin-right: 3px; font-size: 8px; font-style: normal; }
+.ec-a.above { color: var(--warn); }
+.ec-a.below { color: var(--info); }
+.ec-due { font-weight: 400; color: var(--warn); }
+.ec-row.past .ec-name, .ec-row.past .ec-f, .ec-row.past .ec-p { color: var(--dim); }
+.ec-row.past.core .ec-name { color: var(--muted); }
+.ec-row.past.core { box-shadow: inset 2px 0 color-mix(in oklab, var(--warn) 40%, var(--surface)); }
+.ec-now { display: flex; align-items: center; gap: 6px; padding: 1px 8px 1px 10px; font-size: 10px; color: var(--primary); }
+.ec-now::after { content: ''; flex: 1; height: 1px; background: var(--primary); }
+.ec-row.fresh .ec-a { animation: ec-in 3s ease-out; }
+@keyframes ec-in { from { background: color-mix(in oklab, var(--primary) 45%, transparent); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .ec-row.fresh .ec-a { animation: none; } }
+@container (max-width: 400px) {
+  .ec-cols, .ec-row { grid-template-columns: 36px minmax(0, 1fr) 58px 46px; gap: 0 5px; }
+  .ec-p { display: none; }
+  /* In a side column the name is what is read: it wraps rather than being cut. */
+  .ec-name { line-height: 1.25; white-space: normal; }
+}
+@container (max-width: 250px) {
+  .ec-cols, .ec-row { grid-template-columns: 40px minmax(0, 1fr) 62px; }
+  .ec-f { display: none; }
+}
 .wl-head, .wl-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 54px 50px; gap: 6px; align-items: center; padding: 2px 8px; font-size: 11px; }
 .wl-head { flex: none; color: var(--dim); border-bottom: 1px solid var(--border); }
 .wl-list { position: relative; }

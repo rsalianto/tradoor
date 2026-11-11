@@ -99,6 +99,20 @@ export function catalog(): Promise<Catalog> {
   return indexed.value;
 }
 
+/** A US release on the economic calendar; figures are as published, `0.4%` or `194K`. */
+export interface EconEvent {
+  at: number;
+  /** The New York date it falls on, `YYYY-MM-DD`. */
+  day: string;
+  title: string;
+  allDay: boolean;
+  /** CPI, PPI or the FOMC. */
+  core: boolean;
+  actual: string | null;
+  forecast: string | null;
+  previous: string | null;
+}
+
 export interface Drawing {
   id: number;
   market: string;
@@ -541,6 +555,7 @@ export const api = {
     const { body } = await request<{ ok: boolean; db: boolean }>('/api/health', { once: true });
     return body ?? { ok: false, db: false };
   },
+  econ: () => json<{ events: EconEvent[]; pending: number }>('/api/econ'),
   drawings: (market: string, timeframe: string, chart: ChartKind) => json<{ count: number; drawings: Drawing[] }>(`/api/drawings?${scope(market, timeframe, chart)}`),
   createDrawing: (market: string, timeframe: string, chart: ChartKind, input: { kind: string; points: DrawingPoint[]; label?: string; style?: Style }) =>
     json<{ drawing: Drawing }>(`/api/drawings?${scope(market, timeframe, chart)}`, { method: 'POST', body: input }),

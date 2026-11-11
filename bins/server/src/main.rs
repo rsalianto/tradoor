@@ -15,6 +15,7 @@ mod catalog;
 mod dns;
 mod drives;
 mod drawings;
+mod econ;
 mod favourites;
 mod flow;
 mod footprint;
@@ -164,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
             let indices = indices::Indices::start(pool.clone(), &doh)?;
             catalog.list_indices(indices.clone());
             catalog.keep_fresh();
+            let econ = econ::Calendar::start(&doh)?;
             alert_watch::start(pool.clone(), doh.clone(), catalog.clone(), telegram.clone());
             let flow = Some(flow::Flow::start(pool.clone(), doh.clone(), catalog.clone(), telegram.clone()));
             footprint::Footprint::start(pool.clone(), doh.clone(), catalog.clone());
@@ -175,6 +177,7 @@ async fn main() -> anyhow::Result<()> {
             let training = training::Live::new();
             training::start(pool.clone(), doh.clone(), training.clone());
             let state = api::AppState {
+                econ,
                 open_interest,
                 flow,
                 telegram,
