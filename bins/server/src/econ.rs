@@ -29,8 +29,10 @@ const FED: &str = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.h
 const BROWSER: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36";
 const TIMEOUT: Duration = Duration::from_secs(15);
 
-/// New York days held either side of today, and how far ahead the FOMC's are shown.
-const BACK: i64 = 7;
+/// New York days held either side of today, and how far ahead the FOMC's are shown:
+/// a month back, so last month's prints stand beside this one's. A past day is
+/// read until its figures settle, then never again.
+const BACK: i64 = 30;
 const AHEAD: i64 = 21;
 const FED_AHEAD: i64 = 60;
 
