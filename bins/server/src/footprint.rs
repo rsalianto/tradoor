@@ -36,11 +36,13 @@ use crate::trades::{self, Print};
 /// the finest a reader would ever want: a dollar on BTC is some forty levels a
 /// minute, a tenth on ETH about twenty. Coarser groupings are made by adding
 /// levels together, which cannot be undone — so the finest is what is kept.
-const MARKETS: [(&str, f64); 8] = [
+const MARKETS: [(&str, f64); 9] = [
     ("binance-spot:BTCUSDT", 1.0),
     ("binance-perp:BTCUSDT", 1.0),
     ("bybit-spot:BTCUSDT", 1.0),
     ("bybit-perp:BTCUSDT", 1.0),
+    // Hyperliquid answers for its last ten trades only: what is not recorded as it trades is gone.
+    ("hyperliquid-perp:BTCUSD", 1.0),
     ("binance-spot:ETHUSDT", 0.1),
     ("binance-perp:ETHUSDT", 0.1),
     ("bybit-spot:ETHUSDT", 0.1),
@@ -365,10 +367,11 @@ mod tests {
 
     #[test]
     fn every_market_recorded_is_one_this_server_can_read() {
-        assert_eq!(markets().len(), 8);
+        assert_eq!(markets().len(), 9);
         assert!(markets().iter().all(|m| MarketRef::parse(m).is_some_and(|r| !trades::stream_urls(r.venue).is_empty())));
         assert_eq!(tick_of("binance-perp:BTCUSDT"), Some(1.0), "a dollar on BTC is some forty levels a minute");
         assert_eq!(tick_of("bybit-spot:ETHUSDT"), Some(0.1));
+        assert_eq!(tick_of("hyperliquid-perp:BTCUSD"), Some(1.0));
         assert_eq!(tick_of("okx-perp:BTCUSDT"), None, "and what is not recorded says so");
     }
 }

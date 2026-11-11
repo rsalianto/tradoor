@@ -266,7 +266,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   };
 
   // ---------------------------------------------------------------- footprint
-  // Volume by price, in place of the candles. The server records eight markets
+  // Volume by price, in place of the candles. The server records nine markets
   // at a minute apiece; a chart of longer bars adds those minutes together.
   const [recorded, setRecorded] = createSignal<Map<string, number>>(new Map());
   void recordedMarkets().then(setRecorded);

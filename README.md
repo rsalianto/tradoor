@@ -134,7 +134,7 @@ Volume bought and sold at each price inside every bar, beside a thin candle — 
   <sub>SOLUSDT, which the server does not record, filled from Binance's trade history and recorded live in the browser.</sub>
 </p>
 
-The server records BTC and ETH; every other coin's footprint is recorded in your own browser while a chart shows it, off the exchange's own socket, and kept there, never on the server: seven days by default. On Binance the hours tradoor was closed are filled from its trade history, and the chart says what it is doing — loading, filling and how far back, or recording since when — with a thin line across the top while it works. The bar under way moves trade by trade, here and on the server's coins alike. Settings shows how much it takes, per coin, and deletes any of it.
+The server records BTC and ETH on Binance and Bybit, and BTC on Hyperliquid; every other market's footprint is recorded in your own browser while a chart shows it, off the exchange's own socket, and kept there, never on the server: seven days by default. On Binance the hours tradoor was closed are filled from its trade history, and the chart says what it is doing — loading, filling and how far back, or recording since when — with a thin line across the top while it works. The bar under way moves trade by trade, here and on the server's coins alike. Settings shows how much it takes, per coin, and deletes any of it.
 
 ### Bar replay
 

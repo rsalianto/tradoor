@@ -1,7 +1,7 @@
 /**
  * The footprint as a browser records it: trades bucketed by the minute they
  * printed in and the price level they fell on, bought and sold apart — what the
- * server keeps for its eight markets, kept here for any other, in this browser
+ * server keeps for its nine markets, kept here for any other, in this browser
  * only. Plain code, so it tests as such; fp-store keeps the minutes, fp-recorder
  * fills them.
  */
