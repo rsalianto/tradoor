@@ -3236,11 +3236,13 @@ impl Chart {
     /// as on TradingView's app. A finger then moves it by its motion, so it never
     /// covers the point, a tap with a tool places the next anchor where the
     /// crosshair stands, and a tap without one puts it away. A tap on a drawing
-    /// or an alert picks it instead; the brush draws under the finger.
+    /// or an alert picks it instead, and one with either picked puts it down —
+    /// pinning the crosshair then, a picked position could never be let go of
+    /// on a phone. The brush draws under the finger.
     fn pin(&mut self, x: f32, y: f32) -> bool {
         let takes = match self.tool {
             Some(tool) => tool != DrawingKind::Brush,
-            None => self.drawing_at(x, y).is_none() && self.alert_at(x, y).is_none(),
+            None => self.selected.is_none() && self.selected_alert.is_none() && self.drawing_at(x, y).is_none() && self.alert_at(x, y).is_none(),
         };
         if !self.touch_input || self.pinned || !takes || !matches!(self.zone(x, y), Zone::Plot(_)) {
             return false;
@@ -4960,6 +4962,22 @@ mod tests {
         let events = c.take_events();
         let Some(Event::DrawingCreated { points, .. }) = events.iter().find(|e| matches!(e, Event::DrawingCreated { .. })) else { panic!("{events:?}") };
         assert_eq!(points[1], c.anchor_at(360.0, 180.0).unwrap());
+
+        // A drawing picked by a tap is put down by the next tap beside it, not pinned under the crosshair.
+        let (a, b) = (c.anchor_at(300.0, 150.0).unwrap(), c.anchor_at(500.0, 250.0).unwrap());
+        c.set_drawings(vec![DrawingShape::new(Some(9), DrawingKind::Trendline, vec![a, b])]);
+        c.render(1_800_000_000_000);
+        if c.crosshair.is_some() {
+            tap(&mut c, 650.0, 380.0);
+        }
+        assert_eq!(c.crosshair, None, "the line drawn last left the crosshair up: a tap put it away");
+        tap(&mut c, 400.0, 200.0);
+        assert_eq!((c.selected, c.crosshair), (Some(9), None), "picked, no crosshair");
+        tap(&mut c, 650.0, 380.0);
+        assert_eq!((c.selected, c.crosshair), (None, None), "put down by a tap beside it");
+        tap(&mut c, 650.0, 380.0);
+        assert_eq!(c.crosshair, Some((650.0, 380.0)), "and the next tap shows the crosshair again");
+        tap(&mut c, 650.0, 380.0);
 
         // A mouse again: no pinned crosshair.
         c.set_touch(false);
