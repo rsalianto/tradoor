@@ -23,6 +23,7 @@ const STUDIES: Record<string, Described> = {
   sma: { name: 'Simple Moving Average', category: 'Trend and averages', keywords: 'ma moving', about: 'Plain average of the last N closes: every bar in the window counts the same.' },
   ichimoku: { name: 'Ichimoku Cloud', category: 'Trend and averages', keywords: 'kumo tenkan kijun senkou chikou', about: 'Conversion and base lines at the bar, a cloud between two spans carried ahead of it, and price carried behind it.' },
   vwap: { name: 'Volume Weighted Average Price', category: 'VWAP', keywords: 'session bands deviation value area vah val anchored monthly', about: 'Average price paid since the session, week, month, quarter or year opened, each trade weighted by its size. The first band is the value area, about two thirds of the volume, and last period’s VWAP and value area are labelled at the right. Sessions are UTC days.' },
+  vwaplevels: { name: 'VWAP Levels', category: 'VWAP', keywords: 'levels only labels vah val value area weekly monthly quarterly yearly previous pwvah pmval', about: 'The VWAP and value area of the week, month, quarter and year, and of the last of each, as labels at the right edge with no lines: pmVAH is last month’s value area high. Worked out from hourly bars for the day, week and month and daily bars for the quarter and year, so a minute chart has the year’s too.' },
   avwap: { name: 'Anchored VWAP (S/W/M/Y)', category: 'VWAP', keywords: 'multi session weekly monthly yearly', about: 'Volume-weighted average price since the session, week, month and year opened. The session line is drawn on intraday charts only.' },
   rsi: { name: 'Relative Strength Index', category: 'Momentum', keywords: 'oscillator overbought oversold', about: 'Momentum bounded 0–100. Wilder smoothing, so the values match TradingView exactly.' },
   stochrsi: { name: 'Stochastic RSI', category: 'Momentum', keywords: 'oscillator overbought oversold', about: 'Where RSI sits inside its own recent range. Turns earlier than RSI, and whipsaws more.' },
@@ -204,7 +205,7 @@ export function anotherId(def: StudyDefinition, active: readonly string[]): stri
 /** What the picker writes for one on the chart: its parameters, or nothing where they would not say which. */
 export function instanceLabel(id: string): string {
   const [kind, ...params] = id.split(':');
-  return params.length === 0 || ['vwap', 'oi', 'vpvr', 'volumedelta'].includes(kind!) ? 'On chart' : params.join(' ');
+  return params.length === 0 || ['vwap', 'vwaplevels', 'oi', 'vpvr', 'volumedelta'].includes(kind!) ? 'On chart' : params.join(' ');
 }
 
 // ---------------------------------------------------------------- inputs
@@ -246,6 +247,11 @@ const PARAMS: Record<string, Record<string, ParamUi>> = {
     band1: { label: 'Value area', band: 1, hint: 'Standard deviations of price around the VWAP. One holds about two thirds of the volume' },
     band2: { label: 'Bands 2', band: 2 },
     band3: { label: 'Bands 3', band: 3 },
+  },
+  vwaplevels: {
+    periods: { label: 'Periods', bits: ['Day', 'Week', 'Month', 'Quarter', 'Year'] },
+    previous: { label: 'Previous periods', options: ['Off', 'On'], hint: 'Each period’s last VWAP and value area too, as pwVWAP' },
+    band: { label: 'Value area', hint: 'Standard deviations of price around the VWAP to its VAH and VAL. One holds about two thirds of the volume' },
   },
   oi: {
     venues: { label: 'Venues', bits: OI_VENUES.map((v) => OI_LABELS[v]) },
@@ -311,7 +317,9 @@ export function studyPlots(id: string, lines: readonly StudyLine[]): StylePlot[]
     .filter((l) => l.width > 0 || kind === 'keylevels')
     .map((l) => {
       const key = l.id.slice(id.length + 1);
-      return { key, label: LABELS[kind]?.[key] ?? l.label, color: toHex(l.color), width: l.width || 1, noPattern: kind === 'keylevels', ...LINE_STYLE[kind]?.[key] };
+      // A VWAP level is a label and its stub, in a colour alone.
+      const tag = kind === 'vwaplevels';
+      return { key, label: LABELS[kind]?.[key] ?? l.label, color: toHex(l.color), width: l.width || 1, noPattern: kind === 'keylevels' || tag, noWidth: tag, ...LINE_STYLE[kind]?.[key] };
     });
   if (kind === 'macd') out.splice(1, 0, { key: 'histogramDown', label: 'Histogram, below zero', theme: 'bear', alpha: '80', noToggle: true, noWidth: true, indent: true });
   if (kind === 'volumedelta' && out.some((p) => p.key === 'histogram')) out.push({ key: 'histogramDown', label: 'Delta, below zero', theme: 'bear', alpha: '80', noToggle: true, noWidth: true, indent: true });

@@ -20,12 +20,12 @@
     {
       "name": "engine worker js",
       "path": "dist/assets/worker-*.js",
-      "limit": "24 kB"
+      "limit": "25 kB"
     },
     {
       "name": "engine wasm",
       "path": "dist/assets/*.wasm",
-      "limit": "132 kB",
+      "limit": "134 kB",
       "gzip": true
     }
   ],

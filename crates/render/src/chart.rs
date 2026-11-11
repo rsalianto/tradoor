@@ -485,6 +485,8 @@ pub struct Chart {
     candles: Vec<Candle>,
     /// The daily bars behind them, when the chart's own bars are longer.
     days: Vec<Candle>,
+    /// Hourly and daily bars for VWAP levels, which reach further back than the chart's own.
+    level_bars: [Vec<Candle>; 2],
     times: Vec<f64>,
     live: Option<LiveBar>,
     liquidations: Vec<Liquidation>,
@@ -619,6 +621,7 @@ impl Chart {
             styles: Styles::default(),
             profile_levels: std::cell::Cell::new(None),
             days: Vec::new(),
+            level_bars: [Vec::new(), Vec::new()],
             open_interest: Vec::new(),
             studies: Vec::new(),
             hidden: Hidden::default(),
@@ -798,6 +801,16 @@ impl Chart {
         self.touch();
     }
 
+    /// VWAP levels' hourly bars, or with `daily` their daily ones.
+    pub fn set_level_bars(&mut self, daily: bool, bars: Vec<Candle>) {
+        let held = &mut self.level_bars[usize::from(daily)];
+        if *held != bars {
+            *held = bars;
+            self.refresh_studies(StudyKind::VwapLevels);
+            self.touch();
+        }
+    }
+
     pub fn candles(&self) -> &[Candle] {
         &self.candles
     }
@@ -846,7 +859,7 @@ impl Chart {
         if !self.study_specs.iter().any(|s| s.kind == kind) {
             return;
         }
-        let inputs = StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days };
+        let inputs = StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days, hourly: &self.level_bars[0], daily: &self.level_bars[1] };
         for (spec, study) in self.study_specs.iter().zip(self.studies.iter_mut()) {
             if spec.kind == kind && !self.hidden.contains(&study.id) {
                 *study = compute_study_with(spec, &self.candles, &inputs);
@@ -858,7 +871,7 @@ impl Chart {
     /// before it stand, and working them all out again on every trade of a busy
     /// market with months of minutes loaded was most of what the chart did.
     fn refresh_open_interest_live(&mut self) {
-        let inputs = StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days };
+        let inputs = StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days, hourly: &self.level_bars[0], daily: &self.level_bars[1] };
         for (spec, study) in self.study_specs.iter().zip(self.studies.iter_mut()) {
             if spec.kind == StudyKind::OpenInterest && !self.hidden.contains(&study.id) && !open_interest_live(spec, study, &self.candles, &inputs) {
                 *study = compute_study_with(spec, &self.candles, &inputs);
@@ -867,7 +880,7 @@ impl Chart {
     }
 
     fn study_inputs(&self) -> StudyInputs<'_> {
-        StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days }
+        StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days, hourly: &self.level_bars[0], daily: &self.level_bars[1] }
     }
 
     /// Every study worked out but the hidden ones, which wait until shown.
@@ -911,7 +924,7 @@ impl Chart {
     pub fn set_hidden(&mut self, raw: &str) {
         let was = std::mem::replace(&mut self.hidden, Hidden(raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()));
         // A study shown again is worked out now; one hidden lets its figures go.
-        let inputs = StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days };
+        let inputs = StudyInputs { open_interest: &self.open_interest, live: self.live.map(|l| (l.open_time, l.close)), days: &self.days, hourly: &self.level_bars[0], daily: &self.level_bars[1] };
         for (spec, study) in self.study_specs.iter().zip(self.studies.iter_mut()) {
             match (was.contains(&study.id), self.hidden.contains(&study.id)) {
                 (true, false) => *study = compute_study_with(spec, &self.candles, &inputs),
@@ -1681,7 +1694,8 @@ impl Chart {
                 series(&self.engine.ema25, &mut take);
             }
         }
-        for (_, study) in self.visible_studies().filter(|(_, s)| s.group == group) {
+        // VWAP levels are labels at the edge: a year's, far off, would squeeze the bars.
+        for (_, study) in self.visible_studies().filter(|(_, s)| s.group == group && s.kind != StudyKind::VwapLevels) {
             for line in study.lines.iter().filter(|l| !self.styles.of(&study.id, l.key).off) {
                 series(&line.values, &mut take);
                 if line.kind == LineType::Histogram {
@@ -1997,18 +2011,18 @@ impl Chart {
             if study.kind == StudyKind::VisibleProfile {
                 self.paint_visible_profile(f, &pane, study);
             }
-            // The lowest label so far: tags close together stack rather than overprint.
-            let mut tag_y = f32::MIN;
+            let mut tags = Vec::new();
             for (li, line) in study.lines.iter().enumerate() {
                 let own = self.styles.of(&study.id, line.key);
                 match (line.kind, line.style) {
                     _ if own.off => {}
                     (LineType::Histogram, _) => self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body, &study.id),
                     (LineType::Line, LineStyle::None) => {}
-                    (LineType::Line, LineStyle::Tag) => self.paint_tag(f, &pane, line, self.line_color(&study.id, line, index, li), &mut tag_y),
+                    (LineType::Line, LineStyle::Tag) => tags.extend(line.values.iter().rev().flatten().next().map(|v| (pane.scale.y(*v) as f32, line.label.clone(), self.line_color(&study.id, line, index, li)))),
                     (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, far, self.line_color(&study.id, line, index, li), own.width.unwrap_or(line.width), style, own.pattern.unwrap_or(line.pattern)),
                 }
             }
+            self.paint_tags(f, &pane, tags);
             let last = self.times.len().saturating_sub(1) as f64;
             let ahead = self.styles.number(&study.id, "ahead", LEVEL_AHEAD_BARS).within(0.0, 500.0).round();
             for seg in &study.segments {
@@ -2352,17 +2366,37 @@ impl Chart {
 
     /// A level the line only names: a short stub and its label beside the newest
     /// bar, kept on the pane when there is no room to its right.
-    fn paint_tag(&self, f: &mut Frame, pane: &PaneView, line: &tradoor_core::studies::StudyLine, color: Color, tag_y: &mut f32) {
-        let Some(v) = line.values.iter().rev().flatten().next() else { return };
+    /// A study's tags, right of the newest bar: a short stub at each price and the
+    /// labels in a column beside them, top to bottom. A label is let down a little
+    /// past one above it; where it would stand further from its own price than
+    /// that, the two are named together, as `qVAL | pwVWAP`.
+    fn paint_tags(&self, f: &mut Frame, pane: &PaneView, mut tags: Vec<(f32, String, Color)>) {
+        tradoor_core::sort::insertion_sort_by(&mut tags, |a, b| a.0 < b.0);
         let font = self.theme.font_px - 1.0;
-        let stub = 14.0;
-        let text = line.label.len() as f32 * self.char_width * font / self.theme.font_px;
+        let (stub, line) = (14.0, font + 1.0);
+        let mut labels: Vec<(f32, String, Color)> = Vec::new();
+        for (y, label, color) in &tags {
+            match labels.last_mut() {
+                Some(above) if *y < above.0 + line / 2.0 => {
+                    above.1 += " | ";
+                    above.1 += label;
+                }
+                _ => labels.push((labels.last().map_or(*y, |above| y.max(above.0 + line)), label.clone(), *color)),
+            }
+        }
+        let wide = |label: &str| label.len() as f32 * self.char_width * font / self.theme.font_px;
+        let widest = labels.iter().map(|l| wide(&l.1)).fold(0.0, f32::max);
+        // One column past the newest bar, drawn back over the bars where the edge is near.
         let newest = self.time.x(self.total_bars().saturating_sub(1) as f64) as f32;
-        let x = (newest + 10.0).min(pane.plot.w - stub - text - 7.0);
-        let y = pane.scale.y(*v) as f32;
-        f.dashed_line(x, y, x + stub, y, 1.0, color, 2.0, 2.0);
-        *tag_y = y.max(*tag_y + font + 1.0);
-        f.text(x + stub + 3.0, *tag_y, line.label.clone(), color, Align::Left, Baseline::Middle, font, None, Some(pane.plot));
+        let x = (newest + 10.0).min(pane.plot.w - stub - widest - 7.0);
+        for (y, _, color) in tags {
+            f.dashed_line(x, y, x + stub, y, 1.0, color, 2.0, 2.0);
+        }
+        let backing = self.theme.background.with_alpha(210);
+        for (y, label, color) in labels {
+            f.rect(x + stub + 1.0, y - font / 2.0 - 1.0, wide(&label) + 4.0, font + 2.0, backing);
+            f.text(x + stub + 3.0, y, label, color, Align::Left, Baseline::Middle, font, None, Some(pane.plot));
+        }
     }
 
     /// The shade between two of a study's lines, breaking where either has no

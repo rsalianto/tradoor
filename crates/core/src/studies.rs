@@ -26,6 +26,7 @@ pub enum StudyKind {
     KeyLevels,
     Avwap,
     Vwap,
+    VwapLevels,
     SwingMap,
     OpenInterest,
     Flow,
@@ -50,6 +51,7 @@ impl StudyKind {
             Self::KeyLevels => "keylevels",
             Self::Avwap => "avwap",
             Self::Vwap => "vwap",
+            Self::VwapLevels => "vwaplevels",
             Self::SwingMap => "swingmap",
             Self::OpenInterest => "oi",
             Self::Flow => "flow",
@@ -115,7 +117,7 @@ const VWAP_ANCHORS: [&str; 5] = ["Session", "Week", "Month", "Year", "Quarter"];
 /// The last period's levels, as the chart labels them: `pMVAH` is last month's.
 const VWAP_PREVIOUS: [[&str; 3]; 5] = [["pDVAH", "pDVWAP", "pDVAL"], ["pWVAH", "pWVWAP", "pWVAL"], ["pMVAH", "pMVWAP", "pMVAL"], ["pYVAH", "pYVWAP", "pYVAL"], ["pQVAH", "pQVWAP", "pQVAL"]];
 
-pub static STUDIES: [StudyDefinition; 19] = [
+pub static STUDIES: [StudyDefinition; 20] = [
     StudyDefinition { kind: StudyKind::Ema, short: "EMA", group: Group::Price, params: &[p("length", 50, 2, 1000)] },
     StudyDefinition { kind: StudyKind::Sma, short: "SMA", group: Group::Price, params: &[p("length", 50, 2, 1000)] },
     StudyDefinition { kind: StudyKind::Bb, short: "BB", group: Group::Price, params: &[p("length", 20, 2, 1000), x("mult", 2.0, 0.1)] },
@@ -127,6 +129,8 @@ pub static STUDIES: [StudyDefinition; 19] = [
     StudyDefinition { kind: StudyKind::KeyLevels, short: "Key Levels", group: Group::Price, params: &[] },
     // A band of 0 is not drawn.
     StudyDefinition { kind: StudyKind::Vwap, short: "VWAP", group: Group::Price, params: &[p("anchor", 0, 0, 4), x("band1", 1.0, 0.0), x("band2", 0.0, 0.0), x("band3", 0.0, 0.0)] },
+    // `periods` a bit each for the day, week, month, quarter and year; `previous` 1 labels the last of each too.
+    StudyDefinition { kind: StudyKind::VwapLevels, short: "VWAP Levels", group: Group::Price, params: &[p("periods", 30, 1, 31), p("previous", 1, 0, 1), x("band", 1.0, 0.1)] },
     StudyDefinition { kind: StudyKind::Avwap, short: "Multi-VWAP", group: Group::Price, params: &[] },
     StudyDefinition { kind: StudyKind::SwingMap, short: "Swings", group: Group::Price, params: &[p("left", 5, 1, 100), p("right", 5, 1, 100)] },
     StudyDefinition { kind: StudyKind::Flow, short: "Flow", group: Group::Price, params: &[] },
@@ -199,7 +203,7 @@ impl StudySpec {
             }
             return label;
         }
-        if self.params.is_empty() {
+        if self.params.is_empty() || self.kind == StudyKind::VwapLevels {
             short.to_string()
         } else {
             format!("{short} {}", self.params.iter().map(|v| plain(*v)).collect::<Vec<_>>().join(" "))
@@ -312,6 +316,9 @@ pub struct StudyInputs<'a> {
     /// open is not the period's open; these say where the period really opened.
     /// Empty when the chart's bars are a day or shorter, where they already do.
     pub days: &'a [Candle],
+    /// Hourly and daily bars back to the start of last month and last year, for VWAP levels.
+    pub hourly: &'a [Candle],
+    pub daily: &'a [Candle],
 }
 
 /// A level that holds for a bounded stretch of time — last week's open is a fact
@@ -458,6 +465,7 @@ pub fn compute_study_with(spec: &StudySpec, candles: &[Candle], inputs: &StudyIn
         StudyKind::Atr => study.lines.push(StudyLine::line("atr", label, indicators::atr(candles, param(0)))),
         StudyKind::KeyLevels => (study.lines, study.segments) = key_levels(candles, inputs.days),
         StudyKind::Avwap => study.lines = anchored_vwap(candles),
+        StudyKind::VwapLevels => (study.lines, study.stats) = vwap_levels(inputs, param(0), param(1) == 1, spec.number(2)),
         StudyKind::Vwap => (study.lines, study.fills, study.stats) = vwap(candles, param(0).min(4), [spec.number(1), spec.number(2), spec.number(3)]),
         StudyKind::SwingMap => (study.lines, study.markers, study.stats) = swing_map(candles, param(0), param(1)),
         StudyKind::OpenInterest => {
@@ -917,6 +925,46 @@ fn vwap(candles: &[Candle], anchor: usize, bands: [f64; 3]) -> (Vec<StudyLine>, 
     (lines, fills, stats)
 }
 
+/// Each period's labels, high to low, then the previous period's: `pmVAH` is last month's.
+const LEVELS: [(usize, &str, [[&str; 3]; 2]); 5] = [
+    (0, "#9aa0a6", [["dVAH", "dVWAP", "dVAL"], ["pdVAH", "pdVWAP", "pdVAL"]]),
+    (1, "#d8d29a", [["wVAH", "wVWAP", "wVAL"], ["pwVAH", "pwVWAP", "pwVAL"]]),
+    (2, "#5fc79d", [["mVAH", "mVWAP", "mVAL"], ["pmVAH", "pmVWAP", "pmVAL"]]),
+    (4, "#b98be0", [["qVAH", "qVWAP", "qVAL"], ["pqVAH", "pqVWAP", "pqVAL"]]),
+    (3, "#e0a050", [["yVAH", "yVWAP", "yVAL"], ["pyVAH", "pyVWAP", "pyVAL"]]),
+];
+
+/// The VWAP and value area of the day, week, month, quarter and year, and of
+/// the one before each, as labels at the right edge and nothing else. Worked
+/// out from hourly bars for the day, week and month and from daily bars for the
+/// quarter and year, not from the chart's own, so a minute chart has its year's
+/// too. A period whose start the bars do not reach has no level.
+fn vwap_levels(inputs: &StudyInputs<'_>, periods: usize, previous: bool, band: f64) -> (Vec<StudyLine>, Vec<(&'static str, String)>) {
+    let mut lines = Vec::new();
+    for (bit, (anchor, color, names)) in LEVELS.into_iter().enumerate() {
+        let bars = if anchor >= 3 { inputs.daily } else { inputs.hourly };
+        let (Some(first), Some(last)) = (bars.first(), bars.last()) else { continue };
+        if periods & (1 << bit) == 0 {
+            continue;
+        }
+        let (mid, deviation) = anchored(bars, anchor);
+        let period = |i: usize| anchor_period(bars[i].open_time, anchor);
+        // The bars' first period began before them unless a bar ahead of the first would fall in another.
+        let partial = anchor_period(first.open_time - bar_length(bars).unwrap_or(0), anchor) == period(0);
+        let now = anchor_period(last.open_time, anchor);
+        let before = (0..bars.len()).rev().find(|&i| period(i) != now);
+        for (at, names) in [(Some(bars.len() - 1), names[0]), (before.filter(|_| previous), names[1])] {
+            let Some(i) = at.filter(|&i| !(partial && period(i) == period(0))) else { continue };
+            let (Some(m), Some(d)) = (mid[i], deviation[i]) else { continue };
+            for (name, k) in names.into_iter().zip([band, 0.0, -band]) {
+                lines.push(StudyLine { style: LineStyle::Tag, color: Some(color), badge: false, ..StudyLine::line(name, name, vec![Some(m + k * d)]) });
+            }
+        }
+    }
+    let silent = !inputs.hourly.is_empty() && inputs.hourly.iter().chain(inputs.daily).all(|c| c.volume <= 0.0);
+    (lines, if silent { vec![("Volume", "none in this market".to_string())] } else { Vec::new() })
+}
+
 /// Zigzag of CONFIRMED pivots tagged HH/HL/LH/LL ("Boyen_Range Swing Structure
 /// Map"). The original's live, unconfirmed preview is not ported: a tentative
 /// swing is a repaint, so the last leg ends `right` bars back.
@@ -1226,6 +1274,45 @@ mod tests {
         let week = compute_study(&parse_studies("vwap:1:1:0:0", 12)[0], &candles);
         assert_eq!(week.label, "VWAP Week ±1");
         assert_eq!(line(&week, "vwap"), &vec![Some(100.0), Some(150.0), Some(200.0), Some(275.0)], "the same week throughout");
+    }
+
+    #[test]
+    fn vwap_levels_label_each_period_and_the_one_before_from_their_own_bars() {
+        // Hourly bars from the first of September to the middle of October: September at 100, October at 200.
+        let flat = |i: usize, september: usize| {
+            let price = if i < september { 100.0 } else { 200.0 };
+            (Some(price), Some(price), Some(price), Some(price), None)
+        };
+        let hourly = series("2026-09-01", 44 * 24, HOUR, |i| flat(i, 30 * 24));
+        // Daily bars from the start of 2025 to the same day: 2025 at 100, 2026 at 200.
+        let daily = series("2025-01-01", 365 + 286, DAY, |i| flat(i, 365));
+        let inputs = StudyInputs { hourly: &hourly, daily: &daily, ..StudyInputs::default() };
+        let spec = &parse_studies("vwaplevels", 12)[0];
+        assert_eq!((spec.id(), spec.label()), ("vwaplevels:30:1:1".to_string(), "VWAP Levels".to_string()));
+        let study = compute_study_with(spec, &[], &inputs);
+        let level = |key: &str| study.lines.iter().find(|l| l.key == key).map(|l| l.values[0].unwrap());
+        assert_eq!((level("mVWAP"), level("pmVWAP"), level("wVWAP"), level("pwVWAP")), (Some(200.0), Some(100.0), Some(200.0), Some(200.0)));
+        assert_eq!((level("yVWAP"), level("pyVWAP"), level("qVWAP"), level("pqVWAP")), (Some(200.0), Some(100.0), Some(200.0), Some(200.0)));
+        assert_eq!(level("dVWAP"), None, "the day is off unless asked for");
+        assert!(study.lines.iter().all(|l| l.style == LineStyle::Tag && l.label == l.key));
+
+        // Bars from the middle of September hold no whole September: no last month, this one still.
+        let late = &hourly[14 * 24..];
+        let study = compute_study_with(&parse_studies("vwaplevels:4:1:1", 12)[0], &[], &StudyInputs { hourly: late, ..StudyInputs::default() });
+        assert_eq!(study.lines.iter().map(|l| l.key).collect::<Vec<_>>(), ["mVAH", "mVWAP", "mVAL"]);
+
+        // The value area is a band of standard deviations: bars of equal volume taking turns at 100 and 200.
+        let swing = series("2026-10-12", 48, HOUR, |i| {
+            let price = if i % 2 == 0 { 100.0 } else { 200.0 };
+            (Some(price), Some(price), Some(price), Some(price), None)
+        });
+        let study = compute_study_with(&parse_studies("vwaplevels:1:0:2", 12)[0], &[], &StudyInputs { hourly: &swing, ..StudyInputs::default() });
+        let level = |key: &str| study.lines.iter().find(|l| l.key == key).and_then(|l| l.values[0]);
+        assert_eq!((level("dVAH"), level("dVWAP"), level("dVAL"), level("pdVWAP")), (Some(250.0), Some(150.0), Some(50.0), None));
+
+        let silent = series("2026-10-12", 48, HOUR, |_| (None, None, None, None, Some(0.0)));
+        let study = compute_study_with(spec, &[], &StudyInputs { hourly: &silent, ..StudyInputs::default() });
+        assert!(study.lines.is_empty() && study.stats == [("Volume", "none in this market".to_string())]);
     }
 
     #[test]

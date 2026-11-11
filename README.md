@@ -218,7 +218,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 
 - One minute to a year; 2D, 3D, 2W, 3M, 6M and 12M folded from days with a live forming bar
 - An open world for 15 minutes and shorter: a window of the newest bars, widened as you pan back
-- EMA 12/25 ribbon, EMA 200, RSI, Stoch RSI, MACD, volume, key levels, Bollinger Bands, Keltner Channels, Ichimoku Cloud, VWAP with bands, anchored VWAP, volume delta, visible-range volume profile, trading sessions, moon phases and open interest; every one with its own settings
+- EMA 12/25 ribbon, EMA 200, RSI, Stoch RSI, MACD, volume, key levels, Bollinger Bands, Keltner Channels, Ichimoku Cloud, VWAP with bands, VWAP levels, anchored VWAP, volume delta, visible-range volume profile, trading sessions, moon phases and open interest; every one with its own settings
 - Linear or log price axis, auto scale, panes you size yourself
 - A 4K picture of any chart to the clipboard
 

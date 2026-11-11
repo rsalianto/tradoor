@@ -136,6 +136,12 @@ impl ChartEngine {
         self.chart.set_days(candles(time, open, high, low, close, &volume));
     }
 
+    /// VWAP levels' hourly bars, or with `daily` their daily ones.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_level_bars(&mut self, daily: bool, time: &[f64], open: &[f64], high: &[f64], low: &[f64], close: &[f64], volume: &[f64]) {
+        self.chart.set_level_bars(daily, candles(time, open, high, low, close, volume));
+    }
+
     pub fn set_live(&mut self, open_time: f64, open: f64, high: f64, low: f64, close: f64, volume: f64) {
         self.chart.set_live(Some(LiveBar { open_time: open_time as i64, open, high, low, close, volume, closed: false }));
     }

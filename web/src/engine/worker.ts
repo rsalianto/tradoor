@@ -19,6 +19,7 @@ import { serverTicker } from '../lib/liquidation-venues';
 import { coinOf, oiVenues, OpenInterestFeed } from './open-interest';
 import { StreamHub, type KlineMsg, type SocketState, type StreamListener, type StreamMsg } from './streams';
 import { onWake } from './reach';
+import { LevelFeed } from './vwap-levels';
 
 /** Closed bars a chart opens with: enough for EMA 200 to settle, with room to scroll. */
 const CHART_BARS = 1_500;
@@ -255,6 +256,9 @@ class Slot {
     this.metaDirty = true;
   });
   private liquidationOff: (() => void)[] = [];
+  /** VWAP levels' own bars, followed for the market while the study is on. */
+  private levels: LevelFeed | null = null;
+  private levelsOf = '';
   /** The shapes' GPU context: taken by the browser and not back yet, and whether that has been said. */
   /** The market and timeframe last asked for, for `?debug`. */
   asked: string | null = null;
@@ -359,6 +363,27 @@ class Slot {
     this.metaDirty = true;
     this.syncOpenInterest();
     this.reach();
+    this.syncLevels();
+  }
+
+  private syncLevels(): void {
+    const market = /(^|,)vwaplevels/.test(this.studies) ? this.market : '';
+    if (market !== this.levelsOf) {
+      this.levelsOf = market;
+      this.levels?.stop();
+      for (const daily of [false, true]) this.engine.set_level_bars(daily, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY);
+      this.levels = market
+        ? new LevelFeed(
+            (timeframe, bars) => hold(market, timeframe, bars),
+            () => this.replayAt,
+            (daily, c) => {
+              this.engine.set_level_bars(daily, c.time, c.open, c.high, c.low, c.close, c.volume);
+              this.metaDirty = true;
+            },
+          )
+        : null;
+    }
+    this.levels?.push();
   }
 
   /** The base bars asked for so far, for a weekly VWAP. */
@@ -401,6 +426,7 @@ class Slot {
     clearTimeout(this.priceTimer);
     this.watchLiquidations([]);
     this.openInterest.stop();
+    this.levels?.stop();
     this.detach();
     this.engine.free();
   }
@@ -512,6 +538,7 @@ class Slot {
     this.markPrice();
     this.engine.clear_live();
     this.engine.set_days(EMPTY, EMPTY, EMPTY, EMPTY, EMPTY);
+    this.syncLevels();
     // What is drawn stays, dimmed, rather than blanking the chart for the
     // third of a second the next market's candles take to arrive.
     this.fresh = true;
@@ -687,6 +714,7 @@ class Slot {
     let days = this.series?.interval === '1d' && info(this.timeframe).barMs > intervalMs('1d') ? this.series.cols : null;
     if (days && this.replayAt !== null) days = sliceCols(days, 0, lowerBound(days.time, this.replayAt));
     this.engine.set_days(days?.time ?? EMPTY, days?.open ?? EMPTY, days?.high ?? EMPTY, days?.low ?? EMPTY, days?.close ?? EMPTY);
+    this.levels?.push();
     this.engine.set_message(k.time.length > 0 ? '' : this.replayAt === null ? 'No closed candles for this market and timeframe yet.' : 'No bars this far back on this market and timeframe.');
     this.candlesIn = true;
     this.pushLive();

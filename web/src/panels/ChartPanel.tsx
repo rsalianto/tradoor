@@ -1923,7 +1923,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
                   onToggle={() => toggleLayer(s.id)}
                   onRemove={() => removeStudy(s.id)}
                   onSettings={() => editStudy(s.id)}
-                  values={s.hidden ? [] : s.lines.filter((line) => !plotStyle(props.panel.studyStyles, s.id, line.id.slice(s.id.length + 1)).off).map((line) => ({ color: line.color, text: () => legend()?.values[line.id] ?? '—' }))}
+                  // VWAP levels are read off their labels: two dozen figures would fill the row.
+                  values={s.hidden || s.id.startsWith('vwaplevels') ? [] : s.lines.filter((line) => !plotStyle(props.panel.studyStyles, s.id, line.id.slice(s.id.length + 1)).off).map((line) => ({ color: line.color, text: () => legend()?.values[line.id] ?? '—' }))}
                   stats={s.hidden || plotStyle(props.panel.studyStyles, s.id, 'stats').off ? [] : s.stats}
                 />
               )}
