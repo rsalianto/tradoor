@@ -9,7 +9,7 @@
  */
 import type { HtmlTagDescriptor, Plugin } from 'vite';
 
-const MODULES = /^assets\/(worker|streams-more|ValuesPanel|LiquidationsPanel|common)-[\w-]+\.js$/;
+const MODULES = /^assets\/(worker|streams-more|WatchlistPanel|ValuesPanel|LiquidationsPanel|common)-[\w-]+\.js$/;
 const WASM = /^assets\/tradoor_wasm_bg-[\w-]+\.wasm$/;
 
 export function preload(): Plugin {

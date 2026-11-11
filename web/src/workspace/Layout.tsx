@@ -13,11 +13,11 @@ import { Icon } from '../lib/icons';
 import { symbolOf } from '../lib/markets';
 import { tfLabel } from '../lib/timeframes';
 import { ChartPanel } from '../panels/ChartPanel';
-import { WatchlistPanel } from '../panels/WatchlistPanel';
 import { activate, addPanel, bareChart, LINK_COLORS, movePanel, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, setSizes, tabsOf, type DropZone, type LayoutNode, type Panel, type PanelType, type SplitNode, type TabsNode } from './model';
 import { doc, focusedPanelId, focusPanel, marketOf, maximized, setMaximized, setPanelLink, targetChart, timeframeOf, update } from './store';
 
 // Side panels, fetched when a layout shows one: the chart and watchlist come first.
+const WatchlistPanel = lazy(() => import('../panels/WatchlistPanel').then((m) => ({ default: m.WatchlistPanel })));
 const ValuesPanel = lazy(() => import('../panels/ValuesPanel').then((m) => ({ default: m.ValuesPanel })));
 const AlertsPanel = lazy(() => import('../panels/AlertsPanel').then((m) => ({ default: m.AlertsPanel })));
 const LiquidationsPanel = lazy(() => import('../panels/LiquidationsPanel').then((m) => ({ default: m.LiquidationsPanel })));

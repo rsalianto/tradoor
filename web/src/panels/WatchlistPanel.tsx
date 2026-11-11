@@ -9,7 +9,7 @@
  */
 import { batch, createEffect, createSignal, For, onCleanup, Show } from 'solid-js';
 import { createStore } from 'solid-js/store';
-import { setOverlay } from '../app/ui';
+import { mobile, setOverlay } from '../app/ui';
 import { call } from '../engine/client';
 import { dayOf, watchDay, type Day } from '../lib/day-feed';
 import { catalog, type Catalog } from '../lib/api';
@@ -91,7 +91,8 @@ export function WatchlistPanel(props: { panel: WatchlistPanelState }) {
         // at once rather than dashes until the market trades again.
         const known = dayOf(m);
         if (known) setRows(m, { last: known.close, day: known });
-        subs.set(m, watchDay(m, (day) => setRows(m, { last: day.close, day })));
+        // Off a phone, the price follows every trade as a chart's does; a phone keeps to the lighter candle.
+        subs.set(m, watchDay(m, (day) => setRows(m, { last: day.close, day }), !mobile()));
       }
     }
   });

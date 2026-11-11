@@ -266,9 +266,9 @@ test('an address that never opens is given up in seconds, and its host with it',
     await time.tickAsync(1);
     const first = HangingSocket.opened[0]!;
 
-    await time.tickAsync(4_000);
-    assertEquals(first.readyState, 0, 'a slow line is given its chance');
-    await time.tickAsync(1_500);
+    await time.tickAsync(6_000);
+    assertEquals(first.readyState, 0, 'a slow line is given its chance, a name server that did not answer among them');
+    await time.tickAsync(2_500);
     assertEquals(first.readyState, 3, 'but not the minute a phone would wait');
     assert(isBlocked(`wss://${host}/v5/public/spot`), 'and every socket on that host goes past it, not only this one');
     stop();

@@ -291,8 +291,11 @@ const WATCH_MS = 5_000;
 /**
  * A socket not yet open by now never will be: a network that swallows an
  * address leaves it connecting until the phone gives up, a minute or more.
+ * Past the five seconds a system waits on a name server that does not answer
+ * before asking its next: at five, one slow lookup closed sockets about to
+ * open and put the exchanges behind the relay for minutes.
  */
-const OPEN_MS = 5_000;
+const OPEN_MS = 8_000;
 /**
  * Except the relay, which is where a blocked exchange leads and so has nothing
  * after it to hurry on to; its handshake crosses Cloudflare and the server,
