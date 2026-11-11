@@ -2922,7 +2922,10 @@ impl Chart {
             self.drag = Drag::Nudge { start, last: (x, y), moved: true };
             return;
         }
-        self.crosshair = Some((x, y));
+        // A finger sliding the chart moves the chart: its crosshair comes with a tap, or under a finger held still.
+        if !(self.touch_input && !self.pinned && matches!(self.drag, Drag::Press { .. })) {
+            self.crosshair = Some((x, y));
+        }
         match self.drag {
             Drag::Press { start, last_x, last_y, pane, panning, price_pan } => {
                 if self.tool.is_none() && (panning || (x - start.0).hypot(y - start.1) > CLICK_SLOP) {
@@ -4920,6 +4923,23 @@ mod tests {
         c.set_studies("");
         c.render(1_800_000_000_000);
         assert!(c.place(&c.drawings[0], false).is_none());
+    }
+
+    #[test]
+    fn a_finger_sliding_the_chart_shows_no_crosshair_and_a_mouse_dragging_does() {
+        for touch in [true, false] {
+            let mut c = chart();
+            c.render(1_800_000_000_000);
+            c.set_touch(touch);
+            let before = c.time.right_offset;
+            c.pointer_down(400.0, 300.0, 0);
+            for i in 1..=10 {
+                c.pointer_move(400.0 + i as f32 * 12.0, 300.0);
+            }
+            assert_ne!(c.time.right_offset, before, "it pans");
+            assert_eq!(c.crosshair.is_some(), !touch, "touch {touch}");
+            c.pointer_up(520.0, 300.0);
+        }
     }
 
     #[test]
