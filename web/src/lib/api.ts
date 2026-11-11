@@ -555,7 +555,8 @@ export const api = {
     const { body } = await request<{ ok: boolean; db: boolean }>('/api/health', { once: true });
     return body ?? { ok: false, db: false };
   },
-  econ: () => json<{ events: EconEvent[]; pending: number }>('/api/econ'),
+  /** `fresh`: today read again from Nasdaq, which the server allows once a minute whoever asks. */
+  econ: (fresh = false) => json<{ events: EconEvent[]; pending: number }>(fresh ? '/api/econ?fresh=1' : '/api/econ'),
   drawings: (market: string, timeframe: string, chart: ChartKind) => json<{ count: number; drawings: Drawing[] }>(`/api/drawings?${scope(market, timeframe, chart)}`),
   createDrawing: (market: string, timeframe: string, chart: ChartKind, input: { kind: string; points: DrawingPoint[]; label?: string; style?: Style }) =>
     json<{ drawing: Drawing }>(`/api/drawings?${scope(market, timeframe, chart)}`, { method: 'POST', body: input }),

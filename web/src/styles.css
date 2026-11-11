@@ -489,6 +489,9 @@ input.box:focus { border-color: var(--primary); outline: 0; }
 .ec-sub > .num:first-child { color: var(--muted); }
 .ec-sub b { font-weight: 400; color: var(--muted); }
 .ec-note { font-size: 10px; color: var(--dim); }
+.ec-refresh.busy svg { animation: ec-turn 0.9s linear infinite; }
+@keyframes ec-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ec-refresh.busy svg { animation: none; } }
 .ec-list { position: relative; flex: 1; min-height: 0; overflow: auto; }
 .ec-cols, .ec-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 68px 54px 54px; gap: 0 6px; align-items: baseline; padding: 3px 8px 3px 10px; }
 .ec-cols { position: sticky; top: 0; z-index: 2; height: 20px; font-size: 10px; color: var(--dim); background: var(--surface); border-bottom: 1px solid var(--border); white-space: nowrap; }

@@ -8,13 +8,15 @@
 //! restart reads it all again in seconds.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tokio::sync::Notify;
 use serde_json::{json, Value};
 use tokio::time::sleep;
 use tradoor_core::time::{days_from_civil, iso_date, new_york_behind, DAY, MINUTE};
@@ -53,6 +55,9 @@ const FUTURE_MS: i64 = 12 * HOUR;
 const FED_MS: i64 = 24 * HOUR;
 /// However due, not asked again sooner than this; one that failed, this much later.
 const LEAST_MS: i64 = 30_000;
+/// A reader's refresh reads today again only when it is older than this: however
+/// many readers press it, however often, Nasdaq hears of today once a minute at most.
+const REFRESH_MS: i64 = 60_000;
 const FAILED_MS: i64 = 5 * MINUTE;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -92,6 +97,9 @@ struct Book {
 pub struct Calendar {
     http: reqwest::Client,
     book: RwLock<Book>,
+    /// A reader asked for today afresh; `wake` cuts the wait before the next look.
+    hurry: AtomicBool,
+    wake: Notify,
 }
 
 /// The start of a New York date, as midnight UTC of that date.
@@ -286,8 +294,8 @@ fn fomc_events(meetings: &[(i64, bool)]) -> Vec<Event> {
     out
 }
 
-/// Whether a day should be read again.
-fn due(day: i64, held: Option<&Held>, today: i64, now: i64) -> bool {
+/// Whether a day should be read again; `hurried`, a reader asked for today afresh.
+fn due(day: i64, held: Option<&Held>, today: i64, now: i64, hurried: bool) -> bool {
     let Some(held) = held else { return true };
     if now - held.tried < if held.failed { FAILED_MS } else { LEAST_MS } {
         return false;
@@ -296,6 +304,9 @@ fn due(day: i64, held: Option<&Held>, today: i64, now: i64) -> bool {
         return true;
     }
     let age = now - held.read;
+    if hurried && day == today && age > REFRESH_MS {
+        return true;
+    }
     if day < today {
         return held.read < new_york_at(day + DAY, 3 * 60) && age > SETTLING_MS;
     }
@@ -326,7 +337,7 @@ impl Calendar {
     /// Starts reading, for as long as the server runs.
     pub fn start(doh: &Arc<Doh>) -> anyhow::Result<Arc<Self>> {
         let http = reqwest::Client::builder().dns_resolver(doh.resolver()).user_agent(BROWSER).timeout(TIMEOUT).build()?;
-        let it = Arc::new(Self { http, book: RwLock::new(Book::default()) });
+        let it = Arc::new(Self { http, book: RwLock::new(Book::default()), hurry: AtomicBool::new(false), wake: Notify::new() });
         tokio::spawn(it.clone().keep());
         Ok(it)
     }
@@ -343,8 +354,17 @@ impl Calendar {
             if self.fed_due(now) {
                 self.read_fed().await;
             }
-            sleep(TICK).await;
+            tokio::select! {
+                () = sleep(TICK) => {}
+                () = self.wake.notified() => {}
+            }
         }
+    }
+
+    /// A reader asked for today afresh: read at the next look, if it is older than a minute.
+    fn hurry(&self) {
+        self.hurry.store(true, Ordering::Relaxed);
+        self.wake.notify_one();
     }
 
     /// The days to read, today first, then outward, the past before the future.
@@ -352,7 +372,8 @@ impl Calendar {
         let today = new_york_today(now);
         let mut book = self.book.write().unwrap_or_else(|e| e.into_inner());
         book.days.retain(|day, _| *day >= today - BACK * DAY && *day <= today + AHEAD * DAY);
-        let mut days: Vec<i64> = (-BACK..=AHEAD).map(|k| today + k * DAY).filter(|day| due(*day, book.days.get(day), today, now)).collect();
+        let hurried = self.hurry.swap(false, Ordering::Relaxed);
+        let mut days: Vec<i64> = (-BACK..=AHEAD).map(|k| today + k * DAY).filter(|day| due(*day, book.days.get(day), today, now, hurried)).collect();
         days.sort_by_key(|day| {
             let k = (day - today) / DAY;
             k.abs() * 2 + i64::from(k > 0)
@@ -422,8 +443,18 @@ impl Calendar {
     }
 }
 
-/// `GET /api/econ`: the releases around today, and how many days are still to be read.
-pub async fn calendar(State(state): State<AppState>) -> Json<Value> {
+#[derive(Deserialize)]
+pub struct Ask {
+    /// Set: today read again from Nasdaq, within the once-a-minute it allows.
+    fresh: Option<String>,
+}
+
+/// `GET /api/econ`: the releases around today, and how many days are still to be
+/// read. `?fresh=1` has today read again soon; the answer is what is held now.
+pub async fn calendar(State(state): State<AppState>, Query(ask): Query<Ask>) -> Json<Value> {
+    if ask.fresh.is_some() {
+        state.econ.hurry();
+    }
     Json(state.econ.answer(now_ms()))
 }
 
@@ -518,18 +549,23 @@ mod tests {
         let today = day("2026-11-11");
         let now = new_york_at(today, 9 * 60);
         let held = |ago: i64, events: Vec<Event>| Held { events, read: now - ago, tried: now - ago, failed: false };
-        assert!(due(today, None, today, now), "never read");
-        assert!(!due(today, Some(&held(4 * MINUTE, Vec::new())), today, now));
-        assert!(due(today, Some(&held(6 * MINUTE, Vec::new())), today, now));
+        assert!(due(today, None, today, now, false), "never read");
+        assert!(!due(today, Some(&held(4 * MINUTE, Vec::new())), today, now, false));
+        assert!(due(today, Some(&held(6 * MINUTE, Vec::new())), today, now, false));
         let released = |forecast: Option<&str>, actual: Option<&str>| Event { at: new_york_at(today, 8 * 60 + 50), day: iso_date(today), title: "CPI".into(), all_day: false, core: true, actual: actual.map(Into::into), forecast: forecast.map(Into::into), previous: None };
-        assert!(due(today, Some(&held(MINUTE, vec![released(Some("0.3%"), None)])), today, now), "out, and its figure not in");
-        assert!(!due(today, Some(&held(MINUTE, vec![released(Some("0.3%"), Some("0.4%"))])), today, now), "its figure in");
-        assert!(!due(today, Some(&held(MINUTE, vec![released(None, None)])), today, now), "a speech has no figure to wait for");
-        assert!(!due(today + DAY, Some(&held(HOUR, Vec::new())), today, now));
-        assert!(due(today + DAY, Some(&held(13 * HOUR, Vec::new())), today, now));
-        assert!(!due(today - 3 * DAY, Some(&held(20 * HOUR, Vec::new())), today, now), "settled: never again");
+        assert!(due(today, Some(&held(MINUTE, vec![released(Some("0.3%"), None)])), today, now, false), "out, and its figure not in");
+        assert!(!due(today, Some(&held(MINUTE, vec![released(Some("0.3%"), Some("0.4%"))])), today, now, false), "its figure in");
+        assert!(!due(today, Some(&held(MINUTE, vec![released(None, None)])), today, now, false), "a speech has no figure to wait for");
+        assert!(!due(today + DAY, Some(&held(HOUR, Vec::new())), today, now, false));
+        assert!(due(today + DAY, Some(&held(13 * HOUR, Vec::new())), today, now, false));
+        assert!(!due(today - 3 * DAY, Some(&held(20 * HOUR, Vec::new())), today, now, false), "settled: never again");
         let failed = Held { read: 0, tried: now - MINUTE, failed: true, ..Held::default() };
-        assert!(!due(today, Some(&failed), today, now), "a day that failed waits its turn");
+        assert!(!due(today, Some(&failed), today, now, false), "a day that failed waits its turn");
+        // A reader's refresh: today, once a minute at most, however often it is pressed.
+        assert!(due(today, Some(&held(90_000, Vec::new())), today, now, true));
+        assert!(!due(today, Some(&held(40_000, Vec::new())), today, now, true), "read under a minute ago");
+        assert!(!due(today + DAY, Some(&held(HOUR, Vec::new())), today, now, true), "only today");
+        assert!(!due(today, Some(&held(90_000, Vec::new())), today, now, false), "unasked, five minutes");
     }
 
     #[test]

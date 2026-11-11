@@ -5,6 +5,7 @@
  */
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js';
 import { api, errorText, type EconEvent } from '../lib/api';
+import { Icon } from '../lib/icons';
 import { arrange, countdown, dayName, isDue, nextOf, shiftDay, surprise } from '../lib/econ';
 import { formatDateTime, formatHm, timeZone, zoneLabel } from '../lib/timezone';
 import type { EconPanelState } from '../workspace/model';
@@ -17,6 +18,10 @@ const FILLING_MS = 5_000;
 const SOON_MS = 3_600_000;
 /** How long a figure just in is lit. */
 const FRESH_MS = 3_000;
+/** A refresh asks the server again at most this often from one panel; between, it only goes back to now. */
+const REFRESH_MS = 15_000;
+/** How long the server is given to read today before it is asked for the result. */
+const READ_MS = 2_500;
 
 const dateKey = (ms: number) => formatDateTime(ms).slice(0, 10);
 // A release with no time sits at midnight New York, which can fall on another local date: its own date holds.
@@ -49,12 +54,14 @@ export function EconPanel(props: { panel: EconPanelState }) {
   const waiting = () => (events() ?? []).some((e) => isDue(e, now()));
 
   let answer = '';
+  /** The reader has moved the list: what comes in no longer moves it for them, until they press refresh. */
+  let moved = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lit: ReturnType<typeof setTimeout> | undefined;
   let alive = true;
-  const load = async () => {
+  const load = async (fresh = false) => {
     try {
-      const got = await api.econ();
+      const got = await api.econ(fresh);
       if (!alive) return;
       setError(null);
       setPending(got.pending);
@@ -64,6 +71,8 @@ export function EconPanel(props: { panel: EconPanelState }) {
       const before = new Map((events() ?? []).map((e) => [keyOf(e), e.actual]));
       const arrived = new Set(got.events.filter((e) => e.actual !== null && before.has(keyOf(e)) && before.get(keyOf(e)) === null).map(keyOf));
       setEvents(got.events);
+      // Days still being read come in above it as well as below: the list stays on now until the reader moves it.
+      if (!moved) toNow();
       if (arrived.size > 0) {
         setFresh(arrived);
         clearTimeout(lit);
@@ -84,6 +93,12 @@ export function EconPanel(props: { panel: EconPanelState }) {
     clearTimeout(lit);
   });
 
+  /** The list scrolled to the line for now, a few rows of what is out above it. */
+  const toNow = () =>
+    queueMicrotask(() => {
+      const line = list.querySelector<HTMLElement>('.ec-now');
+      if (line) list.scrollTop = Math.max(0, line.offsetTop - 84);
+    });
   // Opened on what is about to happen, not on last week; again when the list is cut down.
   let placedFor = '';
   createEffect(() => {
@@ -91,11 +106,24 @@ export function EconPanel(props: { panel: EconPanelState }) {
     const key = scope();
     if (!had || placedFor === key) return;
     placedFor = key;
-    queueMicrotask(() => {
-      const line = list.querySelector<HTMLElement>('.ec-now');
-      if (line) list.scrollTop = Math.max(0, line.offsetTop - 84);
-    });
+    toNow();
   });
+
+  const [refreshing, setRefreshing] = createSignal(false);
+  let refreshed = 0;
+  /** Today read again, and back to now. Pressed again and again, it only goes back to now. */
+  const refresh = async () => {
+    moved = false;
+    toNow();
+    if (refreshing() || Date.now() - refreshed < REFRESH_MS) return;
+    refreshed = Date.now();
+    setRefreshing(true);
+    await load(true);
+    await new Promise((resolve) => setTimeout(resolve, READ_MS));
+    if (alive) await load();
+    setRefreshing(false);
+    toNow();
+  };
 
   const when = (e: EconEvent) => {
     const key = dayOf(e);
@@ -141,8 +169,11 @@ export function EconPanel(props: { panel: EconPanelState }) {
         <Show when={pending() > 0 && events() !== null}>
           <span class="ec-note">Reading {pending()} more days</span>
         </Show>
+        <button class="iconbtn ec-refresh" classList={{ busy: refreshing() }} data-tip="Refresh, and back to now" aria-label="Refresh, and back to now" onClick={() => void refresh()}>
+          <Icon name="reset" size={13} />
+        </button>
       </div>
-      <div class="ec-list" ref={list}>
+      <div class="ec-list" ref={list} onWheel={() => (moved = true)} onPointerDown={() => (moved = true)} onTouchStart={() => (moved = true)}>
         <Show
           when={events() !== null}
           fallback={
