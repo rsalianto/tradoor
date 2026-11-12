@@ -2269,7 +2269,21 @@ impl Chart {
             if badge.y < pane.plot.y || badge.y > pane.plot.bottom() {
                 continue;
             }
-            let axis = Rect { x: plot_w, y: pane.plot.y, w: self.axis_width, h: pane.plot.h };
+            let mut axis = Rect { x: plot_w, y: pane.plot.y, w: self.axis_width, h: pane.plot.h };
+            // The crosshair's price is drawn over every badge, and text lies above every
+            // box: a badge's text stops at the crosshair's, so none shows through it,
+            // and one the crosshair covers the middle of shows none.
+            if let Some((_, cy)) = crosshair_price.filter(|(i, _)| *i == badge.pane) {
+                let bottom = axis.bottom();
+                if (badge.y - cy).abs() < badge_h / 2.0 {
+                    axis.h = 0.0;
+                } else if badge.y < cy {
+                    axis.h = (cy - badge_h / 2.0 - axis.y).max(0.0);
+                } else {
+                    axis.y = axis.y.max(cy + badge_h / 2.0);
+                    axis.h = (bottom - axis.y).max(0.0);
+                }
+            }
             f.crisp_rect(plot_w + 1.0, badge.y - badge_h / 2.0, self.axis_width - 1.0, badge_h, badge.bg);
             f.text(plot_w + 6.0, badge.y, badge.text.clone(), badge.fg, Align::Left, Baseline::Middle, font, None, Some(axis));
         }
@@ -4308,6 +4322,27 @@ mod tests {
         let label = ticks::crosshair_label(projected, Some(HOUR), false);
         assert!(c.render(1_800_000_000_000).texts.iter().any(|t| t.text == label), "the time label shows the projected slot");
         assert_eq!(c.legend().index, Some(newest), "the legend keeps the newest bar");
+    }
+
+    #[test]
+    fn the_crosshair_price_stands_over_the_badges_it_covers() {
+        let mut c = chart();
+        let now = 1_800_000_000_000;
+        let frame = c.render(now);
+        let countdown = frame.texts.iter().find(|t| t.text.contains(':') && t.x > 900.0).expect("a countdown badge on the axis").clone();
+        let badge_h = c.theme.font_px + 6.0;
+        let clip = |c: &mut Chart, y: f32| {
+            c.pointer_move(500.0, y);
+            c.render(now).texts.iter().find(|t| t.text == countdown.text).and_then(|t| t.clip).expect("drawn, clipped to the axis")
+        };
+        assert_eq!(clip(&mut c, countdown.y - 4.0).h, 0.0, "its middle covered, the badge shows no text");
+        let cut = clip(&mut c, countdown.y - 12.0);
+        assert!((cut.y - (countdown.y - 12.0 + badge_h / 2.0)).abs() < 0.01, "an edge covered, its text stops where the crosshair's label ends");
+        // Off the badges, they are whole.
+        c.pointer_move(500.0, 100.0);
+        let frame = c.render(now);
+        let text = frame.texts.iter().find(|t| t.text == countdown.text).unwrap();
+        assert!(text.clip.unwrap().contains(text.x, text.y + 6.0) && text.clip.unwrap().contains(text.x, text.y - 6.0));
     }
 
     #[test]
