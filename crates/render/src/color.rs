@@ -18,6 +18,16 @@ impl Color {
         Self { r: (v >> 16) as u8, g: (v >> 8) as u8, b: v as u8, a: 255 }
     }
 
+    /// `0xRRGGBBAA`, as a script holds a colour.
+    pub const fn rgba(v: u32) -> Self {
+        Self { r: (v >> 24) as u8, g: (v >> 16) as u8, b: (v >> 8) as u8, a: v as u8 }
+    }
+
+    /// A shade behind the bars: as given where it is see-through, else at about a seventh of its strength.
+    pub const fn shade(self) -> Self {
+        if self.a == 255 { self.with_alpha(0x26) } else { self }
+    }
+
     pub const fn with_alpha(self, a: u8) -> Self {
         Self { a, ..self }
     }

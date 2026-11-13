@@ -1,0 +1,61 @@
+// Trading sessions: Asia, London and New York
+// Each day's box for each session, from its first bar to its last and from the
+// high to the low traded in it. Asia 00:00 to 08:00 UTC; London 08:00 to 16:30
+// and New York 09:30 to 16:00 local time, each with its summer time. Bars of an
+// hour or less: a longer bar cannot say which session it traded in.
+
+input showAsia = true "Asia"
+input showLondon = true "London"
+input showNewYork = true "New York"
+
+dayMs = 86400000
+// Day of the week of a moment, 0 for Sunday.
+fn weekdayOf(t) {
+  return (floor(t / dayMs) + 4) % 7
+}
+// The last Sunday of a month, and the nth.
+fn lastSunday(y, m) {
+  last = date(y, m + 1, 1) - dayMs
+  return last - weekdayOf(last) * dayMs
+}
+fn nthSunday(y, m, n) {
+  first = date(y, m, 1)
+  return first + ((7 - weekdayOf(first)) % 7 + 7 * (n - 1)) * dayMs
+}
+
+dayStart = floor(time / dayMs) * dayMs
+londonSummer = dayStart >= lastSunday(year, 3) and dayStart < lastSunday(year, 10)
+newYorkSummer = dayStart >= nthSunday(year, 3, 2) and dayStart < nthSunday(year, 11, 1)
+minuteOfDay = (time - dayStart) / 60000
+londonShift = londonSummer ? 60 : 0
+newYorkBehind = newYorkSummer ? 240 : 300
+short = interval <= 3600000
+
+// A session's box today: begun at its first bar, grown to each bar after it.
+fn sessionBox(inside, name, colour) {
+  state id = na
+  state tag = na
+  state top = na
+  state bottom = na
+  state begun = na
+  if inside {
+    if isna(begun) or begun != day {
+      begun = day
+      top = high
+      bottom = low
+      id = box(bar, high, bar, low, color = alpha(colour, 0.12), border = alpha(colour, 0.7))
+      tag = label(bar, high, name, textcolor = colour, place = above, size = small, box = false)
+    } else {
+      top = max(top, high)
+      bottom = min(bottom, low)
+      set_y1(id, top)
+      set_x2(id, bar)
+      set_y2(id, bottom)
+      set_y(tag, top)
+    }
+  }
+}
+
+sessionBox(short and showAsia and minuteOfDay < 480, "Asia", #e3cd2a)
+sessionBox(short and showLondon and minuteOfDay >= 480 - londonShift and minuteOfDay < 990 - londonShift, "London", #c8202e)
+sessionBox(short and showNewYork and minuteOfDay >= 570 + newYorkBehind and minuteOfDay < 960 + newYorkBehind, "New York", #2f5bd8)

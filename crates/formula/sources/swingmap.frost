@@ -1,0 +1,257 @@
+// Range Swing Structure Map
+// Confirmed swing points joined into a zigzag inside a range of time, each tagged
+// HH, HL, LH or LL against the last swing of its kind, with the move's size and
+// how long it took. The swing still forming is drawn dotted, coloured where its
+// move is close to the average one, and a table gives the average rise and drop
+// and how long each took. A swing is confirmed "Right" bars after it happens.
+
+// ---- Range: what window is read
+input startTime = date(2024, 1, 1) "Range start"
+input endTime = date(2024, 1, 1) "Range end"
+input showRangeBox = true "Show range boundary"
+input autoExtend = true "Auto-extend range to the latest bar"
+
+// ---- Swing detection
+input leftLen = 5 min 1 max 100 "Pivot length, left"
+input rightLen = 5 min 1 max 100 "Pivot length, right"
+
+// ---- Labels
+input showTag = true "Show HH/HL/LH/LL tag"
+input showPct = true "Show percentage"
+input showDuration = true "Show reversal duration"
+input labelSize = "small" from "tiny", "small", "normal", "large" "Label size"
+
+// ---- Live preview: the swing still forming
+input showLiveSwing = true "Show live, unconfirmed swing"
+input avgTolerancePct = 20 min 1 max 100 step 1 "Near-average tolerance (%)"
+input liveUpColor = blue "Live up"
+input liveDownColor = orange "Live down"
+input nearAvgColor = yellow "Near-average colour"
+
+// ---- Colours
+input upColor = green "Up"
+input downColor = red "Down"
+input lineWidth = 2 min 1 max 5 "Line width"
+
+// ---- Stats table
+input showStatsBox = true "Show stats table"
+input statsPos = "Top right" from "Top right", "Top left", "Bottom right", "Bottom left" "Table position"
+
+table(statsPos)
+
+// The range ends at the newest bar while it auto-extends.
+rangeStart = startTime
+rangeEnd = autoExtend ? max(endTime, time) : endTime
+lsize = labelSize == "tiny" ? 0 : labelSize == "small" ? 1 : labelSize == "normal" ? 2 : 3
+
+// ---- The swing points so far, oldest first: where, what price, a high (1) or a low (0), when
+state ptBar = list()
+state ptPrice = list()
+state ptHigh = list()
+state ptTime = list()
+// The line and label that end at each point: na for the first point's line.
+state legLine = list()
+state legLabel = list()
+
+// HH or LH for a high, HL or LL for a low, against the last point of its kind before `beforeIdx`.
+fn classifyTag(isHigh, price, beforeIdx) {
+  tag = isHigh == 1 ? "H" : "L"
+  for k = beforeIdx - 1 to 0 by -1 {
+    if ptHigh.get(k) == isHigh {
+      prev = ptPrice.get(k)
+      tag = isHigh == 1 ? (price > prev ? "HH" : "LH") : (price > prev ? "HL" : "LL")
+      break
+    }
+  }
+  return tag
+}
+
+// Point i's line and label drawn again: when it is first made, and when a more extreme swing replaces it.
+fn renderPoint(i) {
+  if legLine.size() > i {
+    delete(legLine.get(i))
+  }
+  if legLabel.size() > i {
+    delete(legLabel.get(i))
+  }
+  barI = ptBar.get(i)
+  priceI = ptPrice.get(i)
+  highI = ptHigh.get(i)
+  tag = classifyTag(highI, priceI, i)
+  newLine = na
+  newLabel = na
+  if i == 0 {
+    if showTag {
+      newLabel = label(barI, priceI, tag, color = highI == 1 ? upColor : downColor, textcolor = white, place = highI == 1 ? above : below, size = lsize)
+    }
+  } else {
+    prevBar = ptBar.get(i - 1)
+    prevPrice = ptPrice.get(i - 1)
+    prevTime = ptTime.get(i - 1)
+    isUp = priceI > prevPrice
+    col = isUp ? upColor : downColor
+    pct = (priceI - prevPrice) / prevPrice * 100
+    newLine = line(prevBar, prevPrice, barI, priceI, color = col, width = lineWidth)
+    txt = showTag ? tag : ""
+    if showPct {
+      pctText = (isUp ? "+" : "") + str(round(pct, 2)) + "%"
+      txt = txt == "" ? pctText : txt + "\n" + pctText
+    }
+    if showDuration {
+      durText = duration(ptTime.get(i) - prevTime)
+      txt = txt == "" ? durText : txt + "\n" + durText
+    }
+    newLabel = label(barI, priceI, txt, color = col, textcolor = white, place = highI == 1 ? above : below, size = lsize)
+  }
+  if legLine.size() <= i {
+    legLine.push(newLine)
+  } else {
+    legLine.set(i, newLine)
+  }
+  if legLabel.size() <= i {
+    legLabel.push(newLabel)
+  } else {
+    legLabel.set(i, newLabel)
+  }
+}
+
+// A confirmed pivot: a new point where it turns, or the last one replaced where it goes further the same way.
+fn addPoint(barIdx, price, isHigh, barTime) {
+  n = ptHigh.size()
+  if n == 0 {
+    ptBar.push(barIdx)
+    ptPrice.push(price)
+    ptHigh.push(isHigh)
+    ptTime.push(barTime)
+    renderPoint(0)
+  } else {
+    lastIdx = n - 1
+    if ptHigh.get(lastIdx) == isHigh {
+      lastPrice = ptPrice.get(lastIdx)
+      if isHigh == 1 ? price > lastPrice : price < lastPrice {
+        ptBar.set(lastIdx, barIdx)
+        ptPrice.set(lastIdx, price)
+        ptTime.set(lastIdx, barTime)
+        renderPoint(lastIdx)
+      }
+    } else {
+      ptBar.push(barIdx)
+      ptPrice.push(price)
+      ptHigh.push(isHigh)
+      ptTime.push(barTime)
+      renderPoint(lastIdx + 1)
+    }
+  }
+}
+
+// ---- Pivots, known rightLen bars after they happen
+ph = pivothigh(leftLen, rightLen)
+pl = pivotlow(leftLen, rightLen)
+pivotTime = time[rightLen]
+pivotInRange = pivotTime >= rangeStart and pivotTime <= rangeEnd
+if not isna(ph) and pivotInRange {
+  addPoint(bar - rightLen, ph, 1, pivotTime)
+}
+if not isna(pl) and pivotInRange {
+  addPoint(bar - rightLen, pl, 0, pivotTime)
+}
+
+// ---- The range shaded, its ends marked
+background(showRangeBox and time >= rangeStart and time <= rangeEnd ? alpha(blue, 0.05) : na)
+if islast and showRangeBox {
+  startBar = barat(rangeStart)
+  if not isna(startBar) {
+    startLine = line(startBar, low, startBar, high, color = alpha(gray, 0.5), style = dashed, extend = both)
+  }
+  endLine = line(barat(rangeEnd), low, barat(rangeEnd), high, color = alpha(gray, 0.5), style = dashed, extend = both)
+}
+
+// ---- The average rise and drop, and how long each took, from the points in the range
+state avgUpPct = na
+state avgUpDur = na
+state avgDnPct = na
+state avgDnDur = na
+if islast {
+  upPct = list()
+  upDur = list()
+  dnPct = list()
+  dnDur = list()
+  for i = 1 to ptHigh.size() - 1 {
+    move = (ptPrice.get(i) - ptPrice.get(i - 1)) / ptPrice.get(i - 1) * 100
+    took = ptTime.get(i) - ptTime.get(i - 1)
+    // Points take turns, high and low: a high ends a rise, a low a drop.
+    if ptHigh.get(i) == 1 {
+      upPct.push(move)
+      upDur.push(took)
+    } else {
+      dnPct.push(move)
+      dnDur.push(took)
+    }
+  }
+  avgUpPct = upPct.avg()
+  avgUpDur = upDur.avg()
+  avgDnPct = dnPct.avg()
+  avgDnDur = dnDur.avg()
+}
+
+// ---- The swing still forming: the running high (or low) since the last confirmed point
+state provExtreme = na
+state provExtremeBar = na
+state provExtremeTime = na
+state provExtremeFrom = na
+nPtsNow = ptHigh.size()
+if nPtsNow > 0 {
+  lastHigh = ptHigh.get(nPtsNow - 1)
+  lastBar = ptBar.get(nPtsNow - 1)
+  lastPrice = ptPrice.get(nPtsNow - 1)
+  lastTime = ptTime.get(nPtsNow - 1)
+  nextHigh = lastHigh == 1 ? 0 : 1
+  if isna(provExtremeFrom) or provExtremeFrom != lastBar {
+    provExtreme = nextHigh == 0 ? low : high
+    provExtremeBar = bar
+    provExtremeTime = time
+    provExtremeFrom = lastBar
+  } else if nextHigh == 0 and low < provExtreme {
+    provExtreme = low
+    provExtremeBar = bar
+    provExtremeTime = time
+  } else if nextHigh == 1 and high > provExtreme {
+    provExtreme = high
+    provExtremeBar = bar
+    provExtremeTime = time
+  }
+  if islast and showLiveSwing and autoExtend and provExtremeBar > lastBar {
+    liveTag = classifyTag(nextHigh, provExtreme, nPtsNow)
+    livePct = (provExtreme - lastPrice) / lastPrice * 100
+    refAvgPct = nextHigh == 1 ? avgUpPct : avgDnPct
+    nearAvg = not isna(refAvgPct) and refAvgPct != 0 and abs(livePct - refAvgPct) <= abs(refAvgPct) * avgTolerancePct / 100
+    liveCol = nearAvg ? nearAvgColor : nextHigh == 1 ? liveUpColor : liveDownColor
+    liveLine = line(lastBar, lastPrice, provExtremeBar, provExtreme, color = alpha(liveCol, 0.75), width = lineWidth, style = dotted)
+    liveText = showTag ? liveTag + " (live)" : "(live)"
+    if showPct {
+      liveText = liveText + "\n" + (livePct >= 0 ? "+" : "") + str(round(livePct, 2)) + "%"
+    }
+    if showDuration {
+      liveText = liveText + "\n" + duration(provExtremeTime - lastTime)
+    }
+    // A note of how far past swings have gone, not a signal.
+    if nearAvg {
+      liveText = liveText + "\nNear avg " + (nextHigh == 1 ? "rise" : "drop")
+    }
+    liveLabel = label(provExtremeBar, provExtreme, liveText, color = alpha(liveCol, 0.75), textcolor = white, place = nextHigh == 1 ? above : below, size = lsize)
+  }
+}
+
+// ---- The stats table
+if islast and showStatsBox {
+  cell(0, 0, "Range swing stats", white, alpha(blue, 0.6))
+  cell(1, 0, "", white, alpha(blue, 0.6))
+  cell(0, 1, "Avg rise (after L)", gray)
+  cell(1, 1, isna(avgUpPct) ? "n/a" : "+" + str(round(avgUpPct, 2)) + "%", upColor)
+  cell(0, 2, "Avg rise duration", gray)
+  cell(1, 2, isna(avgUpDur) ? "n/a" : duration(avgUpDur), upColor)
+  cell(0, 3, "Avg drop (after H)", gray)
+  cell(1, 3, isna(avgDnPct) ? "n/a" : str(round(avgDnPct, 2)) + "%", downColor)
+  cell(0, 4, "Avg drop duration", gray)
+  cell(1, 4, isna(avgDnDur) ? "n/a" : duration(avgDnDur), downColor)
+}

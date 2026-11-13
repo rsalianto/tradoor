@@ -25,13 +25,13 @@
     {
       "name": "engine wasm",
       "path": "dist/assets/tradoor_wasm_bg-*.wasm",
-      "limit": "137 kB",
+      "limit": "143 kB",
       "gzip": true
     },
     {
       "name": "formula wasm",
       "path": "dist/assets/formula-*.wasm",
-      "limit": "64 kB",
+      "limit": "88 kB",
       "gzip": true
     }
   ],

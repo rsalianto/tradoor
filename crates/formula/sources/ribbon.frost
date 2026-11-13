@@ -1,0 +1,19 @@
+// EMA 12/25 ribbon
+// A fast and a slow exponential average of the close, the space between them
+// shaded lime while the fast one is above and red while it is below, and a mark
+// where they cross: Bull where the fast one goes above, Bear where it goes below.
+input fast = 12 min 2 max 500 "Fast"
+input slow = 25 min 2 max 1000 "Slow"
+fastLine = ema(close, fast)
+slowLine = ema(close, slow)
+// Ties are bearish: equal averages shade red.
+bull = fastLine > slowLine
+// Each side of the ribbon twice, one copy for each way it leans, so each is shaded in its own colour.
+plot(bull ? fastLine : na, "Fast, rising", na)
+plot(bull ? slowLine : na, "Slow, rising", na)
+plot(bull ? na : fastLine, "Fast, falling", na)
+plot(bull ? na : slowLine, "Slow, falling", na)
+fill("Fast, rising", "Slow, rising", alpha(lime, 0.25))
+fill("Fast, falling", "Slow, falling", alpha(red, 0.25))
+mark(crossover(fastLine, slowLine), "Bull", below, lime)
+mark(crossunder(fastLine, slowLine), "Bear", above, red)

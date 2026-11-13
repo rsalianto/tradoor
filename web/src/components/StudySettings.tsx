@@ -5,7 +5,7 @@
  * parameters, so a new length swaps it for the study of that length, its style
  * and its place in the legend kept.
  */
-import { createEffect, createMemo, createResource, createSignal, For, Index, onCleanup, onMount, Show, untrack } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, For, Index, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { studyCatalog } from '../engine/client';
 import type { StudyMeta, StudyParam } from '../engine/protocol';
@@ -15,7 +15,7 @@ import { CHART_THEME } from '../lib/theme';
 import type { ChartPanelState } from '../workspace/model';
 import { doc, patchPanel } from '../workspace/store';
 import { formulaDefinition, formulaLabels, formulaOf, isFormulaKind, setEditing } from '../lib/formulas';
-import { SOURCES } from '../lib/formula-sources';
+import { SOURCES, UNWRITTEN } from '../lib/formula-sources';
 import { ColorField } from './ColorField';
 import { NumField } from './NumField';
 
@@ -39,6 +39,8 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
   const [labels] = createResource(() => (formula ? formulaLabels(kind) : Promise.resolve({} as Record<string, string>)));
   /** How it is worked out, as a formula: a built-in's own, or the formula itself. */
   const source = () => (formula ? formulaOf(kind)?.source : SOURCES[kind]?.source);
+  /** Why a built-in has no script: what it reads that a script is not given. */
+  const unwritten = () => (formula ? undefined : UNWRITTEN[kind]);
   const def = () => defs()?.find((d) => d.kind === kind);
   const about = createMemo(() => (layer ?? entries(defs() ?? []).find((e) => e.id === kind)));
 
@@ -104,7 +106,7 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
   /** Keyed by plot, not by the row built from each new reading: a row made anew would shut the colour palette open on it. */
   const plotKeys = createMemo(() => plots().map((p) => p.key), undefined, { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) });
   const [tab, setTab] = createSignal<'inputs' | 'style' | 'source'>('inputs');
-  const showing = () => (tab() === 'source' && source() ? 'source' : tab() === 'inputs' && (hasInputs() || defs.loading) ? 'inputs' : 'style');
+  const showing = () => (tab() === 'source' && (source() || unwritten()) ? 'source' : tab() === 'inputs' && (hasInputs() || defs.loading) ? 'inputs' : 'style');
   const openSource = () => {
     const text = source();
     if (!text) return;
@@ -166,6 +168,50 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
     const ui = label ? { ...paramUi(kind, p.param), label } : paramUi(kind, p.param);
     const value = () => values()[p.index] ?? p.param.default;
     const set = (v: number) => setValue(p.index, p.param, ui, v);
+    // A Frost Script's setting of its own kind: a tick, a colour, one of a list, a moment.
+    const row = (control: JSX.Element) => (
+      <div class="drow">
+        <span class="dlabel">{ui.label}</span>
+        <div class="dctl">{control}</div>
+      </div>
+    );
+    if (p.param.kind === 'bool') return row(<input type="checkbox" aria-label={ui.label} checked={value() !== 0} onChange={(e) => set(e.currentTarget.checked ? 1 : 0)} />);
+    if (p.param.kind === 'colour') {
+      // The colour's own opacity kept: the picker gives red, green and blue alone.
+      const hex = () => `#${(Math.floor(value() / 256) >>> 0).toString(16).padStart(6, '0')}`;
+      return row(<input class="dswatch" type="color" aria-label={ui.label} value={hex()} onInput={(e) => set((parseInt(e.currentTarget.value.slice(1), 16) * 256 + (value() % 256)) >>> 0)} />);
+    }
+    if (p.param.kind === 'choice') {
+      return row(
+        <select class="dinput" aria-label={ui.label} onChange={(e) => set(Number(e.currentTarget.value))}>
+          <For each={p.param.options ?? []}>
+            {(o, i) => (
+              <option value={i()} selected={value() === i()}>
+                {o}
+              </option>
+            )}
+          </For>
+        </select>,
+      );
+    }
+    if (p.param.kind === 'time') {
+      const at = () => (Number.isFinite(value()) ? new Date(value()).toISOString().slice(0, 16) : '');
+      return row(
+        <>
+          <input
+            class="dinput when"
+            type="datetime-local"
+            aria-label={ui.label}
+            value={at()}
+            onChange={(e) => {
+              const t = Date.parse(`${e.currentTarget.value}:00Z`);
+              if (Number.isFinite(t)) set(t);
+            }}
+          />
+          <span class="dim">UTC</span>
+        </>,
+      );
+    }
     if (ui.bits) {
       const bits = ui.bits;
       return (
@@ -329,14 +375,17 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
           <button classList={{ on: showing() === 'style' }} onClick={() => setTab('style')}>
             Style
           </button>
-          <Show when={source()}>
+          <Show when={source() || unwritten()}>
             <button classList={{ on: showing() === 'source' }} onClick={() => setTab('source')}>
               Source
             </button>
           </Show>
         </nav>
         <div class="dbody">
-          <Show when={showing() === 'source'}>
+          <Show when={showing() === 'source' && !source()}>
+            <p class="dnote">This one is not written in Frost Script. {unwritten()}</p>
+          </Show>
+          <Show when={showing() === 'source' && source()}>
             <p class="dnote">
               {(() => {
                 const by = formula ? formulaOf(kind)?.by : undefined;

@@ -1,10 +1,12 @@
 INSTRUCTIONS FOR AN AI: CONVERT A PINE SCRIPT v6 INDICATOR TO FROST SCRIPT
 
 You are converting a TradingView Pine Script v6 indicator into Frost Script, the
-indicator language of tradoor terminal (https://tradoorterminal.com). Frost Script
-is small and strict. Only what is written below exists: never invent a function,
-keyword, colour, argument or option. The full reference is at
-https://tradoorterminal.com/doc.html#frost-script
+indicator language of tradoor terminal (https://tradoorterminal.com). Frost
+Script is close to Pine: it has numbers, texts, lists, functions of your own,
+if/for/while, lines, labels, boxes, a table, background colours, candle colours,
+plots with styles, offsets and colours bar by bar. Only what is written below
+exists: never invent a function, keyword, colour, argument or option. The full
+reference is at https://tradoorterminal.com/doc.html#frost-script
 
 HOW TO ANSWER
 
@@ -12,28 +14,27 @@ HOW TO ANSWER
 2. After it, a name for the script (the editor keeps the name; the script has no
    indicator() line), then a short list of what changed and anything that could
    not be carried over, and why.
-3. Before answering, check every line against the rules below: each name is
-   defined or listed here, each function has the arguments shown, no function
-   over bars or drawing sits inside if or for, each line title is unique.
+3. Convert all of the indicator, not a part: its lines, labels, tables and
+   logic. Leave out only what the list "NOT AVAILABLE" names.
+4. Before answering, check every line against the rules below.
 
 HOW A SCRIPT RUNS
 
-- Like Pine: the script runs once for every bar, oldest first, top to bottom.
-  It runs on closed bars only, so barstate.isconfirmed is always true.
-- Every value is a number. true is 1, false is 0. na means no value.
-- There are no types, strings, arrays, maps, matrices, objects or functions of
-  your own. Text appears only in quotes as a title or a mark's text.
+- As in Pine: once for every bar, oldest first, top to bottom. Only closed
+  bars: barstate.isconfirmed is always true, and the newest closed bar is the
+  last (islast).
+- Values are numbers (true is 1, false 0, na is no value, a colour is a number
+  too), texts in double quotes, and lists. A name keeps one kind: a number, a
+  text or a list.
 
 WRITING IT DOWN
 
-- One statement a line. A statement cannot carry on to the next line: join
-  Pine's wrapped lines into one. ; also ends a statement.
-- // starts a comment. Text uses double quotes only: "RSI", never 'RSI'.
+- One statement a line; ; also ends one. Inside round brackets a statement may
+  run on over several lines, as a long call or condition.
+- // starts a comment. Texts use double quotes only: "RSI", never 'RSI'.
+  "\n" is a line break inside a text.
 - Names: letters, digits and _, starting with a letter or _, at most 40 long.
   Capitals count.
-- Taken words, never variable names: input state if else for to and or not
-  pane na true false above below, every bar value, function, drawing and colour
-  name below. Rename a Pine variable that collides: high -> hi, red -> bear.
 - Blocks use braces, not indentation:
     if close > open {
       up = 1
@@ -42,276 +43,261 @@ WRITING IT DOWN
     } else {
       up = 0
     }
-- for i = a to b { ... } counts up by 1 from a to b, both included; it does not
-  run when b < a. At most 1,000 rounds. There is no while, break, continue,
-  switch or "by" step.
+- for i = a to b { } counts up by 1, both ends included, and does not run when
+  b < a. To count down write by: for k = n - 1 to 0 by -1 { }  (Pine's for loop
+  that counts down needs by -1.) Any step: by 2, by -0.5.
+- while condition { }   break   continue
+- At most 10,000 rounds for one loop.
+- Words that are taken and never names: input state if else for to while
+  break continue fn return and or not pane na true false above below, every
+  bar value and colour name below, and solid dashed dotted steps dots pi
+  sunday monday tuesday wednesday thursday friday saturday. Rename a Pine
+  variable that collides: high -> hi, red -> bear, time -> t.
+- A variable, setting or parameter may share a built-in function's name (sum,
+  label, line, rising): a call has brackets. A function of your own may not.
+- Numbers are written with digits and one point, 15 digits at most: 0.015, 2,
+  .5. No 1e5: write 100000.
 
 BAR VALUES
 
-open high low close volume  this bar's values
-hl2 hlc3 ohlc4              (h+l)/2, (h+l+c)/3, (o+h+l+c)/4
-tr                          true range; on the first bar high - low
-bar                         0 on the chart's first bar, then 1, 2, ...
-time                        bar open, ms since 1970, UTC
-day week month year         counters that change when a new UTC day, week
-                            (from Monday), month or year begins. Not the day
-                            of the month: use changed(day) for a new day.
+open high low close volume  hl2 hlc3 ohlc4  tr (true range)
+bar           Pine's bar_index
+time          the bar's open, ms since 1970 UTC
+day week month year     counters that change as a new UTC day, week (from
+                        Monday), month or year begins: changed(week) is true on
+                        a week's first bar. year is also the year's number.
+hour minute dayofweek dayofmonth monthofyear     UTC; dayofweek 1 is Sunday,
+                        2 Monday (as Pine; monday is the constant 2)
+isfirst islast          the first bar, the newest closed bar
+lastbar                 Pine's last_bar_index
+interval                a bar's length in ms
+tick decimals           the market's price step, and how many decimals a price has
 
-SETTINGS
+SETTINGS (at the top level)
 
-  input length = 14 min 2 max 500 "Length"
-  input mult = 2 min 0.1 max 10 step 0.1 "Multiplier"
+input length = 14 min 2 max 500 "Length"          a number; step 0.1 for decimals
+input show = true "Show labels"                    a tick: 1 or 0
+input lineColor = #2962ff "Line colour"            a colour
+input size = "small" from "tiny", "small", "normal", "large" "Label size"
+                                                   a choice: its value is the text
+input start = date(2024, 1, 1) "Range start"      a moment: date(y, m, d, h, min), UTC
+At most 32 settings.
 
-- input name = default, then any of min, max, step and a label in quotes.
-- Whole numbers when the default (and step, if given) are whole.
-- At most 16, at the top level only. A setting has no history: no length[1].
+VARIABLES
 
-VARIABLES AND STATE
-
-- x = value sets x for this bar. A plain variable starts each bar as na until a
-  line sets it, so a Pine declaration without var maps to a plain assignment.
-- state x = start keeps its value from bar to bar: Pine's var (and varip). The
-  start is a plain value: a number, a setting or na.
-- Pine's := is plain = in Frost Script. Drop type words (float, int, bool,
-  series, simple, const).
-- x[n] is x as it ended n bars ago, n from 0 to 5,000, and n may be worked out.
-  It works only on a variable or a bar value: name an expression first.
-  Pine (close - open)[1] becomes:  body = close - open  then  body[1]
+- x = value sets it for this bar; a plain variable starts each bar as na.
+- state x = start keeps its value from bar to bar: Pine's var and varip. Its
+  start is set the first time the line is reached; it may be inside if, for
+  and functions. state xs = list() is a list kept from bar to bar.
+- Pine's := is plain =. Drop type words (float int bool string color line label
+  box table var series simple const).
+- x[n] is x as it ended n bars ago (n 0 to 5,000), for numbers and bar values.
+  Name an expression first: Pine (close - open)[1] is  body = close - open  then  body[1]
 
 OPERATORS
 
-+ - * / %, == != < <= > >=, and or not, c ? a : b, parentheses.
-- Division is always exact: 5 / 2 is 2.5. Use floor() where Pine meant a whole
-  number.
-- Anything other than 0 is true; 0 and na are false. A comparison with na is
-  false. Arithmetic with na gives na; so does dividing by zero.
++ - * / %  == != < <= > >=  and or not  c ? a : b
+- Division is exact: 5 / 2 is 2.5; floor() for a whole number.
+- Anything but 0 is true; 0 and na are false. A comparison with na is false:
+  Pine's na(x) or x != y is  isna(x) or x != y.  Maths with na gives na.
+- Texts join with +: "H " + str(price). A number joined to a text is written
+  plainly. Texts compare with == and !=.
 
-FUNCTIONS OVER BARS (at the top level only, never inside if or for)
+TEXTS
 
-They remember past bars, so they run on every bar. Work the value out above the
-block and use the variable inside it. Both sides of c ? a : b are worked out.
-A length is 1 to 5,000: a number, a setting, or + - * / of them (length * 2,
-l + r + 1, length / 2), rounded to a whole number. Not a variable and not a
-function's result: round(length / 2) or sqrt(length) is refused (add another
-setting, or write it as a for loop, whose bounds may be anything).
+str(x)            a number written plainly (up to 8 decimals)
+str(x, 2)         to 2 decimals
+str(x, decimals)  as the market writes a price (Pine's format.mintick)
+duration(ms)      "2d 4h", "3h"
+str(round(x, 2)) is Pine's str.tostring(x, "#.##").
 
-sma(x, length)      simple average
-ema(x, length)      exponential; seeded with the simple average, as Pine's
-rma(x, length)      Wilder's, as RSI and ATR use (Pine ta.rma)
-stdev(x, length)    population standard deviation (Pine ta.stdev, biased)
-highest(x, length)  highest value of the last length
-lowest(x, length)   lowest value
-sum(x, length)      sum of the last length (Pine math.sum)
-rsi(x, length)      0 to 100
-atr(length)         rma(tr, length)
-change(x)           x - x[1];  change(x, n) is x - x[n]
-crossover(a, b)     a goes from at or below b to above it
-crossunder(a, b)    a goes from at or above b to below it
-barssince(c)        bars since c was last true, 0 on that bar
-valuewhen(c, x)     x the last time c was true (Pine occurrence 0 only)
-changed(x)          x differs from a bar ago: changed(week) on a week's start
+COLOURS
 
-An average that meets na starts again after it.
+Names: green lime red orange yellow blue aqua teal purple pink white gray grey
+black silver maroon navy olive fuchsia. #rrggbb, #rgb, #rrggbbaa.
+rgb(r, g, b) and rgb(r, g, b, opacity) with opacity 0 to 1.
+alpha(colour, opacity): Pine's color.new(c, transp) is alpha(c, 1 - transp / 100).
+gradient(value, low, high, lowColour, highColour): Pine's color.from_gradient.
+na is no colour: nothing drawn. A colour is a number: c = up ? green : red works.
+
+LISTS (Pine's arrays, of numbers)
+
+xs = list()             made empty here (state xs = list() keeps it)
+xs.push(v) xs.pop() xs.shift() xs.unshift(v) xs.get(i) xs.set(i, v)
+xs.insert(i, v) xs.remove(i) xs.clear() xs.size() xs.first() xs.last()
+xs.sum() xs.avg() xs.min() xs.max() xs.indexof(v) xs.includes(v) xs.sort() xs.reverse()
+- get(-1) is the last. A place outside the list is an error.
+- A list holds numbers: keep texts as numbers (1 for "H", 0 for "L"), and
+  lines and labels by the number line() and label() give.
+- At most 5,000 values (pushed when full, the oldest goes) and 32 lists.
+
+FUNCTIONS (Pine's f(x) =>)
+
+fn name(a, b) {
+  ...
+  return value          or  return a, b
+}
+x = name(1, close)      p, q = name(1, close)      name(1, close) on its own line
+- A function's own names are its own; it reads the script's names but setting
+  one inside makes a new one of the function's. To change the script's, give a
+  value back with return, or keep it in a list or a state.
+- It cannot call itself. Each call has its own state and its own memory for
+  ema(), sma() and the rest.
+- Settings, plots, the pane and the table are not inside functions.
+
+FUNCTIONS OVER BARS (never inside if, for or while; work the value out above,
+use it inside). Both sides of c ? a : b are worked out. A length is 1 to 5,000:
+a number, a setting, or maths on them (length * 2, round(length / 2)).
+
+sma ema rma wma vwma hma stdev dev median highest lowest sum (each (x, length))
+rsi(x, length)  atr(length)  change(x) change(x, n)  roc(x, n)  linreg(x, length)
+cci(x, length)  mfi(x, length)  stoch(close, high, low, length)
+correlation(a, b, length)  percentrank(x, length)  rising(x, n)  falling(x, n)
+highestbars(x, n) lowestbars(x, n) (0 or less, as Pine)
+highest(n) lowest(n) highestbars(n) lowestbars(n)  read high and low, as Pine's
+pivothigh(left, right) pivotlow(left, right)  or with a value first
+crossover(a, b) crossunder(a, b) cross(a, b)  barssince(c)  valuewhen(c, x)
+changed(x)  cum(x)
 
 MATHS (anywhere)
 
-abs(x) sqrt(x) log(x) exp(x) pow(x, y) round(x) round(x, digits) floor(x)
-ceil(x) min(a, b, ...) max(a, b, ...) (2 to 8 values; na if any is na)
-clamp(x, low, high) nz(x) nz(x, y) isna(x)
+abs sqrt log log10 exp pow round(x) round(x, digits) floor ceil sign
+min max avg (2 to 12 values; na if any is) clamp(x, lo, hi) nz(x) nz(x, y)
+isna(x) sin cos tan atan atan2 pi date(y, m, d, h, min) barat(time) (the bar
+holding a moment: Pine's xloc.bar_time turned into a bar)
 
-No trigonometry and no log10: log10(x) is log(x) / log(10). math.pi is
-3.141592653589793.
+PLOTS (at the top level; by position or by name)
 
-DRAWING (at the top level only)
+plot(value, title, color, width, style, offset)
+  style: line steps dots dashed dotted. color may change bar by bar:
+  plot(x, "X", x > x[1] ? green : red). offset in bars: 26 draws ahead.
+histogram(value, title, color, offset)          plot.style_histogram/columns
+hline(value, title, color, width, style)        dashed unless another style
+fill("Title A", "Title B", color)               an opaque colour is shaded
+mark(condition, "Text", above or below, color)  plotshape, plotchar, plotarrow
+background(color)                               bgcolor; opaque is shaded
+barcolor(color)                                 barcolor
+pane own                                        overlay=false
+Each plot, histogram and hline needs its own title (40 characters). At most
+32 lines, 16 fills, 16 marks, 4 backgrounds. plot(x, "T", color=na) draws
+nothing and keeps the values, as display=display.none.
 
-plot(value, "Title", colour, width)   line; gaps where na; width 0.5 to 6
-histogram(value, "Title", colour)     bars from zero; no colour = up/down colours
-hline(value, "Title", colour)         dashed level, gray unless named
-fill("Title A", "Title B", colour)    shades between two lines drawn above it
-mark(condition, "Text", above, colour)   or below; text at most 12 characters
-pane own                              draw in a pane below the chart
+SHAPES (anywhere, as Pine's line.*, label.* and box.*; x is a bar: bar,
+bar - 5, bar + 10 ahead; y a price)
 
-- Arguments go by position, never by name: no color=, linewidth=, style=.
-- Each plot, histogram and hline needs its own title, at most 40 characters.
-- At most 16 lines (plots, histograms and levels together), 8 fills, 8 marks.
-- Colours, by name only: green lime red orange yellow blue aqua teal purple pink
-  white gray. No hex, no rgb, no transparency.
+ln = line(x1, y1, x2, y2, color, width, style, extend)
+     style solid dashed dotted; extend none left right both
+lb = label(x, y, text, color, textcolor, place, size, box)
+     place above below left right center (label_down is above, label_up below);
+     size tiny small normal large; box=false is style_none (text alone, in
+     color or textcolor)
+bx = box(x1, y1, x2, y2, color, border, width)     y1 top, y2 bottom
+delete(id)
+set_x1 set_y1 set_x2 set_y2 (id, v)   set_xy1 set_xy2 (id, x, y)
+set_x set_y (id, v) for a label       set_xy(id, x, y)
+set_text(id, text) set_color(id, c) set_textcolor(id, c) set_width(id, w)
+get_x1 get_y1 get_x2 get_y2(id)  get_text(id)
+- Named arguments as Pine's: line(a, b, c, d, color=red, width=2, style=dashed).
+- An id is a number: keep it in a state or a list. delete(na) does nothing.
+- The oldest goes past 500 lines, 500 labels or 200 boxes (max_lines_count).
+- xloc.bar_time: barat(t) gives the bar holding moment t.
+- yloc.abovebar / belowbar: y = high or low, place above or below.
 
-PINE v6 TO FROST SCRIPT
+TABLE (Pine's table.*)
 
-//@version=6                       leave out
-indicator(... overlay=true)        leave out (price chart is the default)
-indicator(... overlay=false)       pane own
-input.int / input.float            input name = 14 min 1 max 500 "Label"
-  (minval maxval step)             min max step
-input.bool(true, "Show")           input show = 1 min 0 max 1 "Show (1 on, 0 off)"
-input.source(close, "Source")      pick close; or a numbered setting:
-                                     input src = 0 min 0 max 3 "Source: 0 close, 1 hl2, 2 hlc3, 3 ohlc4"
-                                     source = src == 1 ? hl2 : src == 2 ? hlc3 : src == 3 ? ohlc4 : close
-input.string(options=...)          a numbered setting, as above
-input.color, input.timeframe,      leave out: colours are changed in tradoor's
-input.symbol, input.session        Style tab; other timeframes and symbols are
-                                   not available
-var x = 0 / varip                  state x = 0
-x := y                             x = y
-na(x)                              isna(x)
-nz(x), nz(x, y)                    same
-ta.sma ta.ema ta.rma ta.rsi ta.atr same names without ta.
-ta.stdev ta.highest ta.lowest      stdev highest lowest
-ta.highest(length)                 highest(high, length); ta.lowest(length) is lowest(low, length)
+table("top right")   once, at the top level: top middle bottom, left center
+                     right; or from a choice setting: table(positionSetting)
+cell(col, row, text, color, background)   anywhere; col 0 to 3, row 0 to 15.
+Draw cells on the last bar: if islast { cell(...) }
+
+PINE TO FROST SCRIPT, IN SHORT
+
+//@version=6, indicator(...)      leave out; overlay=false is pane own
+input.int/float(14, "L", minval, maxval, step)   input l = 14 min .. max .. step .. "L"
+input.bool / input.color / input.string(options) / input.time
+                                   as SETTINGS above; group, inline, tooltip,
+                                   confirm are left out
+ta.sma ta.ema ... ta.pivothigh     the same names without ta.
+math.abs math.max ... math.pi      the same names without math.
 math.sum(x, n)                     sum(x, n)
-ta.change ta.crossover             change crossover crossunder barssince
-ta.crossunder ta.barssince         (same arguments)
-ta.valuewhen(c, x, 0)              valuewhen(c, x)
-ta.cross(a, b)                     crossover(a, b) or crossunder(a, b)
-ta.tr, ta.tr(true)                 tr
-math.abs math.sqrt math.log        abs sqrt log exp pow floor ceil round min max
-math.exp math.pow math.floor
-math.ceil math.round math.min
-math.max
-math.avg(a, b)                     (a + b) / 2
-math.sign(x)                       x > 0 ? 1 : x < 0 ? -1 : 0
-bar_index                          bar
-barstate.isfirst                   bar == 0
-timeframe.change("D") / ("W")      changed(day) / changed(week); also month, year
-dayofweek (UTC)                    (floor(time / 86400000) + 4) % 7 + 1   (1 is Sunday)
-hour (UTC)                         floor(time / 3600000) % 24
-plot(x, "T", color=c, linewidth=2) plot(x, "T", c, 2)
-plot.style_histogram / _columns    histogram(x, "T", colour)
-other plot styles                  plot (a line)
-plot(..., display=display.none)    leave the plot out, keep the variable
-color.green etc.                   green; color.fuchsia pink, color.maroon red,
-                                   color.navy blue, color.olive green,
-                                   color.silver gray, color.black gray
-color.new(c, transp)               c
-a colour chosen by a condition     draw the line twice, each na where the other
-                                   shows:
-                                     plot(up ? x : na, "X up", green)
-                                     plot(up ? na : x, "X down", red)
-plotshape / plotchar / plotarrow   mark(condition, "Text", below, green)
-  location.belowbar / abovebar     below / above (others: the nearer of the two)
-hline(70, "Upper", color.gray)     hline(70, "Upper", gray)
-fill(p1, p2, color)                fill("Title of p1", "Title of p2", colour)
-switch                             if / else if chain, or nested ?:
-while                              a for loop with a cap and a done flag:
-                                     done = 0
-                                     for i = 0 to 999 {
-                                       if not done and ... {
-                                         ...
-                                       }
-                                     }
-[a, b, c] = ta.macd(...)           work each out on its own line (below)
-user functions f(x) =>, methods    write their body out where they are used
-offset= on a plot or shape         not available: the mark draws on the bar
-                                   where the condition is true
-
-WRITE THESE OUT FROM WHAT EXISTS
-
-ta.wma(x, n)    w = 0
-                for i = 0 to n - 1 {
-                  w = w + x[i] * (n - i)
-                }
-                wma = w / (n * (n + 1) / 2)
-                (x must be a variable or a bar value; n a setting or number)
-ta.vwma(x, n)   sma(x * volume, n) / sma(volume, n)
-ta.hma(x, n)    WMA of (2 * wma(x, n/2) - wma(x, n)) over round(sqrt(n)) bars,
-                each WMA a loop as above (name the inner result first)
-ta.macd         m = ema(close, fast) - ema(close, slow)
-                s = ema(m, signal)
-                h = m - s
-ta.bb           basis = sma(x, n), upper = basis + mult * stdev(x, n), lower
-                = basis - mult * stdev(x, n)
-ta.stoch        k = 100 * (close - lowest(low, n)) / (highest(high, n) - lowest(low, n))
-ta.cci(x, n)    ma = sma(x, n); a loop sums abs(x[i] - ma) for i 0 to n-1 into
-                dev, divided by n; cci = (x - ma) / (0.015 * dev)
-ta.mom(x, n)    change(x, n)
-ta.roc(x, n)    100 * (x - x[n]) / x[n]
-ta.cum(x)       state total = 0  then  total = total + nz(x)
-ta.obv          state obv = 0  then
-                obv = obv + (close > close[1] ? volume : close < close[1] ? -volume : 0)
-ta.vwap         sums of hlc3 * volume and of volume in state variables, set
-                back to 0 when changed(day) (a UTC day), divided one by the other
-ta.dmi / ADX    up = change(high), down = -change(low),
-                plusDM = up > down and up > 0 ? up : 0 (minusDM likewise),
-                then rma of each over atr; adx = rma of 100 * abs(diP - diM) / (diP + diM)
-ta.pivothigh(l, r)   ph = high[r] == highest(high, l + r + 1) ? high[r] : na
-                (known r bars late, as in Pine, and drawn on the bar it is
-                known; ta.pivotlow likewise with low and lowest)
-a value of the day before   state today = na, state yesterday = na,
-                newDay = changed(day) at the top level, then
-                if newDay { yesterday = today; today = high } else { today = isna(today) ? high : max(today, high) }
-                (put each statement on its own line in the script)
+math.avg(a, b)                     avg(a, b)
+na(x)                              isna(x)
+str.tostring(x) / (x, "#.##") / (x, format.mintick)   str(x) / str(round(x, 2)) / str(x, decimals)
+bar_index, last_bar_index          bar, lastbar
+barstate.isfirst / islast          isfirst / islast
+timeframe.change("D"/"W"/"M"/"12M")   changed(day/week/month/year)
+ta.change(time("W")) != 0          changed(week)
+dayofweek == dayofweek.monday      dayofweek == monday
+timestamp(y, m, d, h, min)         date(y, m, d, h, min)
+color.new(c, t)                    alpha(c, 1 - t / 100)
+color.rgb(r, g, b, t)              rgb(r, g, b, 1 - t / 100)
+array.new<float>() with var        state xs = list()
+array.push(a, v) / array.get(a, i) / array.size(a)   a.push(v) / a.get(i) / a.size()
+array<string> of "H"/"L"           a list of 1 and 0
+switch                             if / else if, or nested ? :
+f(x) =>                            fn f(x) { return ... }
+[a, b] = f(x)                      a, b = f(x)
+label.new(x, y, text=t, style=label.style_label_down, color=c, textcolor=w, size=size.small)
+                                   label(x, y, t, color=c, textcolor=w, place=above, size=small)
+line.new(x1, y1, x2, y2, color=c, width=2, style=line.style_dotted, extend=extend.both)
+                                   line(x1, y1, x2, y2, color=c, width=2, style=dotted, extend=both)
+xloc=xloc.bar_time (x a time)      barat(t) for x
+label.style_none                   box=false
+size.tiny/small/normal/large       tiny small normal large
+plot.style_line/stepline/circles/cross   line steps dots dots
+line.style_solid/dashed/dotted     solid dashed dotted
+table.new(position.top_right, ...) table("top right")
+table.cell(t, c, r, text, text_color=x, bgcolor=y)   cell(c, r, text, x, y)
 
 NOT AVAILABLE: SAY SO, DO NOT FAKE IT
 
-request.security and any other timeframe or symbol, strategy.* (turn entries
-and exits into marks such as "Buy" and "Sell"), alert() and alertcondition(),
-label.*, line.*, box.*, table.*, polyline.*, bgcolor, barcolor, array.*,
-matrix.*, map.*, str.*, syminfo.*, timeframe.* (other than a change of day,
-week, month or year), session times, ticks and intrabar values,
-barstate.islast and last_bar_index, imports, user types.
+request.security and any other timeframe or symbol; strategy.* (turn entries
+and exits into marks such as "Buy" and "Sell"); alert() and alertcondition();
+timenow and the clock (use the newest bar's time instead); polyline.*;
+matrix.* and map.*; str.* functions other than str.tostring; syminfo.* other
+than the price step; text lists; methods and types of your own; imports.
 
-If a script relies on one of these at its heart, convert what can be converted
-and explain plainly what was left out.
+If a script relies on one of these at its heart, convert the rest and say
+plainly what was left out.
 
-TWO CONVERSIONS
-
-Pine:
-//@version=6
-indicator("MACD cross", overlay=false)
-fast = input.int(12, "Fast", minval=1)
-slow = input.int(26, "Slow", minval=1)
-sig = input.int(9, "Signal", minval=1)
-[m, s, h] = ta.macd(close, fast, slow, sig)
-plot(h, "Histogram", color = h >= 0 ? color.teal : color.red, style=plot.style_columns)
-plot(m, "MACD", color.blue)
-plot(s, "Signal", color.orange)
-hline(0, "Zero", color.gray)
-plotshape(ta.crossover(m, s), "Cross up", shape.triangleup, location.belowbar, color.green)
-
-Frost Script:
-pane own
-input fast = 12 min 1 max 500 "Fast"
-input slow = 26 min 1 max 500 "Slow"
-input sig = 9 min 1 max 500 "Signal"
-m = ema(close, fast) - ema(close, slow)
-s = ema(m, sig)
-h = m - s
-histogram(h, "Histogram")
-plot(m, "MACD", blue)
-plot(s, "Signal", orange)
-hline(0, "Zero", gray)
-mark(crossover(m, s), "Up", below, green)
+A WHOLE CONVERSION, FOR SHAPE
 
 Pine:
 //@version=6
-indicator("Trend WMA", overlay=true)
-len = input.int(20, "Length", minval=2)
-var int streak = 0
-w = ta.wma(close, len)
-if close > w
-    streak := streak + 1
-else
-    streak := 0
-plot(w, "WMA", color = close > w ? color.green : color.red, linewidth = 2)
-plotshape(streak == 5, "Streak", shape.labelup, location.belowbar, color.lime, text="5 up")
+indicator("Swing labels", overlay=true, max_labels_count=500)
+len = input.int(5, "Pivot length", minval=1)
+showPct = input.bool(true, "Show %")
+var array<float> prices = array.new<float>()
+ph = ta.pivothigh(len, len)
+pl = ta.pivotlow(len, len)
+f_text(string tag, float move) => showPct ? tag + "\n" + str.tostring(move, "#.##") + "%" : tag
+if not na(ph)
+    move = array.size(prices) > 0 ? (ph - array.get(prices, array.size(prices) - 1)) / array.get(prices, array.size(prices) - 1) * 100 : 0
+    label.new(bar_index[len], ph, f_text("H", move), style=label.style_label_down, color=color.new(color.green, 20), textcolor=color.white)
+    array.push(prices, ph)
+if not na(pl)
+    move = array.size(prices) > 0 ? (pl - array.get(prices, array.size(prices) - 1)) / array.get(prices, array.size(prices) - 1) * 100 : 0
+    label.new(bar_index[len], pl, f_text("L", move), style=label.style_label_up, color=color.new(color.red, 20), textcolor=color.white)
+    array.push(prices, pl)
 
 Frost Script:
-input len = 20 min 2 max 500 "Length"
-// ta.wma written out: the newest close weighs len, the oldest 1
-weighted = 0
-for i = 0 to len - 1 {
-  weighted = weighted + close[i] * (len - i)
+input len = 5 min 1 max 100 "Pivot length"
+input showPct = true "Show %"
+state prices = list()
+ph = pivothigh(len, len)
+pl = pivotlow(len, len)
+fn swingText(tag, move) {
+  return showPct ? tag + "\n" + str(round(move, 2)) + "%" : tag
 }
-w = weighted / (len * (len + 1) / 2)
-state streak = 0
-if close > w {
-  streak = streak + 1
-} else {
-  streak = 0
+if not isna(ph) {
+  move = prices.size() > 0 ? (ph - prices.last()) / prices.last() * 100 : 0
+  highLabel = label(bar - len, ph, swingText("H", move), color = alpha(green, 0.8), textcolor = white, place = above)
+  prices.push(ph)
 }
-plot(close > w ? w : na, "WMA up", green, 2)
-plot(close > w ? na : w, "WMA down", red, 2)
-mark(streak == 5, "5 up", below, lime)
+if not isna(pl) {
+  move = prices.size() > 0 ? (pl - prices.last()) / prices.last() * 100 : 0
+  lowLabel = label(bar - len, pl, swingText("L", move), color = alpha(red, 0.8), textcolor = white, place = below)
+  prices.push(pl)
+}
 
 Now convert the Pine Script v6 indicator I give you next.

@@ -1,0 +1,4 @@
+// EMA 200
+// The exponential average of the last 200 closes: the long trend.
+input length = 200 min 2 max 1000 "Length"
+plot(ema(close, length), "EMA 200", orange)

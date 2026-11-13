@@ -1,0 +1,24 @@
+// Ichimoku Cloud
+// The conversion and base lines are the middle of the range over 9 and 26 bars;
+// the two leading spans are drawn 25 bars ahead, the cloud between them; and the
+// lagging line is the close drawn 25 bars back.
+input conversionLen = 9 min 1 max 500 "Conversion line length"
+input baseLen = 26 min 1 max 500 "Base line length"
+input spanBLen = 52 min 1 max 500 "Leading span B length"
+input shift = 26 min 1 max 500 "Displacement"
+
+// The middle of the highest high and the lowest low over a length.
+fn donchian(length) {
+  return 0.5 * highest(high, length) + 0.5 * lowest(low, length)
+}
+
+conversion = donchian(conversionLen)
+base = donchian(baseLen)
+leadA = 0.5 * conversion + 0.5 * base
+leadB = donchian(spanBLen)
+plot(conversion, "Conversion", #2962ff)
+plot(base, "Base", #b71c1c)
+plot(close, "Lagging", #43a047, offset = 1 - shift)
+plot(leadA, "Lead A", #a5d6a7, offset = shift - 1)
+plot(leadB, "Lead B", #ef9a9a, offset = shift - 1)
+fill("Lead A", "Lead B", alpha(#43a047, 0.2))

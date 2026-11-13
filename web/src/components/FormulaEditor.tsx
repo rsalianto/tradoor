@@ -305,6 +305,7 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
                     <span class="ok">
                       ✓ Checks · {r.ownPane ? 'its own pane' : 'on price'} · {r.inputs.length} {r.inputs.length === 1 ? 'setting' : 'settings'} · {r.plots.length} {r.plots.length === 1 ? 'line' : 'lines'}
                       {r.marks.length > 0 ? ` · ${r.marks.length} ${r.marks.length === 1 ? 'mark' : 'marks'}` : ''}
+                      {r.draws ? ' · shapes' : ''}
                     </span>
                   ) : (
                     <button class="warn fx-error" onClick={() => jump(r.line, r.col)}>

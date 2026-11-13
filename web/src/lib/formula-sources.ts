@@ -4,27 +4,55 @@
  * formula's first text. Loaded with the editor and the settings dialog alone.
  */
 import atr from '../../../crates/formula/sources/atr.frost?raw';
+import avwap from '../../../crates/formula/sources/avwap.frost?raw';
 import bb from '../../../crates/formula/sources/bb.frost?raw';
 import ema from '../../../crates/formula/sources/ema.frost?raw';
+import ema200 from '../../../crates/formula/sources/ema200.frost?raw';
+import ichimoku from '../../../crates/formula/sources/ichimoku.frost?raw';
 import keltner from '../../../crates/formula/sources/keltner.frost?raw';
+import keylevels from '../../../crates/formula/sources/keylevels.frost?raw';
 import macd from '../../../crates/formula/sources/macd.frost?raw';
+import moon from '../../../crates/formula/sources/moon.frost?raw';
+import ribbon from '../../../crates/formula/sources/ribbon.frost?raw';
 import rsi from '../../../crates/formula/sources/rsi.frost?raw';
+import sessions from '../../../crates/formula/sources/sessions.frost?raw';
 import sma from '../../../crates/formula/sources/sma.frost?raw';
 import stochrsi from '../../../crates/formula/sources/stochrsi.frost?raw';
 import supertrend from '../../../crates/formula/sources/supertrend.frost?raw';
+import swingmap from '../../../crates/formula/sources/swingmap.frost?raw';
+import volume from '../../../crates/formula/sources/volume.frost?raw';
 import vwap from '../../../crates/formula/sources/vwap.frost?raw';
 
-/** The built-in indicators' workings, by study kind, as formulas: what their Source tab shows. */
+/** The built-in indicators' workings, by study kind or layer, as scripts: what their Source tab shows. */
 export const SOURCES: Record<string, { name: string; source: string }> = {
+  ribbon: { name: 'EMA 12/25 Ribbon', source: ribbon },
+  ema200: { name: 'EMA 200', source: ema200 },
+  volume: { name: 'Volume', source: volume },
   sma: { name: 'Simple Moving Average', source: sma },
   ema: { name: 'Exponential Moving Average', source: ema },
   bb: { name: 'Bollinger Bands', source: bb },
   keltner: { name: 'Keltner Channels', source: keltner },
+  ichimoku: { name: 'Ichimoku Cloud', source: ichimoku },
   rsi: { name: 'Relative Strength Index', source: rsi },
   stochrsi: { name: 'Stochastic RSI', source: stochrsi },
   macd: { name: 'MACD', source: macd },
   atr: { name: 'Average True Range', source: atr },
   vwap: { name: 'VWAP', source: vwap },
+  avwap: { name: 'Anchored VWAP', source: avwap },
+  keylevels: { name: 'Historical Key Levels', source: keylevels },
+  swingmap: { name: 'Swing Structure Map', source: swingmap },
+  sessions: { name: 'Trading Sessions', source: sessions },
+  moon: { name: 'Moon Phases', source: moon },
+};
+
+/** The built-ins a script cannot be written for, and why: each reads what a script is not given. */
+export const UNWRITTEN: Record<string, string> = {
+  liquidations: 'It reads the liquidations the exchanges report as they happen. A script is given the chart’s candles alone.',
+  volumedelta: 'It reads what market buyers took in each bar, which the exchange gives the chart beside its candles. A script is given the candles alone.',
+  vpvr: 'It reads the bars on screen, which change as you scroll and zoom. A script works out each bar from the bars before it.',
+  vwaplevels: 'It reads hourly and daily bars the chart loads beside its own, back to the start of last year, so a minute chart has the year’s levels. A script is given the chart’s own bars alone.',
+  oi: 'It reads open interest from the exchanges, beside the candles. A script is given the candles alone.',
+  flow: 'It reads the trades of several exchanges as they happen. A script is given the chart’s candles alone.',
 };
 
 /** To start from in the editor: the built-ins, and one that is not. */

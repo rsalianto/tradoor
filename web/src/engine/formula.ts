@@ -12,7 +12,7 @@ interface Exports {
   memory: WebAssembly.Memory;
   fx_alloc(len: number): number;
   fx_free(ptr: number, len: number): void;
-  fx_run(src: number, srcLen: number, inputs: number, inputsLen: number, bars: number, n: number): number;
+  fx_run(src: number, srcLen: number, inputs: number, inputsLen: number, bars: number, n: number, decimals: number): number;
   fx_describe(src: number, srcLen: number): number;
   fx_text_ptr(): number;
   fx_text_len(): number;
@@ -74,7 +74,7 @@ function parseError(t: string): { line: number; col: number; message: string } {
 }
 
 /** What it gives for the chart engine: its text and values as they are, or why it did not run. */
-export function runFormula(x: Exports, src: string, inputs: readonly number[], bars: FormulaBars): { meta: string; values: Float64Array } | { error: string } {
+export function runFormula(x: Exports, src: string, inputs: readonly number[], bars: FormulaBars, decimals: number): { meta: string; values: Float64Array } | { error: string } {
   const n = bars.time.length;
   const result = using(x, src, (sp, sl) => {
     const ip = x.fx_alloc(inputs.length * 8);
@@ -83,7 +83,7 @@ export function runFormula(x: Exports, src: string, inputs: readonly number[], b
       new Float64Array(x.memory.buffer, ip, inputs.length).set(inputs);
       const cols = new Float64Array(x.memory.buffer, bp, n * 6);
       [bars.time, bars.open, bars.high, bars.low, bars.close, bars.volume].forEach((c, k) => cols.set(c.subarray(0, n), k * n));
-      const ok = x.fx_run(sp, sl, ip, inputs.length, bp, n) === 1;
+      const ok = x.fx_run(sp, sl, ip, inputs.length, bp, n, Math.max(0, Math.min(12, Math.round(decimals)))) === 1;
       const meta = text(x);
       // Copied out: the module's memory is written again by the next.
       return ok ? { meta, values: new Float64Array(x.memory.buffer, x.fx_values_ptr(), x.fx_values_len()).slice() } : { error: meta };
@@ -101,16 +101,19 @@ export function describeFormula(x: Exports, src: string): FormulaDescription {
   const result = using(x, src, (sp, sl) => ({ ok: x.fx_describe(sp, sl) === 1, t: text(x) }));
   if ('message' in result) return { ok: false, ...result };
   if (!result.ok) return { ok: false, ...parseError(result.t) };
-  const d: FormulaDescription & { ok: true } = { ok: true, ownPane: false, inputs: [], plots: [], marks: [] };
+  const d: FormulaDescription & { ok: true } = { ok: true, ownPane: false, inputs: [], plots: [], marks: [], draws: false };
+  const kinds = new Set(['number', 'bool', 'colour', 'choice', 'time']);
   for (const row of result.t.split('\n')) {
     const f = row.split('\t');
     if (f[0] === 'pane') d.ownPane = f[1] === '1';
     else if (f[0] === 'input') {
       const num = (s?: string) => (s === undefined || s === '' ? undefined : Number(s));
-      const input: FormulaInput = { name: f[1]!, default: Number(f[2]), min: num(f[3]), max: num(f[4]), step: Number(f[5]) || 1, label: f[6] ?? f[1]! };
+      const kind = (kinds.has(f[7] ?? '') ? f[7] : 'number') as FormulaInput['kind'];
+      const input: FormulaInput = { name: f[1]!, default: Number(f[2]), min: num(f[3]), max: num(f[4]), step: Number(f[5]) || 1, label: f[6] ?? f[1]!, kind, options: f[8] ? f[8].split('\x1f') : [] };
       d.inputs.push(input);
-    } else if (f[0] === 'plot') d.plots.push({ kind: f[1]!, color: Number(f[2]), title: f[3] ?? '' });
+    } else if (f[0] === 'plot') d.plots.push({ kind: f[1]!, color: f[2] === '-' || f[2] === undefined ? null : Number(f[2]), title: f[3] ?? '' });
     else if (f[0] === 'mark') d.marks.push(f[1] ?? '');
+    else if (f[0] === 'draws') d.draws = true;
   }
   return d;
 }

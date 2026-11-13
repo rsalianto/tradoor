@@ -11,3 +11,4 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 tradoor-formula.workspace = true
+tradoor-core.workspace = true

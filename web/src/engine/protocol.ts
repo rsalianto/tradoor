@@ -68,7 +68,13 @@ export interface StudyParam {
   min: number;
   max: number;
   step: number;
+  /** A Frost Script's setting: what it is, and a choice's options. A number where it is left out. */
+  kind?: FormulaInputKind;
+  options?: string[];
 }
+
+/** What a Frost Script setting is: its value is a number whichever it is — 1 or 0, a colour's four bytes, a choice's place, a moment in ms. */
+export type FormulaInputKind = 'number' | 'bool' | 'colour' | 'choice' | 'time';
 
 /** What the engine computes with; lib/study-schema says the rest. */
 export interface StudyDefinition {
@@ -182,11 +188,13 @@ export interface FormulaInput {
   min?: number;
   max?: number;
   step: number;
+  kind: FormulaInputKind;
+  options: string[];
 }
 
 /** A formula checked (crates/formula): what it offers and draws, or its first mistake, by line and column. */
 export type FormulaDescription =
-  | { ok: true; ownPane: boolean; inputs: FormulaInput[]; plots: { kind: string; color: number; title: string }[]; marks: string[] }
+  | { ok: true; ownPane: boolean; inputs: FormulaInput[]; plots: { kind: string; color: number | null; title: string }[]; marks: string[]; draws: boolean }
   | { ok: false; line: number; col: number; message: string };
 
 /** Request/response calls, answered by `reply`. */

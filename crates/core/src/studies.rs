@@ -319,11 +319,17 @@ pub struct StudyLine {
     pub width: f32,
     /// Whether its last value gets a badge on the axis.
     pub badge: bool,
+    /// A colour of a script's own, `0xRRGGBBAA`, over `color`.
+    pub rgba: Option<u32>,
+    /// A colour a bar, where a script colours the line bar by bar; 0 leaves that bar out.
+    pub bar_rgba: Option<Vec<u32>>,
+    /// A dot a bar, with nothing between.
+    pub dots: bool,
 }
 
 impl StudyLine {
     fn line(key: &'static str, label: impl Into<String>, values: Series) -> Self {
-        Self { key, label: label.into(), kind: LineType::Line, values, style: LineStyle::Solid, pattern: Pattern::Solid, color: None, width: 1.0, badge: true }
+        Self { key, label: label.into(), kind: LineType::Line, values, style: LineStyle::Solid, pattern: Pattern::Solid, color: None, width: 1.0, badge: true, rgba: None, bar_rgba: None, dots: false }
     }
 
     fn inked(key: &'static str, label: &'static str, values: Series, color: &'static str) -> Self {
@@ -369,6 +375,8 @@ pub enum Tone {
     Neutral,
     /// A colour of its own.
     Ink(&'static str),
+    /// A script's colour, `0xRRGGBBAA`.
+    Rgba(u32),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -393,13 +401,83 @@ pub struct StudyFill {
     pub color: &'static str,
     pub crossed_key: &'static str,
     pub crossed_color: &'static str,
+    /// A script's colour, `0xRRGGBBAA`, over both; 0 for none of its own.
+    pub rgba: u32,
 }
 
 impl StudyFill {
     /// One colour, whichever line is on top: a channel's background.
     const fn between(upper: &'static str, lower: &'static str, key: &'static str, color: &'static str) -> Self {
-        Self { upper, lower, key, color, crossed_key: key, crossed_color: color }
+        Self { upper, lower, key, color, crossed_key: key, crossed_color: color, rgba: 0 }
     }
+}
+
+/// What a Frost Script draws besides its lines: shapes it places and moves, the
+/// background behind its bars, its candles' colours, and a table. Places are
+/// bar indices of the chart's closed bars (past the newest is ahead of it),
+/// colours `0xRRGGBBAA`, 0 none.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FormulaArt {
+    /// Each a colour a bar.
+    pub backgrounds: Vec<Vec<u32>>,
+    /// A colour a bar; 0 leaves a candle as it is.
+    pub bar_colors: Vec<u32>,
+    pub lines: Vec<ArtLine>,
+    pub labels: Vec<ArtLabel>,
+    pub boxes: Vec<ArtBox>,
+    /// Down (top, middle, bottom) and across (left, centre, right).
+    pub table: Option<(u8, u8)>,
+    pub cells: Vec<ArtCell>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtLine {
+    pub x1: f64,
+    pub y1: f64,
+    pub x2: f64,
+    pub y2: f64,
+    pub color: u32,
+    pub width: f32,
+    /// 0 solid, 1 dashed, 2 dotted.
+    pub style: u8,
+    /// 1 on past its first point, 2 past its second, 3 both.
+    pub extend: u8,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtLabel {
+    pub x: f64,
+    pub y: f64,
+    pub text: String,
+    pub color: u32,
+    /// 0: whichever of dark and light reads on its box.
+    pub text_color: u32,
+    /// 0 above, 1 below, 2 left of, 3 right of, 4 on its point.
+    pub place: u8,
+    /// 0 tiny to 3 large.
+    pub size: u8,
+    /// Its text alone, no box.
+    pub plain: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtBox {
+    pub x1: f64,
+    pub y1: f64,
+    pub x2: f64,
+    pub y2: f64,
+    pub fill: u32,
+    pub border: u32,
+    pub width: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtCell {
+    pub col: u8,
+    pub row: u8,
+    pub text: String,
+    pub color: u32,
+    pub background: u32,
 }
 
 /// A stretch of time and the range price traded in it.
@@ -429,6 +507,8 @@ pub struct ComputedStudy {
     pub stats: Vec<(&'static str, String)>,
     /// Candles drawn in the study's pane, one per bar — the forming one included.
     pub candles: Vec<Option<[f64; 4]>>,
+    /// A Frost Script's shapes, background, candle colours and table.
+    pub art: Option<Box<FormulaArt>>,
 }
 
 pub fn compute_study(spec: &StudySpec, candles: &[Candle]) -> ComputedStudy {
@@ -439,7 +519,7 @@ pub fn compute_study(spec: &StudySpec, candles: &[Candle]) -> ComputedStudy {
 /// until it is shown, its bars unread.
 pub fn idle_study(spec: &StudySpec) -> ComputedStudy {
     let def = spec.def();
-    ComputedStudy { id: spec.id(), kind: def.kind, label: spec.label(), group: def.group, params: spec.params.clone(), lines: Vec::new(), fills: Vec::new(), boxes: Vec::new(), segments: Vec::new(), markers: Vec::new(), stats: Vec::new(), candles: Vec::new() }
+    ComputedStudy { id: spec.id(), kind: def.kind, label: spec.label(), group: def.group, params: spec.params.clone(), lines: Vec::new(), fills: Vec::new(), boxes: Vec::new(), segments: Vec::new(), markers: Vec::new(), stats: Vec::new(), candles: Vec::new(), art: None }
 }
 
 pub fn compute_study_with(spec: &StudySpec, candles: &[Candle], inputs: &StudyInputs<'_>) -> ComputedStudy {
@@ -558,7 +638,7 @@ fn ichimoku(candles: &[Candle], close: &Series, lengths: [usize; 3], shift: usiz
             unbadged(StudyLine::inked("leadA", "Lead A", ahead(&span_a), "#a5d6a7")),
             unbadged(StudyLine::inked("leadB", "Lead B", ahead(&span_b), "#ef9a9a")),
         ],
-        vec![StudyFill { upper: "leadA", lower: "leadB", key: "cloudUp", color: "#43a04733", crossed_key: "cloudDown", crossed_color: "#f4433633" }],
+        vec![StudyFill { upper: "leadA", lower: "leadB", key: "cloudUp", color: "#43a04733", crossed_key: "cloudDown", crossed_color: "#f4433633", rgba: 0 }],
     )
 }
 

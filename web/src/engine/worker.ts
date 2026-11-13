@@ -386,7 +386,7 @@ class Slot {
       return;
     }
     for (const f of this.formulas) {
-      const out = runFormula(x, f.source, f.inputs, bars);
+      const out = runFormula(x, f.source, f.inputs, bars, this.engine.precision());
       if ('error' in out) this.engine.set_formula(f.id, f.label, out.error, EMPTY);
       else this.engine.set_formula(f.id, f.label, out.meta, out.values);
     }

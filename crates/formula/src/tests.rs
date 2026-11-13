@@ -64,6 +64,15 @@ fn source(name: &str) -> &'static str {
         "atr" => include_str!("../sources/atr.frost"),
         "vwap" => include_str!("../sources/vwap.frost"),
         "supertrend" => include_str!("../sources/supertrend.frost"),
+        "swingmap" => include_str!("../sources/swingmap.frost"),
+        "keylevels" => include_str!("../sources/keylevels.frost"),
+        "ribbon" => include_str!("../sources/ribbon.frost"),
+        "ema200" => include_str!("../sources/ema200.frost"),
+        "volume" => include_str!("../sources/volume.frost"),
+        "ichimoku" => include_str!("../sources/ichimoku.frost"),
+        "avwap" => include_str!("../sources/avwap.frost"),
+        "moon" => include_str!("../sources/moon.frost"),
+        "sessions" => include_str!("../sources/sessions.frost"),
         _ => panic!("no source {name}"),
     }
 }
@@ -71,7 +80,7 @@ fn source(name: &str) -> &'static str {
 fn run_source(name: &str, inputs: &[f64], c: &[Candle]) -> Output {
     let k = columns(c);
     let bars = Bars { time: &k.time, open: &k.open, high: &k.high, low: &k.low, close: &k.close, volume: &k.volume };
-    run(source(name), inputs, &bars).unwrap_or_else(|e| panic!("{name}: {e}"))
+    run(source(name), inputs, &bars, 2).unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
 fn line<'a>(out: &'a Output, title: &str) -> &'a [f64] {
@@ -116,7 +125,7 @@ fn bollinger_and_keltner_bands_are_the_charts_own() {
     same("bb upper", line(&out, "Upper"), &b.upper, true);
     same("bb basis", line(&out, "Basis"), &b.basis, true);
     same("bb lower", line(&out, "Lower"), &b.lower, true);
-    assert_eq!(out.fills, vec![Fill { upper: 0, lower: 2, color: 5 }]);
+    assert_eq!(out.fills, vec![Fill { upper: 0, lower: 2, color: 0x2962_ffff }]);
 
     let out = run_source("keltner", &[20.0, 2.0, 10.0], &c);
     let kc = compute_study(&parse_studies("keltner:20:2:10", 12)[0], &c);
@@ -180,6 +189,121 @@ fn supertrend_trails_price_and_marks_each_turn() {
 }
 
 #[test]
+fn the_swing_map_finds_the_charts_own_swings_and_tags_them_alike() {
+    let c = candles();
+    let out = run_source("swingmap", &[], &c);
+    let study = compute_study(&parse_studies("swingmap:5:5", 12)[0], &c);
+    let index = |t: i64| c.iter().position(|k| k.open_time == t).unwrap();
+    let want: Vec<(usize, f64, String)> = study
+        .markers
+        .iter()
+        .map(|m| {
+            let i = index(m.time);
+            (i, if m.above { c[i].high } else { c[i].low }, m.text.split(' ').next().unwrap().to_string())
+        })
+        .collect();
+    let got: Vec<(usize, f64, String)> = out.labels.iter().filter(|l| !l.text.contains("(live)")).map(|l| (l.x as usize, l.y, l.text.lines().next().unwrap().to_string())).collect();
+    assert!(want.len() > 50, "{} swings to compare", want.len());
+    assert_eq!(got, want);
+    // Every leg a line, the two ends of the range, and the swing still forming.
+    let legs = out.lines.iter().filter(|l| l.x1 != l.x2).count();
+    assert!(legs >= want.len() - 1, "{legs} legs for {} points", want.len());
+    let table = out.table.as_ref().unwrap();
+    assert_eq!((table.down, table.across), (0, 2));
+    let stat = |row: u8| table.cells.iter().find(|cell| cell.col == 1 && cell.row == row).unwrap().text.clone();
+    let rise = study.stats.iter().find(|s| s.0 == "Avg rise").unwrap().1.clone();
+    assert_eq!(stat(1).trim_end_matches('0').trim_end_matches('.'), rise.trim_end_matches('%').trim_end_matches('0').trim_end_matches('.').to_string() + "%");
+    assert_eq!(stat(2), study.stats.iter().find(|s| s.0 == "Avg rise time").unwrap().1);
+}
+
+#[test]
+fn key_levels_draw_each_open_where_the_chart_does() {
+    let c = candles();
+    let out = run_source("keylevels", &[], &c);
+    let study = compute_study(&parse_studies("keylevels", 12)[0], &c);
+    let index = |t: i64| c.iter().position(|k| k.open_time == t).unwrap() as f64;
+    let mut want: Vec<(f64, f64, f64)> = study.segments.iter().filter(|s| ["wo", "mo", "yo"].contains(&s.key)).map(|s| (index(s.from), index(s.to), s.price)).collect();
+    let monday: Vec<f64> = study.segments.iter().filter(|s| s.key.starts_with("mon")).map(|s| s.price).collect();
+    let mut got: Vec<(f64, f64, f64)> = out.lines.iter().filter(|l| l.y1 == l.y2 && !monday.contains(&l.y1)).map(|l| (l.x1, l.x2, l.y1)).collect();
+    let order = |a: &(f64, f64, f64), b: &(f64, f64, f64)| a.partial_cmp(b).unwrap();
+    want.sort_by(order);
+    got.sort_by(order);
+    assert!(want.len() > 10, "{} opens to compare", want.len());
+    assert_eq!(got, want);
+    // This week's Monday, high and low, run a week of bars ahead.
+    let mut drawn: Vec<f64> = out.lines.iter().filter(|l| monday.contains(&l.y1)).map(|l| l.y1).collect();
+    drawn.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut monday = monday.clone();
+    monday.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(drawn, monday);
+    assert!(out.labels.iter().any(|l| l.text.starts_with("WO ") && l.plain));
+}
+
+#[test]
+fn the_ribbon_ema_200_and_volume_are_the_charts_own() {
+    let c = candles();
+    let engine = tradoor_core::chart::engine_series(&c);
+    let out = run_source("ribbon", &[], &c);
+    let joined = |a: &str, b: &str| -> Vec<f64> { line(&out, a).iter().zip(line(&out, b)).map(|(x, y)| if x.is_nan() { *y } else { *x }).collect() };
+    same("ema 12", &joined("Fast, rising", "Fast, falling"), &engine.ema12, true);
+    same("ema 25", &joined("Slow, rising", "Slow, falling"), &engine.ema25, true);
+    let marked = |m: usize| out.marks[m].hits.iter().enumerate().filter(|(_, h)| **h).map(|(i, _)| i).collect::<Vec<_>>();
+    assert_eq!(marked(0), engine.crosses.iter().filter(|x| x.bull).map(|x| x.index).collect::<Vec<_>>());
+    assert_eq!(marked(1), engine.crosses.iter().filter(|x| !x.bull).map(|x| x.index).collect::<Vec<_>>());
+    same("ema 200", line(&run_source("ema200", &[], &c), "EMA 200"), &engine.ema200, true);
+    let volume: Series = c.iter().map(|k| Some(k.volume)).collect();
+    let out = run_source("volume", &[], &c);
+    same("volume", line(&out, "Volume"), &volume, true);
+    assert!(out.plots[0].colors.as_ref().unwrap().iter().zip(&c).all(|(col, k)| (*col == 0x26a6_9a99) == (k.close >= k.open)), "green where it closed up");
+}
+
+#[test]
+fn ichimoku_and_anchored_vwap_are_the_charts_own() {
+    let c = candles();
+    let out = run_source("ichimoku", &[], &c);
+    let study = compute_study(&parse_studies("ichimoku", 12)[0], &c);
+    let built = |key: &str| study.lines.iter().find(|l| l.key == key).unwrap().values.clone();
+    // Moved as the chart moves them: the leading spans ahead by 25 bars, the lagging line back by 25.
+    let moved = |title: &str| -> Vec<f64> {
+        let p = out.plots.iter().find(|p| p.title == title).unwrap();
+        let k = p.offset.unsigned_abs() as usize;
+        if p.offset >= 0 { std::iter::repeat_n(f64::NAN, k).chain(p.values.iter().copied()).collect() } else { p.values.iter().copied().skip(k).chain(std::iter::repeat_n(f64::NAN, k)).collect() }
+    };
+    for (title, key) in [("Conversion", "conversion"), ("Base", "base"), ("Lagging", "lagging"), ("Lead A", "leadA"), ("Lead B", "leadB")] {
+        same(title, &moved(title), &built(key), true);
+    }
+    let out = run_source("avwap", &[], &c);
+    let study = compute_study(&parse_studies("avwap", 12)[0], &c);
+    for (title, key) in [("Session", "session"), ("Weekly", "weekly"), ("Monthly", "monthly"), ("Yearly", "yearly")] {
+        same(title, line(&out, title), &study.lines.iter().find(|l| l.key == key).unwrap().values, true);
+    }
+}
+
+#[test]
+fn moon_phases_and_sessions_fall_where_the_charts_do() {
+    let c = candles();
+    let out = run_source("moon", &[], &c);
+    let study = compute_study(&parse_studies("moon", 12)[0], &c);
+    let index = |t: i64| c.iter().position(|k| k.open_time == t).unwrap();
+    for (m, full) in [(0, true), (1, false)] {
+        let got: Vec<usize> = out.marks[m].hits.iter().enumerate().filter(|(_, h)| **h).map(|(i, _)| i).collect();
+        let want: Vec<usize> = study.markers.iter().filter(|x| x.above == full).map(|x| index(x.time)).collect();
+        assert!(want.len() >= 3, "{} {} moons", want.len(), if full { "full" } else { "new" });
+        assert_eq!(got, want, "{} moons", if full { "full" } else { "new" });
+    }
+    let out = run_source("sessions", &[], &c);
+    let study = compute_study(&parse_studies("sessions", 12)[0], &c);
+    let mut want: Vec<(usize, usize, f64, f64)> = study.boxes.iter().map(|b| (index(b.from), index(b.to), b.top, b.bottom)).collect();
+    let mut got: Vec<(usize, usize, f64, f64)> = out.boxes.iter().map(|b| (b.x1 as usize, b.x2 as usize, b.y1, b.y2)).collect();
+    let order = |a: &(usize, usize, f64, f64), b: &(usize, usize, f64, f64)| a.partial_cmp(b).unwrap();
+    want.sort_by(order);
+    got.sort_by(order);
+    assert!(want.len() > 100, "{} sessions", want.len());
+    assert_eq!(got.len(), want.len().min(crate::MAX_BOXES));
+    assert_eq!(got, want[want.len() - got.len()..].to_vec(), "the newest of them, the oldest let go past the limit");
+}
+
+#[test]
 fn a_description_lists_the_settings_and_lines() {
     let d = describe(source("stochrsi")).unwrap();
     assert!(d.own_pane);
@@ -193,7 +317,7 @@ fn a_description_lists_the_settings_and_lines() {
 fn check(src: &str) -> Result<Output, Error> {
     let c = candles();
     let k = columns(&c[..300]);
-    run(src, &[], &Bars { time: &k.time, open: &k.open, high: &k.high, low: &k.low, close: &k.close, volume: &k.volume })
+    run(src, &[], &Bars { time: &k.time, open: &k.open, high: &k.high, low: &k.low, close: &k.close, volume: &k.volume }, 2)
 }
 
 fn fails(src: &str, line: u32, says: &str) {
@@ -213,18 +337,24 @@ fn mistakes_say_where_and_what() {
     fails("x = ema(close)", 1, "ema(value, length)");
     fails("x = ema(close, close)", 1, "a length is a number or a setting");
     fails("x = ema(close, 0)", 1, "a length is from 1");
-    fails("if close > open {\n  x = ema(close, 5)\n}", 2, "outside if and for");
-    fails("if close > open {\n  plot(close, \"C\")\n}", 2, "outside if and for");
+    fails("if close > open {\n  x = ema(close, 5)\n}", 2, "outside if, for and while");
+    fails("if close > open {\n  plot(close, \"C\")\n}", 2, "outside if, for, while and functions");
     fails("close = 1", 1, "is built in");
     fails("input length = 5\nlength = 3", 2, "is a setting");
-    fails("plot(close, \"C\", magenta)", 1, "a colour is one of");
+    fails("plot(close, \"C\", magenta)", 1, "magenta is not known");
+    fails("plot(close, \"C\", #12345)", 1, "a colour is written");
     fails("x = (1 + 2", 1, ") was expected");
     fails("x = 1 y = 2", 1, "one statement a line");
     fails("input n = 50 min 60", 1, "between min and max");
     fails("state s = sma(close, 3)", 1, "plain value");
     fails("x = close[-1]\nplot(x, \"X\")", 1, "0 or more");
     fails("ema(close, 5)", 1, "name it");
-    fails("x = \"text\"", 1, "only in a title");
+    fails("x = \"text\" * 2", 1, "texts join with +");
+    fails("x = 1\nx = \"text\"", 2, "holds a number");
+    fails("fn f(a) {\n  return f(a)\n}\nx = f(1)", 2, "calls itself");
+    fails("fn f() {\n  input n = 3\n}", 2, "go at the top level");
+    fails("break", 1, "inside for or while");
+    fails("xs = list()\ny = xs.get(0)\nplot(y, \"Y\")", 2, "not a place in this list");
 }
 
 #[test]
@@ -237,14 +367,26 @@ fn every_limit_holds() {
     let deep_blocks = format!("{}x = 1{}", "if close > 0 {\n".repeat(200), "\n}".repeat(200));
     assert!(check(&deep_blocks).unwrap_err().message.contains("nested more than"));
     // Too long, too many words.
-    assert!(check(&"x = 1\n".repeat(5_000)).unwrap_err().message.contains("characters at most"));
+    assert!(check(&"x = 1\n".repeat(7_000)).unwrap_err().message.contains("characters at most"));
     // A loop past its rounds, and loops that together ask too much.
-    fails("for i = 1 to 5000 {\n  x = i\n}", 1, "1000 times at most");
+    fails("for i = 1 to 50000 {\n  x = i\n}", 1, "10000 times at most");
+    fails("i = 0\nwhile true {\n  i = i + 1\n}", 2, "10000 times at most");
     let slow = "total = 0\nfor i = 1 to 1000 {\n  for j = 1 to 1000 {\n    total = total + j\n  }\n}\nplot(total, \"T\")";
     assert!(check(slow).unwrap_err().message.contains("takes too long"));
     fails("x = close[6000]\nplot(x, \"X\")", 1, "5000 bars at most");
-    let many = (0..17).map(|i| format!("plot(close, \"P{i}\")")).collect::<Vec<_>>().join("\n");
-    assert!(check(&many).unwrap_err().message.contains("16 lines at most"));
+    let many = (0..33).map(|i| format!("plot(close, \"P{i}\")")).collect::<Vec<_>>().join("\n");
+    assert!(check(&many).unwrap_err().message.contains("32 lines at most"));
+    // A list past its size lets its oldest go; shapes past theirs too.
+    let out = check("state xs = list()\nxs.push(bar)\nplot(xs.size(), \"N\")\nplot(xs.first(), \"F\")").unwrap();
+    assert_eq!(line(&out, "N")[299], 300.0);
+    let out = check("l = label(bar, close, \"x\")").unwrap();
+    assert_eq!(out.labels.len(), 300);
+    let lines = check("l = line(bar, close, bar + 1, close)").unwrap();
+    assert_eq!(lines.lines.len(), 300);
+    // Functions written out at every call: a script that grows too large is refused, not run.
+    let grow = format!("fn a(x) {{\n  return x + 1\n}}\n{}", (0..12).map(|i| format!("fn f{i}(x) {{\n  return {}\n}}", if i == 0 { "a(x) + a(x) + a(x) + a(x)".to_string() } else { format!("f{}(x) + f{}(x) + f{}(x) + f{}(x)", i - 1, i - 1, i - 1, i - 1) })).collect::<Vec<_>>().join("\n"));
+    let refused = check(&format!("{grow}\nplot(f11(close), \"G\")")).unwrap_err().message;
+    assert!(refused.contains("grows too large") || refused.contains("variables at most"), "{refused}");
 }
 
 #[test]
@@ -254,6 +396,21 @@ fn no_value_stays_no_value_and_division_by_zero_gives_none() {
     assert!(line(&out, "C").iter().all(|v| v.is_nan()));
     assert_eq!(line(&out, "D")[0], -1.0);
     assert!(line(&out, "B")[1] > 0.0);
+}
+
+#[test]
+fn a_variable_may_share_a_functions_name_but_not_a_bar_values() {
+    // As scripts written before rising(…), label(…) and the rest were added do.
+    let out = check("rising = close > close[1] and close[1] > close[2]\nsum = 0\nlabel = 2\nfor i = 0 to 2 {\n  sum = sum + close[i]\n}\nplot(rising, \"R\")\nplot(sum, \"S\")\nplot(rising(close, 2), \"F\")\nplot(label, \"L\")").unwrap();
+    let c = candles();
+    assert_eq!(line(&out, "R")[2], f64::from(u8::from(c[2].close > c[1].close && c[1].close > c[0].close)));
+    assert!((line(&out, "S")[5] - (c[5].close + c[4].close + c[3].close)).abs() < 1e-9);
+    assert_eq!(line(&out, "F")[2], line(&out, "R")[2]);
+    assert_eq!(line(&out, "L")[0], 2.0);
+    assert!(check("input change = 3\nfn f(label) {\n  return label * change\n}\ntable = f(2)\nplot(table, \"T\")").is_ok());
+    fails("fn rising(x) {\n  return x\n}", 1, "is taken");
+    fails("hour = 1", 1, "is built in");
+    fails("input blue = 1", 1, "is taken");
 }
 
 #[test]

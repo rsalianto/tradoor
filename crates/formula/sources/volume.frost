@@ -1,0 +1,6 @@
+// Volume
+// What traded in each bar, green where it closed up and red where it closed down.
+// On the chart, tradoor draws it along the bottom of the price pane; as a script,
+// it takes a pane of its own.
+pane own
+histogram(volume, "Volume", close >= open ? alpha(green, 0.6) : alpha(red, 0.6))

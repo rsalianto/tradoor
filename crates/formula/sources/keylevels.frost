@@ -1,0 +1,115 @@
+// Historical Key Levels: weekly, monthly and yearly opens, and Monday's range
+// Each week's, month's and year's opening price as a line from the bar it opens
+// on to the bar the next one opens, so past levels stay where they held; and the
+// high and low of each week's Monday, run on a little ahead. UTC weeks, from Monday.
+
+input show_WO = true "Show weekly open"
+input show_MO = true "Show monthly open"
+input show_YO = true "Show yearly open"
+input show_Mon = true "Show Monday high and low"
+
+input weeklyColor = #fffcbc "Weekly open colour"
+input monthlyColor = #08d48c "Monthly open colour"
+input yearlyColor = #ff9800 "Yearly open colour"
+input mondayColor = rgb(207, 207, 207) "Monday high and low colour"
+
+input lineWidth = 1 min 1 max 5 "Line width"
+input lineStyle = "Solid" from "Solid", "Dotted", "Dashed" "Line style"
+
+input showLabels = true "Show price labels"
+input showPriceValue = true "Show price value"
+input labelSize = "Small" from "Small", "Normal", "Large" "Label size"
+
+style = lineStyle == "Solid" ? solid : lineStyle == "Dotted" ? dotted : dashed
+lsize = labelSize == "Small" ? 1 : labelSize == "Normal" ? 2 : 3
+
+// A label's text: its tag alone, or the tag and its price.
+fn labelText(tag, level) {
+  return showPriceValue ? tag + " " + str(level, decimals) : tag
+}
+
+isNewWeek = changed(week)
+isNewMonth = changed(month)
+isNewYear = changed(year)
+
+// ---- An open: a line from its bar to the newest, its label at the end; begun again as the next period opens.
+state wLine = na
+state wLabel = na
+state mLine = na
+state mLabel = na
+state yLine = na
+state yLabel = na
+
+fn startLevel(tag, colour) {
+  l = line(bar, open, bar, open, color = colour, width = lineWidth, style = style)
+  return l
+}
+
+if isNewWeek and show_WO {
+  wLine = startLevel("WO", weeklyColor)
+  if showLabels {
+    wLabel = label(bar, open, labelText("WO", open), color = na, textcolor = weeklyColor, place = right, size = lsize, box = false)
+  }
+}
+if isNewMonth and show_MO {
+  mLine = startLevel("MO", monthlyColor)
+  if showLabels {
+    mLabel = label(bar, open, labelText("MO", open), color = na, textcolor = monthlyColor, place = right, size = lsize, box = false)
+  }
+}
+if isNewYear and show_YO {
+  yLine = startLevel("YO", yearlyColor)
+  if showLabels {
+    yLabel = label(bar, open, labelText("YO", open), color = na, textcolor = yearlyColor, place = right, size = lsize, box = false)
+  }
+}
+
+// Each runs on to the newest bar, its label with it, until the next period opens.
+if not isNewWeek {
+  set_x2(wLine, bar)
+  set_x(wLabel, bar)
+}
+if not isNewMonth {
+  set_x2(mLine, bar)
+  set_x(mLabel, bar)
+}
+if not isNewYear {
+  set_x2(yLine, bar)
+  set_x(yLabel, bar)
+}
+
+// ---- Monday's high and low: worked out on Monday's bars, drawn from Monday to a few bars ahead.
+state monHigh = na
+state monLow = na
+state monStart = na
+state monHighLine = na
+state monLowLine = na
+state monHighLabel = na
+state monLowLabel = na
+
+if isNewWeek {
+  monHigh = na
+  monLow = na
+  monStart = na
+  delete(monHighLine)
+  delete(monLowLine)
+  delete(monHighLabel)
+  delete(monLowLabel)
+}
+if dayofweek == monday {
+  monHigh = isna(monHigh) ? high : max(monHigh, high)
+  monLow = isna(monLow) ? low : min(monLow, low)
+  monStart = isna(monStart) ? bar : monStart
+}
+if show_Mon and not isna(monHigh) {
+  delete(monHighLine)
+  delete(monLowLine)
+  monHighLine = line(monStart, monHigh, bar + 7, monHigh, color = mondayColor, width = lineWidth, style = style)
+  monLowLine = line(monStart, monLow, bar + 7, monLow, color = mondayColor, width = lineWidth, style = style)
+  if showLabels {
+    delete(monHighLabel)
+    delete(monLowLabel)
+    monHighLabel = label(bar + 7, monHigh, labelText("Mon H", monHigh), color = na, textcolor = mondayColor, place = right, size = lsize, box = false)
+    monLowLabel = label(bar + 7, monLow, labelText("Mon L", monLow), color = na, textcolor = mondayColor, place = right, size = lsize, box = false)
+  }
+}

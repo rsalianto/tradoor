@@ -137,6 +137,14 @@ export function formulaOf(kind: string): Formula | undefined {
   return got === 'gone' ? undefined : got;
 }
 
+/**
+ * Which of a script's settings are numbers, in their order: the legend names those alone,
+ * as a tick, a colour, a choice or a moment reads as a raw number there.
+ */
+function numberSettings(source: string): boolean[] {
+  return [...source.matchAll(/^[ \t]*input[ \t]+\w+[ \t]*=[ \t]*(\S)/gm)].map((m) => /[-+(.\d]/.test(m[1]!));
+}
+
 /** A chart's formulas from its studies, ready for the worker: one gone from the library is left out. */
 export function formulaRuns(studies: string): FormulaRun[] {
   return studies
@@ -149,7 +157,9 @@ export function formulaRuns(studies: string): FormulaRun[] {
       if (!f || f.removed) return [];
       // A shared script says whose it is, on every chart it is on.
       const author = f.by ?? (f.public ? username() : null);
-      return [{ id, label: [f.name, ...params].join(' ') + (author ? ` · @${author}` : ''), source: f.source, inputs: params.map(Number) }];
+      const numbers = numberSettings(f.source);
+      const shown = params.filter((_, i) => numbers[i] ?? true);
+      return [{ id, label: [f.name, ...shown].join(' ') + (author ? ` · @${author}` : ''), source: f.source, inputs: params.map(Number) }];
     });
 }
 
@@ -170,7 +180,22 @@ export async function formulaDefinition(kind: string): Promise<StudyDefinition |
   const f = formulaOf(kind);
   if (!f) return null;
   const d = await describe(f.source);
-  const params = d.ok ? d.inputs.map((i) => ({ name: i.name, default: i.default, min: i.min ?? -1e12, max: i.max ?? 1e12, step: i.step })) : [];
+  // Each setting's own range: a yes or no, a colour's four bytes, a choice's places, any moment.
+  const range = (i: (typeof d & { ok: true })['inputs'][number]): [number, number] => {
+    switch (i.kind) {
+      case 'bool':
+        return [0, 1];
+      case 'colour':
+        return [0, 4_294_967_295];
+      case 'choice':
+        return [0, Math.max(0, i.options.length - 1)];
+      case 'time':
+        return [-8.64e15, 8.64e15];
+      default:
+        return [i.min ?? -1e12, i.max ?? 1e12];
+    }
+  };
+  const params = d.ok ? d.inputs.map((i) => ({ name: i.name, default: i.default, min: range(i)[0], max: range(i)[1], step: i.kind === 'number' ? i.step : 1, kind: i.kind, options: i.options })) : [];
   return { kind, short: f.name, group: d.ok && d.ownPane ? 'formula' : 'price', params };
 }
 

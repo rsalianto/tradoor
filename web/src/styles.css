@@ -729,14 +729,16 @@ table.venues tr.off td { color: var(--dim); }
 .dtabs button.on { color: var(--text); border-bottom-color: var(--primary); }
 .dtabs button:hover { color: var(--text); }
 .dbody { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
-.drow { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.drow { display: flex; flex-shrink: 0; align-items: center; gap: 8px; min-height: 26px; }
 .dlabel { flex: 0 0 104px; color: var(--muted); }
 .dctl { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.dswatch { width: 34px; height: 22px; padding: 0 2px; border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; }
 .dcheck { display: flex; align-items: center; gap: 8px; min-height: 24px; color: var(--text); cursor: pointer; }
 .dsection { margin-top: 4px; color: var(--dim); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 .dnote { margin: 0; color: var(--dim); font-size: 11px; }
 .dinput { height: 26px; min-width: 0; width: 120px; padding: 0 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; }
 .dinput.narrow { width: 74px; }
+.dinput.when { width: 172px; }
 .dinput:focus { border-color: var(--primary); outline: 0; }
 .dinput:disabled { color: var(--dim); }
 .dtext { width: 100%; min-height: 60px; padding: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; resize: vertical; box-sizing: border-box; }
@@ -776,6 +778,7 @@ table.venues tr.off td { color: var(--dim); }
 /* An indicator's settings: on the page, not in a panel, so a small chart does not cut them off. */
 .dsettings.study-settings { position: fixed; right: auto; z-index: 60; width: 390px; }
 .dsettings.study-settings > header { touch-action: none; }
+.dsettings.study-settings .dlabel { flex-basis: 136px; }
 .dbits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
 .dplot { display: flex; align-items: center; gap: 6px; min-height: 28px; }
 .dplot-name { min-width: 0; color: var(--text); }
@@ -868,7 +871,7 @@ table.venues tr.off td { color: var(--dim); }
 @media (max-width: 520px) {
   .dsettings { right: 8px; left: 8px; width: auto; }
   .dsettings.wide { width: auto; }
-  .dlabel { flex-basis: 84px; }
+  .dlabel, .dsettings.study-settings .dlabel { flex-basis: 84px; }
 }
 
 /* The drawing magnet: lit when on, and marked when strong. */

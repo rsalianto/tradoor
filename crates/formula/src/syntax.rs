@@ -1,9 +1,9 @@
-//! A formula's text into a tree: words, numbers and signs first, then the
+//! A script's text into a tree: words, numbers and signs first, then the
 //! statements and expressions they make. Every node keeps where it was written,
 //! so an error can say the line and column. The text is bounded before any of
-//! this, and so is how deep expressions and blocks nest, so no formula can run
+//! this, and so is how deep expressions and blocks nest, so no script can run
 //! the parser out of stack.
-use crate::{Error, MAX_DEPTH, MAX_TOKENS};
+use crate::{Error, MAX_ARGS, MAX_DEPTH, MAX_TEXT, MAX_TOKENS};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct At {
@@ -16,16 +16,58 @@ enum Tok {
     Num(f64),
     Word(String),
     Text(String),
+    /// `#rrggbb` and its kin, as `0xRRGGBBAA`.
+    Hex(u32),
     Sign(&'static str),
     End,
 }
 
-const SIGNS: [&str; 22] = ["==", "!=", "<=", ">=", "(", ")", "[", "]", "{", "}", ",", "?", ":", "+", "-", "*", "/", "%", "<", ">", "=", ";"];
+const SIGNS: [&str; 23] = ["==", "!=", "<=", ">=", "(", ")", "[", "]", "{", "}", ",", "?", ":", "+", "-", "*", "/", "%", "<", ">", "=", ";", "."];
+
+/// The powers of ten a double holds exactly.
+const TENS: [f64; 23] = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22];
+
+/// `12.5` as a number: its digits, a whole number a double holds exactly, over a
+/// power of ten it also holds, so the one division rounds it right — as the
+/// standard parser would, without its tables.
+fn decimal(text: &str) -> Option<f64> {
+    let (whole, frac) = text.split_once('.').unwrap_or((text, ""));
+    if frac.contains('.') || whole.len() + frac.len() == 0 {
+        return None;
+    }
+    let mut digits: u64 = 0;
+    for b in whole.bytes().chain(frac.bytes()) {
+        digits = digits.checked_mul(10)?.checked_add(u64::from(b - b'0'))?;
+    }
+    if digits >= 1 << 53 {
+        return None;
+    }
+    Some(digits as f64 / TENS.get(frac.len())?)
+}
+
+/// `rgb`, `rrggbb` or `rrggbbaa` in hex, as `0xRRGGBBAA`.
+pub fn hex_colour(digits: &str) -> Option<u32> {
+    if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let v = u32::from_str_radix(digits, 16).ok()?;
+    match digits.len() {
+        3 => {
+            let (r, g, b) = ((v >> 8) & 15, (v >> 4) & 15, v & 15);
+            Some((r * 17) << 24 | (g * 17) << 16 | (b * 17) << 8 | 255)
+        }
+        6 => Some(v << 8 | 255),
+        8 => Some(v),
+        _ => None,
+    }
+}
 
 fn lex(src: &str) -> Result<Vec<(Tok, At)>, Error> {
     let mut out = Vec::new();
     let chars: Vec<char> = src.chars().collect();
     let (mut i, mut line, mut col) = (0usize, 1u32, 1u32);
+    // Inside round brackets a statement runs on to the next line.
+    let mut round = 0usize;
     while i < chars.len() {
         if out.len() > MAX_TOKENS {
             return Err(Error::at(At { line, col }, format!("a script is {MAX_TOKENS} words and signs at most")));
@@ -34,7 +76,9 @@ fn lex(src: &str) -> Result<Vec<(Tok, At)>, Error> {
         let at = At { line, col };
         let next = chars.get(i + 1).copied();
         if c == '\n' {
-            out.push((Tok::End, at));
+            if round == 0 {
+                out.push((Tok::End, at));
+            }
             (i, line, col) = (i + 1, line + 1, 1);
             continue;
         }
@@ -54,7 +98,7 @@ fn lex(src: &str) -> Result<Vec<(Tok, At)>, Error> {
                 i += 1;
             }
             let text: String = chars[start..i].iter().collect();
-            let Ok(v) = text.parse::<f64>() else { return Err(Error::at(at, format!("{text} is not a number"))) };
+            let Some(v) = decimal(&text) else { return Err(Error::at(at, format!("{text} is not a number Frost Script holds: digits and one point, 15 digits at most"))) };
             col += (i - start) as u32;
             out.push((Tok::Num(v), at));
             continue;
@@ -71,20 +115,49 @@ fn lex(src: &str) -> Result<Vec<(Tok, At)>, Error> {
             out.push((Tok::Word(chars[start..i].iter().collect()), at));
             continue;
         }
-        if c == '"' {
+        if c == '#' {
             let start = i + 1;
             i += 1;
-            while i < chars.len() && chars[i] != '"' && chars[i] != '\n' {
+            while i < chars.len() && chars[i].is_ascii_alphanumeric() {
                 i += 1;
             }
-            if chars.get(i) != Some(&'"') {
+            let digits: String = chars[start..i].iter().collect();
+            let Some(v) = hex_colour(&digits) else { return Err(Error::at(at, "a colour is written #rrggbb, #rgb or #rrggbbaa")) };
+            col += (i - start + 1) as u32;
+            out.push((Tok::Hex(v), at));
+            continue;
+        }
+        if c == '"' {
+            i += 1;
+            let mut text = String::new();
+            let mut closed = false;
+            let begun = i;
+            while i < chars.len() && chars[i] != '\n' {
+                match (chars[i], chars.get(i + 1)) {
+                    ('"', _) => {
+                        closed = true;
+                        break;
+                    }
+                    // A line break, a quote and a backslash, written inside a text.
+                    ('\\', Some('n')) => text.push('\n'),
+                    ('\\', Some('"')) => text.push('"'),
+                    ('\\', Some('\\')) => text.push('\\'),
+                    (ch, _) => {
+                        text.push(ch);
+                        i += 1;
+                        continue;
+                    }
+                }
+                i += 2;
+            }
+            if !closed {
                 return Err(Error::at(at, "this text has no closing \""));
             }
-            if i - start > 40 {
-                return Err(Error::at(at, "a title is 40 characters at most"));
+            if text.chars().count() > MAX_TEXT {
+                return Err(Error::at(at, format!("a text is {MAX_TEXT} characters at most")));
             }
-            col += (i + 1 - start + 1) as u32;
-            out.push((Tok::Text(chars[start..i].iter().collect()), at));
+            col += (i - begun + 2) as u32;
+            out.push((Tok::Text(text), at));
             i += 1;
             continue;
         }
@@ -92,6 +165,11 @@ fn lex(src: &str) -> Result<Vec<(Tok, At)>, Error> {
         let Some(sign) = SIGNS.iter().find(|s| two.starts_with(**s)) else {
             return Err(Error::at(at, format!("{c} is not part of Frost Script")));
         };
+        match *sign {
+            "(" => round += 1,
+            ")" => round = round.saturating_sub(1),
+            _ => {}
+        }
         i += sign.len();
         col += sign.len() as u32;
         out.push((Tok::Sign(sign), at));
@@ -121,6 +199,7 @@ pub enum Op {
 pub enum Expr {
     Num(f64),
     Text(String),
+    Colour(u32),
     Name(String),
     /// A name's value `back` bars ago: `close[1]`.
     Back(String, Box<Node>),
@@ -128,7 +207,9 @@ pub enum Expr {
     Not(Box<Node>),
     Binary(Op, Box<Node>, Box<Node>),
     Pick(Box<Node>, Box<Node>, Box<Node>),
-    Call(String, Vec<Node>),
+    /// A call: its name, what it is given in order, and what by name (`width=2`).
+    /// `xs.push(v)` is `.push` given `xs` first.
+    Call(String, Vec<Node>, Vec<(String, Node)>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -137,10 +218,22 @@ pub struct Node {
     pub at: At,
 }
 
+/// What a setting starts as, which says what kind it is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Default {
+    /// A number, `true` or `false`, a colour, or `date(…)`.
+    Value(Node),
+    /// One of a list of texts: `"small" from "tiny", "small", "large"`.
+    Choice(String, Vec<String>),
+}
+
+/// A call's arguments: those in order, then those by name.
+type Args = (Vec<Node>, Vec<(String, Node)>);
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Input {
     pub name: String,
-    pub default: f64,
+    pub default: Default,
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub step: Option<f64>,
@@ -150,10 +243,19 @@ pub struct Input {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     Pane(bool),
+    /// Where the table sits: down (0 top, 1 middle, 2 bottom) and across (0 left, 1 centre, 2 right).
+    Table(u8, u8),
     Input(Input),
     Set { name: String, value: Node, keep: bool },
+    /// `a, b = f(x)`: what a function gives back, each to its name.
+    SetMany { names: Vec<String>, value: Node },
     If { arms: Vec<(Node, Vec<Line>)>, otherwise: Vec<Line> },
-    For { name: String, from: Node, to: Node, body: Vec<Line> },
+    For { name: String, from: Node, to: Node, by: Option<Node>, body: Vec<Line> },
+    While { cond: Node, body: Vec<Line> },
+    Break,
+    Continue,
+    Fn { name: String, params: Vec<String>, body: Vec<Line> },
+    Return(Vec<Node>),
     Do(Node),
 }
 
@@ -184,6 +286,11 @@ impl Parser {
         self.toks.get(self.i).map_or(At { line: 1, col: 1 }, |t| t.1)
     }
 
+    /// Where the word just read was.
+    fn was(&self) -> At {
+        self.toks.get(self.i.saturating_sub(1)).map_or(self.at(), |t| t.1)
+    }
+
     fn bump(&mut self) -> Tok {
         let t = self.peek().clone();
         self.i += 1;
@@ -198,6 +305,14 @@ impl Parser {
         matches!(self.peek(), Tok::Word(x) if x == w)
     }
 
+    fn take_word(&mut self, w: &str) -> bool {
+        let is = self.is_word(w);
+        if is {
+            self.i += 1;
+        }
+        is
+    }
+
     fn expect_sign(&mut self, s: &str) -> Result<(), Error> {
         if self.is_sign(s) {
             self.i += 1;
@@ -210,11 +325,11 @@ impl Parser {
     fn name(&mut self) -> Result<String, Error> {
         match self.bump() {
             Tok::Word(w) if !crate::compile::is_keyword(&w) => Ok(w),
-            _ => Err(Error::at(self.toks.get(self.i - 1).map_or(self.at(), |t| t.1), "a name was expected here")),
+            _ => Err(Error::at(self.was(), "a name was expected here")),
         }
     }
 
-    /// Deeper by one, and an error past the limit: what stops a formula of a thousand brackets.
+    /// Deeper by one, and an error past the limit: what stops a script of a thousand brackets.
     fn enter(&mut self) -> Result<(), Error> {
         self.depth += 1;
         if self.depth > MAX_DEPTH { Err(Error::at(self.at(), format!("nested more than {MAX_DEPTH} deep"))) } else { Ok(()) }
@@ -264,65 +379,96 @@ impl Parser {
         }
         match self.bump() {
             Tok::Num(v) => Ok(if neg { -v } else { v }),
-            _ => Err(Error::at(self.toks.get(self.i - 1).map_or(self.at(), |t| t.1), "a number was expected here")),
+            _ => Err(Error::at(self.was(), "a number was expected here")),
         }
     }
 
-    fn stmt(&mut self) -> Result<Stmt, Error> {
-        if self.is_word("pane") {
+    fn input(&mut self) -> Result<Stmt, Error> {
+        let name = self.name()?;
+        self.expect_sign("=")?;
+        let default = if let Tok::Text(first) = self.peek().clone() {
             self.i += 1;
+            if !self.take_word("from") {
+                return Err(Error::at(self.at(), "a choice names what it is one of: input size = \"small\" from \"tiny\", \"small\", \"large\""));
+            }
+            let mut options = Vec::new();
+            loop {
+                match self.bump() {
+                    Tok::Text(t) => options.push(t),
+                    _ => return Err(Error::at(self.was(), "a choice in quotes was expected here")),
+                }
+                if !self.is_sign(",") {
+                    break;
+                }
+                self.i += 1;
+            }
+            Default::Choice(first, options)
+        } else {
+            Default::Value(self.unary()?)
+        };
+        let mut input = Input { name, default, min: None, max: None, step: None, label: None };
+        loop {
+            if self.take_word("min") {
+                input.min = Some(self.signed()?);
+            } else if self.take_word("max") {
+                input.max = Some(self.signed()?);
+            } else if self.take_word("step") {
+                input.step = Some(self.signed()?);
+            } else if let Tok::Text(t) = self.peek().clone() {
+                self.i += 1;
+                input.label = Some(t);
+            } else {
+                break;
+            }
+        }
+        Ok(Stmt::Input(input))
+    }
+
+    fn stmt(&mut self) -> Result<Stmt, Error> {
+        if self.take_word("pane") {
             return match self.bump() {
                 Tok::Word(w) if w == "own" => Ok(Stmt::Pane(true)),
                 Tok::Word(w) if w == "price" => Ok(Stmt::Pane(false)),
-                _ => Err(Error::at(self.toks.get(self.i - 1).map_or(self.at(), |t| t.1), "pane own or pane price")),
+                _ => Err(Error::at(self.was(), "pane own or pane price")),
             };
         }
-        if self.is_word("input") {
+        if self.is_word("table") && !matches!(self.toks.get(self.i + 1), Some((Tok::Sign(_), _))) {
             self.i += 1;
-            let name = self.name()?;
-            self.expect_sign("=")?;
-            let default = self.signed()?;
-            let mut input = Input { name, default, min: None, max: None, step: None, label: None };
-            loop {
-                if self.is_word("min") {
-                    self.i += 1;
-                    input.min = Some(self.signed()?);
-                } else if self.is_word("max") {
-                    self.i += 1;
-                    input.max = Some(self.signed()?);
-                } else if self.is_word("step") {
-                    self.i += 1;
-                    input.step = Some(self.signed()?);
-                } else if let Tok::Text(t) = self.peek().clone() {
-                    self.i += 1;
-                    input.label = Some(t);
-                } else {
-                    break;
+            let (mut down, mut across) = (0u8, 2u8);
+            while let Tok::Word(w) = self.peek().clone() {
+                match w.as_str() {
+                    "top" => down = 0,
+                    "middle" => down = 1,
+                    "bottom" => down = 2,
+                    "left" => across = 0,
+                    "center" | "centre" => across = 1,
+                    "right" => across = 2,
+                    _ => return Err(Error::at(self.at(), "table top right: top, middle or bottom, then left, center or right")),
                 }
+                self.i += 1;
             }
-            return Ok(Stmt::Input(input));
+            return Ok(Stmt::Table(down, across));
         }
-        if self.is_word("state") {
-            self.i += 1;
+        if self.take_word("input") {
+            return self.input();
+        }
+        if self.take_word("state") {
             let name = self.name()?;
             self.expect_sign("=")?;
             return Ok(Stmt::Set { name, value: self.expr()?, keep: true });
         }
-        if self.is_word("if") {
-            self.i += 1;
+        if self.take_word("if") {
             let mut arms = vec![(self.expr()?, self.block()?)];
             let mut otherwise = Vec::new();
             loop {
                 // `else` may sit on the line after the closing brace.
                 let back = self.i;
                 self.skip_ends();
-                if !self.is_word("else") {
+                if !self.take_word("else") {
                     self.i = back;
                     break;
                 }
-                self.i += 1;
-                if self.is_word("if") {
-                    self.i += 1;
+                if self.take_word("if") {
                     arms.push((self.expr()?, self.block()?));
                 } else {
                     otherwise = self.block()?;
@@ -331,26 +477,110 @@ impl Parser {
             }
             return Ok(Stmt::If { arms, otherwise });
         }
-        if self.is_word("for") {
-            self.i += 1;
+        if self.take_word("for") {
             let name = self.name()?;
             self.expect_sign("=")?;
             let from = self.expr()?;
-            if !self.is_word("to") {
+            if !self.take_word("to") {
                 return Err(Error::at(self.at(), "for i = 1 to 10"));
             }
-            self.i += 1;
             let to = self.expr()?;
-            return Ok(Stmt::For { name, from, to, body: self.block()? });
+            let by = if self.take_word("by") { Some(self.expr()?) } else { None };
+            return Ok(Stmt::For { name, from, to, by, body: self.block()? });
         }
-        if let (Tok::Word(w), Some((Tok::Sign("="), _))) = (self.peek().clone(), self.toks.get(self.i + 1)) {
-            if crate::compile::is_keyword(&w) {
-                return Err(Error::at(self.at(), format!("{w} is a word of the language, not a name")));
+        if self.take_word("while") {
+            return Ok(Stmt::While { cond: self.expr()?, body: self.block()? });
+        }
+        if self.take_word("break") {
+            return Ok(Stmt::Break);
+        }
+        if self.take_word("continue") {
+            return Ok(Stmt::Continue);
+        }
+        if self.take_word("fn") {
+            let name = self.name()?;
+            self.expect_sign("(")?;
+            let mut params = Vec::new();
+            while !self.is_sign(")") {
+                params.push(self.name()?);
+                if params.len() > MAX_ARGS {
+                    return Err(Error::at(self.at(), format!("{MAX_ARGS} arguments at most")));
+                }
+                if !self.is_sign(",") {
+                    break;
+                }
+                self.i += 1;
             }
-            self.i += 2;
-            return Ok(Stmt::Set { name: w, value: self.expr()?, keep: false });
+            self.expect_sign(")")?;
+            return Ok(Stmt::Fn { name, params, body: self.block()? });
+        }
+        if self.take_word("return") {
+            let mut values = Vec::new();
+            if !(matches!(self.peek(), Tok::End) || self.is_sign(";") || self.is_sign("}")) {
+                loop {
+                    values.push(self.expr()?);
+                    if values.len() > 8 {
+                        return Err(Error::at(self.at(), "a function gives back 8 values at most"));
+                    }
+                    if !self.is_sign(",") {
+                        break;
+                    }
+                    self.i += 1;
+                }
+            }
+            return Ok(Stmt::Return(values));
+        }
+        if let (Tok::Word(w), Some((Tok::Sign(next), _))) = (self.peek().clone(), self.toks.get(self.i + 1)) {
+            if *next == "=" {
+                if crate::compile::is_keyword(&w) {
+                    return Err(Error::at(self.at(), format!("{w} is a word of the language, not a name")));
+                }
+                self.i += 2;
+                return Ok(Stmt::Set { name: w, value: self.expr()?, keep: false });
+            }
+            // `a, b = f(x)`: names, commas, then the sign.
+            if *next == "," {
+                let back = self.i;
+                let mut names = vec![self.name()?];
+                while self.is_sign(",") {
+                    self.i += 1;
+                    match self.peek() {
+                        Tok::Word(_) => names.push(self.name()?),
+                        _ => break,
+                    }
+                }
+                if self.is_sign("=") && names.len() <= 8 {
+                    self.i += 1;
+                    return Ok(Stmt::SetMany { names, value: self.expr()? });
+                }
+                self.i = back;
+            }
         }
         Ok(Stmt::Do(self.expr()?))
+    }
+
+    /// What a call is given, to its closing bracket: in order, then by name, as `plot(x, "T", width=2)`.
+    fn args(&mut self, at: At) -> Result<Args, Error> {
+        let (mut args, mut named) = (Vec::new(), Vec::new());
+        while !self.is_sign(")") {
+            if let (Tok::Word(w), Some((Tok::Sign("="), _))) = (self.peek().clone(), self.toks.get(self.i + 1)) {
+                self.i += 2;
+                named.push((w, self.expr()?));
+            } else if named.is_empty() {
+                args.push(self.expr()?);
+            } else {
+                return Err(Error::at(self.at(), "what is given by name comes after what is given in order"));
+            }
+            if args.len() + named.len() > MAX_ARGS {
+                return Err(Error::at(at, format!("{MAX_ARGS} arguments at most")));
+            }
+            if !self.is_sign(",") {
+                break;
+            }
+            self.i += 1;
+        }
+        self.expect_sign(")")?;
+        Ok((args, named))
     }
 
     fn expr(&mut self) -> Result<Node, Error> {
@@ -371,8 +601,7 @@ impl Parser {
 
     fn or(&mut self) -> Result<Node, Error> {
         let mut left = self.and()?;
-        while self.is_word("or") {
-            self.i += 1;
+        while self.take_word("or") {
             let right = self.and()?;
             left = Node { at: left.at, expr: Expr::Binary(Op::Or, Box::new(left), Box::new(right)) };
         }
@@ -381,8 +610,7 @@ impl Parser {
 
     fn and(&mut self) -> Result<Node, Error> {
         let mut left = self.not()?;
-        while self.is_word("and") {
-            self.i += 1;
+        while self.take_word("and") {
             let right = self.not()?;
             left = Node { at: left.at, expr: Expr::Binary(Op::And, Box::new(left), Box::new(right)) };
         }
@@ -463,6 +691,7 @@ impl Parser {
         match self.bump() {
             Tok::Num(v) => Ok(Node { at, expr: Expr::Num(v) }),
             Tok::Text(t) => Ok(Node { at, expr: Expr::Text(t) }),
+            Tok::Hex(v) => Ok(Node { at, expr: Expr::Colour(v) }),
             Tok::Sign("(") => {
                 let inner = self.expr()?;
                 self.expect_sign(")")?;
@@ -471,22 +700,20 @@ impl Parser {
             Tok::Word(w) => {
                 if self.is_sign("(") {
                     self.i += 1;
-                    let mut args = Vec::new();
-                    if !self.is_sign(")") {
-                        loop {
-                            args.push(self.expr()?);
-                            if args.len() > 8 {
-                                return Err(Error::at(at, "8 arguments at most"));
-                            }
-                            if self.is_sign(",") {
-                                self.i += 1;
-                                continue;
-                            }
-                            break;
-                        }
+                    let (args, named) = self.args(at)?;
+                    return Ok(Node { at, expr: Expr::Call(w, args, named) });
+                }
+                // `xs.push(v)`: a list's own function, given the list first.
+                if self.is_sign(".") {
+                    self.i += 1;
+                    let method = self.name()?;
+                    if !self.is_sign("(") {
+                        return Err(Error::at(self.at(), format!("{w}.{method}(…): a list's functions take brackets")));
                     }
-                    self.expect_sign(")")?;
-                    return Ok(Node { at, expr: Expr::Call(w, args) });
+                    self.i += 1;
+                    let (mut args, named) = self.args(at)?;
+                    args.insert(0, Node { at, expr: Expr::Name(w) });
+                    return Ok(Node { at, expr: Expr::Call(format!(".{method}"), args, named) });
                 }
                 if self.is_sign("[") {
                     self.i += 1;

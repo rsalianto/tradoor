@@ -913,39 +913,94 @@ impl Chart {
         self.feed_dirty = true;
     }
 
-    /// A formula's lines, fills and marks, as the formula module gave them (crates/formula-wasm):
-    /// a line a part, tab-separated, and the values every line and mark has a bar each.
-    /// Values for other bars than these — the window moved since — are let go.
+    /// A script's lines, fills, marks, shapes and table, as the formula module gave them
+    /// (crates/formula-wasm): a part a line, tab-separated, whole numbers only, and the
+    /// values each part has after it, in the same order. Values for other bars than
+    /// these — the window moved since — are let go.
     pub fn set_formula(&mut self, id: &str, label: &str, meta: &str, values: &[f64]) {
-        use tradoor_core::studies::{StudyLine, StudyMarker, FORMULA_COLORS, FORMULA_FILLS, FORMULA_LINES, FORMULA_MARKS};
+        use tradoor_core::studies::{ArtBox, ArtCell, ArtLabel, ArtLine, FormulaArt, StudyLine, StudyMarker, FORMULA_FILLS, FORMULA_LINES, FORMULA_MARKS};
         let n = self.candles.len();
         let place = self.formulas.iter().position(|s| s.id == id).unwrap_or(self.formulas.len());
-        let mut study = ComputedStudy { id: id.to_string(), kind: StudyKind::Formula, label: label.to_string(), group: Group::Price, params: Vec::new(), lines: Vec::new(), fills: Vec::new(), boxes: Vec::new(), segments: Vec::new(), markers: Vec::new(), stats: Vec::new(), candles: Vec::new() };
-        let colour = |i: &str| i.parse::<usize>().ok().and_then(|i| FORMULA_COLORS.get(i));
+        let mut study = ComputedStudy {
+            id: id.to_string(),
+            kind: StudyKind::Formula,
+            label: label.to_string(),
+            group: Group::Price,
+            params: Vec::new(),
+            lines: Vec::new(),
+            fills: Vec::new(),
+            boxes: Vec::new(),
+            segments: Vec::new(),
+            markers: Vec::new(),
+            stats: Vec::new(),
+            candles: Vec::new(),
+            art: None,
+        };
+        let mut art = FormulaArt::default();
         let mut at = 0usize;
         let mut take = |count: usize| -> Option<&[f64]> {
             let part = values.get(at..at + count);
             at += count;
             part
         };
+        let int = |s: &str| s.parse::<u32>().unwrap_or(0);
+        let small = |s: &str| s.parse::<u8>().unwrap_or(0);
+        let colours = |xs: &[f64]| -> Vec<u32> { xs.iter().map(|v| if *v >= 0.0 && *v <= 4_294_967_295.0 { *v as u32 } else { 0 }).collect() };
+        let text = |s: &str| s.replace('\u{1f}', "\n");
         for row in meta.lines() {
             let f: Vec<&str> = row.split('\t').collect();
             match f.as_slice() {
                 ["pane", own] => study.group = if *own == "1" { Group::Formula((place % 8) as u8) } else { Group::Price },
-                ["plot", kind, color, width, title] => {
+                ["plot", kind, color, width, style, offset, per_bar, title] => {
                     let Some(series) = take(n) else { return };
+                    let series = series.to_vec();
+                    let bar_rgba = if *per_bar == "1" {
+                        let Some(c) = take(n) else { return };
+                        Some(colours(c))
+                    } else {
+                        None
+                    };
+                    // Moved by its offset: to the right runs on into the space ahead of the newest bar.
+                    let shift = offset.trim_start_matches('-').parse::<usize>().unwrap_or(0).min(500);
+                    let ahead = !offset.starts_with('-');
+                    let moved = |xs: Vec<Option<f64>>| -> Vec<Option<f64>> {
+                        if shift == 0 {
+                            xs
+                        } else if ahead {
+                            std::iter::repeat_n(None, shift).chain(xs).collect()
+                        } else {
+                            xs.into_iter().skip(shift).chain(std::iter::repeat_n(None, shift)).collect()
+                        }
+                    };
+                    let moved_colours = |xs: Vec<u32>| -> Vec<u32> {
+                        if shift == 0 {
+                            xs
+                        } else if ahead {
+                            std::iter::repeat_n(0, shift).chain(xs).collect()
+                        } else {
+                            xs.into_iter().skip(shift).chain(std::iter::repeat_n(0, shift)).collect()
+                        }
+                    };
                     let key = FORMULA_LINES[study.lines.len() % FORMULA_LINES.len()];
+                    let style = small(style);
                     let line = StudyLine {
                         key,
                         label: (*title).to_string(),
                         kind: if *kind == "histogram" { LineType::Histogram } else { LineType::Line },
-                        values: series.iter().map(|v| (!v.is_nan()).then_some(*v)).collect(),
-                        style: LineStyle::Solid,
-                        pattern: if *kind == "level" { Pattern::Dashed } else { Pattern::Solid },
-                        color: colour(color).map(|c| c.1),
+                        values: moved(series.iter().map(|v| (!v.is_nan()).then_some(*v)).collect()),
+                        style: if style == 3 { LineStyle::Step } else { LineStyle::Solid },
+                        pattern: match style {
+                            1 => Pattern::Dashed,
+                            2 => Pattern::Dotted,
+                            _ => Pattern::Solid,
+                        },
+                        color: None,
                         // Tenths: a whole number, as no float is read in the engine.
-                        width: width.parse::<u32>().map_or(1.5, |w| w as f32 / 10.0),
-                        badge: *kind == "line",
+                        width: int(width) as f32 / 10.0,
+                        badge: *kind == "line" && style != 4,
+                        rgba: color.parse::<u32>().ok(),
+                        bar_rgba: bar_rgba.map(moved_colours),
+                        dots: style == 4,
                     };
                     study.lines.push(line);
                 }
@@ -953,21 +1008,46 @@ impl Chart {
                     let (Ok(a), Ok(b)) = (upper.parse::<usize>(), lower.parse::<usize>()) else { continue };
                     let (Some(a), Some(b)) = (FORMULA_LINES.get(a), FORMULA_LINES.get(b)) else { continue };
                     let key = FORMULA_FILLS[study.fills.len() % FORMULA_FILLS.len()];
-                    study.fills.push(StudyFill { upper: a, lower: b, key, color: colour(color).map_or("#2962ff1f", |c| c.2), crossed_key: key, crossed_color: colour(color).map_or("#2962ff1f", |c| c.2) });
+                    study.fills.push(StudyFill { upper: a, lower: b, key, color: "#2962ff1f", crossed_key: key, crossed_color: "#2962ff1f", rgba: int(color) });
                 }
                 ["mark", above, color, text] => {
                     let Some(hits) = take(n) else { return };
                     let plot = FORMULA_MARKS[study.markers.len().min(FORMULA_MARKS.len() - 1)];
-                    let tone = colour(color).map_or(Tone::Neutral, |c| Tone::Ink(c.1));
+                    let tone = Tone::Rgba(int(color));
                     for (i, hit) in hits.iter().enumerate() {
                         if *hit != 0.0 {
                             study.markers.push(StudyMarker { time: self.candles[i].open_time, above: *above == "1", text: (*text).to_string(), tone, plot, hollow: false });
                         }
                     }
                 }
+                ["bg"] => {
+                    let Some(c) = take(n) else { return };
+                    art.backgrounds.push(colours(c));
+                }
+                ["bars"] => {
+                    let Some(c) = take(n) else { return };
+                    art.bar_colors = colours(c);
+                }
+                ["line", color, width, style, extend] => {
+                    let Some(&[x1, y1, x2, y2]) = take(4) else { return };
+                    art.lines.push(ArtLine { x1, y1, x2, y2, color: int(color), width: int(width) as f32 / 10.0, style: small(style), extend: small(extend) });
+                }
+                ["label", color, text_color, place, size, plain, words] => {
+                    let Some(&[x, y]) = take(2) else { return };
+                    art.labels.push(ArtLabel { x, y, text: text(words), color: int(color), text_color: int(text_color), place: small(place), size: small(size), plain: *plain == "1" });
+                }
+                ["box", fill, border, width] => {
+                    let Some(&[x1, y1, x2, y2]) = take(4) else { return };
+                    art.boxes.push(ArtBox { x1, y1, x2, y2, fill: int(fill), border: int(border), width: int(width) as f32 / 10.0 });
+                }
+                ["table", down, across] => art.table = Some((small(down), small(across))),
+                ["cell", col, row, color, background, words] => art.cells.push(ArtCell { col: small(col), row: small(row), text: text(words), color: int(color), background: int(background) }),
                 ["error", line, _, message] => study.stats.push(("Error", if *line == "0" { (*message).to_string() } else { format!("line {line}: {message}") })),
                 _ => {}
             }
+        }
+        if art != FormulaArt::default() {
+            study.art = Some(Box::new(art));
         }
         if place < self.formulas.len() {
             self.formulas[place] = study;
@@ -1950,7 +2030,186 @@ impl Chart {
     }
 
     fn line_color(&self, owner: &str, line: &tradoor_core::studies::StudyLine, study_index: usize, line_index: usize) -> Color {
-        self.styles.of(owner, line.key).color.or_else(|| line.color.and_then(Color::parse)).unwrap_or(self.theme.study_palette[(study_index + line_index) % self.theme.study_palette.len()])
+        self.styles
+            .of(owner, line.key)
+            .color
+            .or_else(|| line.rgba.map(Color::rgba))
+            .or_else(|| line.color.and_then(Color::parse))
+            .unwrap_or(self.theme.study_palette[(study_index + line_index) % self.theme.study_palette.len()])
+    }
+
+    /// A script's colour for candle `i`, where one colours them.
+    fn bar_rgba(&self, i: usize) -> Option<Color> {
+        self.formulas.iter().filter(|s| !self.hidden.contains(&s.id)).filter_map(|s| s.art.as_ref()?.bar_colors.get(i).copied()).filter(|c| *c != 0).last().map(Color::rgba)
+    }
+
+    /// What a script shades behind its bars, in its own pane: runs of a colour as one box each.
+    fn paint_backgrounds(&self, f: &mut Frame, i0: usize, i1: usize) {
+        let half = self.time.bar_spacing as f32 / 2.0;
+        for study in self.formulas.iter().filter(|s| !self.hidden.contains(&s.id)) {
+            let Some(art) = study.art.as_ref() else { continue };
+            let Some(pane) = self.panes.iter().find(|p| p.group == study.group) else { continue };
+            for colours in &art.backgrounds {
+                let mut i = i0;
+                while i <= i1.min(colours.len().saturating_sub(1)) && !colours.is_empty() {
+                    let c = colours[i];
+                    let mut j = i;
+                    while j < i1.min(colours.len() - 1) && colours[j + 1] == c {
+                        j += 1;
+                    }
+                    if c != 0 {
+                        let (x0, x1) = (self.time.x(i as f64) as f32 - half, self.time.x(j as f64) as f32 + half);
+                        f.rect(x0, pane.plot.y, x1 - x0, pane.plot.h, Color::rgba(c).shade());
+                    }
+                    i = j + 1;
+                }
+            }
+        }
+    }
+
+    /// A script's shapes and table, in its pane: lines, boxes, then labels over them, then the table over all.
+    fn paint_art(&self, f: &mut Frame, pane: &PaneView, art: &tradoor_core::studies::FormulaArt) {
+        let t = &self.theme;
+        let x = |l: f64| self.time.x(l) as f32;
+        let y = |p: f64| pane.scale.y(p) as f32;
+        let newest = self.candles.len() as f64 - 1.0;
+        for b in &art.boxes {
+            let (x0, x1, y0, y1) = (x(b.x1).min(x(b.x2)), x(b.x1).max(x(b.x2)), y(b.y1).min(y(b.y2)), y(b.y1).max(y(b.y2)));
+            if b.fill != 0 {
+                f.rect(x0, y0, x1 - x0, y1 - y0, Color::rgba(b.fill));
+            }
+            if b.border != 0 {
+                f.stroke_rect(x0, y0, x1 - x0, y1 - y0, b.width, Color::rgba(b.border));
+            }
+        }
+        for l in &art.lines {
+            if l.color == 0 {
+                continue;
+            }
+            let (mut a, mut b) = ((x(l.x1), y(l.y1)), (x(l.x2), y(l.y2)));
+            // Extended to past the pane's edge, along its own direction.
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len = (dx * dx + dy * dy).sqrt();
+            if l.extend != 0 && len > 0.0 {
+                let far = (pane.plot.w + pane.plot.h) * 2.0 / len;
+                if l.extend & 1 != 0 {
+                    a = (a.0 - dx * far, a.1 - dy * far);
+                }
+                if l.extend & 2 != 0 {
+                    b = (b.0 + dx * far, b.1 + dy * far);
+                }
+            }
+            let color = Color::rgba(l.color);
+            match l.style {
+                1 => f.dashed_line(a.0, a.1, b.0, b.1, l.width, color, 6.0, 4.0),
+                2 => f.dashed_line(a.0, a.1, b.0, b.1, l.width, color, l.width.max(1.5), 3.0),
+                _ => f.line(a.0, a.1, b.0, b.1, l.width, color),
+            }
+        }
+        for l in &art.labels {
+            let size = t.font_px * [0.8, 0.9, 1.0, 1.25][usize::from(l.size.min(3))];
+            let lines: Vec<&str> = l.text.split('\n').collect();
+            let widest = lines.iter().map(|s| s.chars().count()).max().unwrap_or(0) as f32;
+            let (pad_x, pad_y, gap, leading) = (5.0, 3.0, 7.0, size * 1.3);
+            let (w, h) = (widest * self.char_width * size / t.font_px + pad_x * 2.0, lines.len() as f32 * leading + pad_y * 2.0);
+            let (px, py) = (x(l.x), y(l.y));
+            let (mut left, top) = match l.place {
+                0 => (px - w / 2.0, py - gap - h),
+                1 => (px - w / 2.0, py + gap),
+                2 => (px - gap - w, py - h / 2.0),
+                3 => (px + gap, py - h / 2.0),
+                _ => (px - w / 2.0, py - h / 2.0),
+            };
+            // Kept whole in the pane, moved along: one at a bar in view, and one at the newest bar or
+            // past it, which would run off the right edge (the chart keeps little room after its bars).
+            let plot = pane.plot;
+            let ahead = l.x >= newest;
+            let was = left;
+            if (ahead || (px >= plot.x && px <= plot.x + plot.w)) && w + 4.0 < plot.w {
+                left = left.min(plot.x + plot.w - w - 2.0).max(plot.x + 2.0);
+            }
+            let moved = left != was;
+            let boxed = !l.plain && l.color != 0;
+            if boxed {
+                let fill = Color::rgba(l.color);
+                f.rect(left, top, w, h, fill);
+                // A point from the box to its price.
+                match l.place {
+                    0 => f.triangle((px - 4.0, top + h), (px + 4.0, top + h), (px, py - 2.0), fill),
+                    1 => f.triangle((px - 4.0, top), (px + 4.0, top), (px, py + 2.0), fill),
+                    2 if !moved => f.triangle((left + w, py - 4.0), (left + w, py + 4.0), (px - 2.0, py), fill),
+                    3 if !moved => f.triangle((left, py - 4.0), (left, py + 4.0), (px + 2.0, py), fill),
+                    _ => {}
+                }
+            }
+            let ink = if l.text_color != 0 {
+                Color::rgba(l.text_color)
+            } else if boxed {
+                Color::rgba(l.color).ink()
+            } else if l.color != 0 {
+                Color::rgba(l.color)
+            } else {
+                t.text
+            };
+            for (k, line) in lines.iter().enumerate() {
+                f.text(left + w / 2.0, top + pad_y + leading * (k as f32 + 0.5), (*line).to_string(), ink, Align::Center, Baseline::Middle, size, None, Some(pane.plot));
+            }
+        }
+        if let (Some((down, across)), false) = (art.table, art.cells.is_empty()) {
+            let size = t.font_px - 1.0;
+            let cols = art.cells.iter().map(|c| usize::from(c.col) + 1).max().unwrap_or(0);
+            let rows = art.cells.iter().map(|c| usize::from(c.row) + 1).max().unwrap_or(0);
+            let mut widths = vec![0f32; cols];
+            for c in &art.cells {
+                let w = c.text.chars().count() as f32 * self.char_width * size / t.font_px + 14.0;
+                widths[usize::from(c.col)] = widths[usize::from(c.col)].max(w);
+            }
+            let (row_h, margin) = (size * 1.6, 8.0);
+            let (tw, th) = (widths.iter().sum::<f32>(), rows as f32 * row_h);
+            let plot = pane.plot;
+            let left = match across {
+                0 => plot.x + margin,
+                1 => plot.x + (plot.w - tw) / 2.0,
+                _ => plot.right() - tw - margin,
+            };
+            let top = match down {
+                0 => plot.y + margin,
+                1 => plot.y + (plot.h - th) / 2.0,
+                _ => plot.bottom() - th - margin,
+            };
+            f.rect(left, top, tw, th, t.label_background.with_alpha(230));
+            for c in &art.cells {
+                let cx = left + widths[..usize::from(c.col)].iter().sum::<f32>();
+                let cy = top + f32::from(c.row) * row_h;
+                let w = widths[usize::from(c.col)];
+                if c.background != 0 {
+                    f.rect(cx, cy, w, row_h, Color::rgba(c.background));
+                }
+                let ink = if c.color != 0 { Color::rgba(c.color) } else { t.text };
+                f.text(cx + 7.0, cy + row_h / 2.0, c.text.clone(), ink, Align::Left, Baseline::Middle, size, None, Some(plot));
+            }
+        }
+    }
+
+    /// A line coloured bar by bar: each stretch in the colour of the bar it ends at.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_coloured(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], colours: &[u32], i0: usize, i1: usize, width: f32, pattern: Pattern) {
+        let end = i1.min(values.len().saturating_sub(1));
+        let mut prev: Option<(f32, f32)> = None;
+        for i in i0..=end {
+            let Some(v) = values[i] else {
+                prev = None;
+                continue;
+            };
+            let p = (self.time.x(i as f64) as f32, scale.y(v) as f32);
+            let c = colours.get(i).copied().unwrap_or(0);
+            if let Some(a) = prev
+                && c != 0
+            {
+                stroke(f, &[a, p], width, Color::rgba(c), pattern);
+            }
+            prev = Some(p);
+        }
     }
 
     fn paint(&self, f: &mut Frame, now: i64) {
@@ -1987,6 +2246,7 @@ impl Chart {
             tpo_tags = tpo::paint(f, &view, profiles, &self.tpo_settings);
         }
         let ribbon_style = |bullish: bool| self.styles.of("ribbon", if bullish { "bull" } else { "bear" });
+        self.paint_backgrounds(f, i0, i1);
         if !tpo && !foot && !self.hidden.contains("ribbon") {
             for run in self.ribbon.iter().filter(|run| !ribbon_style(run.bullish).off) {
                 let pts = visible_slice(&run.points, from - 1.0, to + 1.0);
@@ -2022,7 +2282,7 @@ impl Chart {
             let Some(b) = self.bar(i) else { continue };
             let s = &price.scale;
             let x = f.snap(self.time.x(i as f64) as f32);
-            let base = if b.close >= b.open { t.bull } else { t.bear };
+            let base = self.bar_rgba(i).unwrap_or(if b.close >= b.open { t.bull } else { t.bear });
             let fill = base.with_alpha(if b.live { 0x80 } else { t.candle_alpha });
             let (yh, yl, yo, yc) = (s.y(b.high) as f32, s.y(b.low) as f32, s.y(b.open) as f32, s.y(b.close) as f32);
             let (top, bottom) = (yo.min(yc), yo.max(yc));
@@ -2096,11 +2356,26 @@ impl Chart {
                 match (line.kind, line.style) {
                     _ if own.off => {}
                     (LineType::Histogram, _) => {
-                        // A formula's histogram in the colour it names; else above zero and below in the theme's.
-                        let own = (study.kind == StudyKind::Formula).then(|| own.color.or_else(|| line.color.and_then(Color::parse))).flatten();
-                        self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body, &study.id, own);
+                        // A formula's histogram in the colour it names, or bar by bar; else above zero and below in the theme's.
+                        let own_colour = (study.kind == StudyKind::Formula).then(|| own.color.or_else(|| line.rgba.map(Color::rgba)).or_else(|| line.color.and_then(Color::parse))).flatten();
+                        let bars = line.bar_rgba.as_deref().filter(|_| own.color.is_none());
+                        self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body, &study.id, own_colour, bars);
                     }
                     (LineType::Line, LineStyle::None) => {}
+                    (LineType::Line, _) if line.dots => {
+                        let color = self.line_color(&study.id, line, index, li);
+                        for (i, v) in line.values.iter().enumerate().take(far.saturating_add(1)).skip(i0) {
+                            let Some(v) = v else { continue };
+                            let c = line.bar_rgba.as_ref().filter(|_| own.color.is_none()).and_then(|b| b.get(i).copied()).map_or(color, Color::rgba);
+                            if c.a > 0 {
+                                f.circle(self.time.x(i as f64) as f32, pane.scale.y(*v) as f32, own.width.unwrap_or(line.width).max(1.0) + 0.5, c);
+                            }
+                        }
+                    }
+                    (LineType::Line, _) if line.bar_rgba.is_some() && own.color.is_none() => {
+                        let colours = line.bar_rgba.as_deref().unwrap_or(&[]);
+                        self.paint_coloured(f, &pane.scale, &line.values, colours, i0, far, own.width.unwrap_or(line.width), own.pattern.unwrap_or(line.pattern));
+                    }
                     (LineType::Line, LineStyle::Tag) => tags.extend(line.values.iter().rev().flatten().next().map(|v| (pane.scale.y(*v) as f32, line.label.clone(), self.line_color(&study.id, line, index, li)))),
                     (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, far, self.line_color(&study.id, line, index, li), own.width.unwrap_or(line.width), style, own.pattern.unwrap_or(line.pattern)),
                 }
@@ -2141,6 +2416,7 @@ impl Chart {
                     Tone::Bear => t.bear,
                     Tone::Neutral => t.text,
                     Tone::Ink(ink) => Color::parse(ink).unwrap_or(t.text),
+                    Tone::Rgba(v) => Color::rgba(v),
                 });
                 let radius = if m.text.is_empty() { 5.0 } else { 2.5 };
                 let y = if m.above { pane.scale.y(c.high) as f32 - 3.0 - 2.0 * radius } else { pane.scale.y(c.low) as f32 + 3.0 + 2.0 * radius };
@@ -2153,6 +2429,9 @@ impl Chart {
                     let (gap, baseline) = if m.above { (-5.0, Baseline::Bottom) } else { (5.0, Baseline::Top) };
                     f.text(x, y + gap, m.text.clone(), color, Align::Center, baseline, t.font_px - 1.0, None, Some(pane.plot));
                 }
+            }
+            if let Some(art) = study.art.as_ref() {
+                self.paint_art(f, &pane, art);
             }
         }
 
@@ -2509,7 +2788,7 @@ impl Chart {
         }
         let paint = |key: &str, color: &str| {
             let own = self.styles.of(&study.id, key);
-            if own.off { None } else { own.color.or_else(|| Color::parse(color)) }
+            if own.off { None } else { own.color.or_else(|| (fill.rgba != 0).then(|| Color::rgba(fill.rgba).shade())).or_else(|| Color::parse(color)) }
         };
         let (over, under) = (paint(fill.key, fill.color), paint(fill.crossed_key, fill.crossed_color));
         let (mut top, mut bottom) = (Vec::new(), Vec::new());
@@ -2660,7 +2939,8 @@ impl Chart {
 
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
-    fn paint_histogram(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, body: f32, owner: &str, color: Option<Color>) {
+    #[allow(clippy::too_many_arguments)]
+    fn paint_histogram(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, body: f32, owner: &str, color: Option<Color>, bars: Option<&[u32]>) {
         let zero = scale.y(0.0) as f32;
         let w = (body * 0.7).max(1.0 / f.dpr);
         let (above, below) = match color {
@@ -2671,7 +2951,13 @@ impl Chart {
             let Some(v) = *v else { continue };
             let y = scale.y(v) as f32;
             let x = f.snap(self.time.x(i as f64) as f32);
-            f.crisp_rect(x - w / 2.0, y.min(zero), w, (y - zero).abs().max(1.0 / f.dpr), if v >= 0.0 { above } else { below });
+            let ink = match bars.and_then(|b| b.get(i).copied()) {
+                Some(0) => continue,
+                Some(c) => Color::rgba(c),
+                None if v >= 0.0 => above,
+                None => below,
+            };
+            f.crisp_rect(x - w / 2.0, y.min(zero), w, (y - zero).abs().max(1.0 / f.dpr), ink);
         }
     }
 
@@ -4438,29 +4724,56 @@ mod tests {
     fn a_formula_draws_as_a_study_in_a_pane_of_its_own() {
         let mut c = chart();
         let n = c.candles().len();
+        let (blue, red) = (0x2962_ffff_u32, 0xff4d_5fff_u32);
         let mut values: Vec<f64> = (0..n).map(|i| i as f64).collect();
         values.extend(vec![f64::NAN; n]);
         let mut hits = vec![0.0; n];
         hits[n - 5] = 1.0;
         values.extend(hits);
-        let meta = "pane\t1\nplot\tline\t5\t15\tA\nplot\thistogram\t255\t15\tB\nfill\t0\t1\t5\nmark\t1\t2\tSell\n";
-        c.set_formula("fx-abc:14", "Mine 14", meta, &values);
+        // A line, a label and a box, each its points; a background a colour a bar.
+        values.extend([1.0, 100.0, 5.0, 110.0, 3.0, 105.0, 2.0, 90.0, 6.0, 95.0]);
+        values.extend((0..n).map(|i| if i % 2 == 0 { f64::from(red) } else { 0.0 }));
+        let meta = format!(
+            "pane\t1\nplot\tline\t{blue}\t15\t0\t0\t0\tA\nplot\thistogram\t-\t15\t0\t0\t0\tB\nfill\t0\t1\t{blue}\nmark\t1\t{red}\tSell\nline\t{blue}\t20\t1\t2\nlabel\t{red}\t0\t0\t1\t0\tHH\x1f+2%\nbox\t{blue}\t{red}\t10\nbg\ntable\t2\t0\ncell\t1\t0\t{red}\t0\tAvg rise\n"
+        );
+        c.set_formula("fx-abc:14", "Mine 14", &meta, &values);
         let study = c.formulas.iter().find(|s| s.id == "fx-abc:14").expect("kept");
         assert_eq!((study.group, study.lines.len(), study.fills.len(), study.markers.len()), (Group::Formula(0), 2, 1, 1));
-        assert_eq!(study.lines[0].color, Some("#2962ff"));
-        assert_eq!(study.lines[1].color, None, "a histogram with no colour named takes the theme's, by sign");
+        assert_eq!(study.lines[0].rgba, Some(blue));
+        assert_eq!(study.lines[1].rgba, None, "a histogram with no colour named takes the theme's, by sign");
         assert_eq!(study.lines[0].values[3], Some(3.0));
-        assert!(study.markers[0].above && study.markers[0].text == "Sell");
+        assert!(study.markers[0].above && study.markers[0].text == "Sell" && study.markers[0].tone == Tone::Rgba(red));
+        let art = study.art.as_ref().expect("its shapes");
+        assert_eq!((art.lines.len(), art.labels.len(), art.boxes.len(), art.backgrounds.len(), art.cells.len()), (1, 1, 1, 1, 1));
+        assert_eq!((art.lines[0].width, art.lines[0].style, art.lines[0].extend), (2.0, 1, 2));
+        assert_eq!(art.labels[0].text, "HH\n+2%", "a label keeps its line breaks");
+        assert_eq!((art.table, art.cells[0].text.as_str()), (Some((2, 0)), "Avg rise"));
         assert!(c.studies_meta().iter().any(|m| m.id == "fx-abc:14" && m.group == "fx0" && m.lines.len() == 2));
-        c.render(1_800_000_000_000);
+        let frame = c.render(1_800_000_000_000);
+        assert!(frame.texts.iter().any(|t| t.text == "HH") && frame.texts.iter().any(|t| t.text == "+2%"), "the label's two lines");
+        assert!(frame.texts.iter().any(|t| t.text == "Avg rise"), "the table");
         assert!(c.panes.iter().any(|p| p.group == Group::Formula(0)), "drawn below the chart");
         // Values for other bars than the chart's are let go; an error is said in the legend.
-        c.set_formula("fx-abc:14", "Mine 14", meta, &values[..10]);
+        c.set_formula("fx-abc:14", "Mine 14", &meta, &values[..10]);
         assert_eq!(c.formulas[0].lines.len(), 2, "the last good lines stand");
         c.set_formula("fx-bad", "Bad", "error\t3\t5\tema(value, length)\n", &[]);
         assert_eq!(c.formulas[1].stats, vec![("Error", "line 3: ema(value, length)".to_string())]);
         c.keep_formulas("fx-bad");
         assert!(c.formulas.iter().all(|s| s.id != "fx-abc:14"));
+    }
+
+    #[test]
+    fn a_script_colours_its_candles_and_moves_a_line_by_its_offset() {
+        let mut c = chart();
+        let n = c.candles().len();
+        let mut values: Vec<f64> = (0..n).map(|i| i as f64).collect();
+        values.extend((0..n).map(|_| f64::from(0xffeb_3bff_u32)));
+        let meta = "plot\tline\t4278190335\t15\t0\t26\t0\tLead\nbars\n";
+        c.set_formula("fx-lead", "Lead", meta, &values);
+        let study = &c.formulas[0];
+        assert_eq!(study.lines[0].values.len(), n + 26, "on into the space ahead of the newest bar");
+        assert_eq!((study.lines[0].values[25], study.lines[0].values[26]), (None, Some(0.0)));
+        assert_eq!(c.bar_rgba(3), Some(Color::rgba(0xffeb_3bff)));
     }
 
     #[test]

@@ -1,0 +1,36 @@
+// Moon phases
+// A mark over the bar a full moon falls in, and under the bar a new one does:
+// the mean lunation and its seven largest corrections, after Meeus,
+// Astronomical Algorithms, chapter 49. Each phase is good to a few minutes.
+
+// The moment of lunation k, in ms: new at a whole k, full halfway to the next.
+fn phaseAt(k) {
+  t = k / 1236.85
+  e = 1 - 0.002516 * t - 0.0000074 * t * t
+  m = (2.5534 + 29.1053567 * k - 0.0000014 * t * t) * pi / 180
+  moon = (201.5643 + 385.81693528 * k + 0.0107582 * t * t) * pi / 180
+  f = (160.7108 + 390.67050284 * k - 0.0016118 * t * t) * pi / 180
+  full = k - floor(k) > 0.25
+  corrections = full ? -0.40614 * sin(moon) + 0.17302 * e * sin(m) + 0.01614 * sin(2 * moon) + 0.01043 * sin(2 * f) + 0.00734 * e * sin(moon - m) - 0.00515 * e * sin(moon + m) + 0.00209 * e * e * sin(2 * m) : -0.4072 * sin(moon) + 0.17241 * e * sin(m) + 0.01608 * sin(2 * moon) + 0.01039 * sin(2 * f) + 0.00739 * e * sin(moon - m) - 0.00514 * e * sin(moon + m) + 0.00208 * e * e * sin(2 * m)
+  jd = 2451550.09766 + 29.530588861 * k + 0.00015437 * t * t + corrections
+  // Dynamical time runs about 69 seconds ahead of UTC these years.
+  return (jd - 2440587.5) * 86400000 - 69000
+}
+
+// The half-lunations that can fall in this bar: the one it is in, and those either side.
+lunation = (time / 86400000 + 2440587.5 - 2451550.09766) / 29.530588861
+half = floor(lunation * 2)
+fullHere = false
+newHere = false
+for h = half - 1 to half + 1 {
+  at = phaseAt(h / 2)
+  if at >= time and at < time + interval {
+    if h % 2 == 1 {
+      fullHere = true
+    } else {
+      newHere = true
+    }
+  }
+}
+mark(fullHere, "", above, #f5efc8)
+mark(newHere, "", below, #9aa0a6)

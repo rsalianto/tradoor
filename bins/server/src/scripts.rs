@@ -461,7 +461,7 @@ mod tests {
         for (market, tf) in [("BTCUSDT", "1h"), ("Binance:BTC", "1h"), ("binance-perp:BTC<b>", "1h"), ("binance-perp:BTCUSDT", "1 hour"), ("binance-perp:BTCUSDT", "")] {
             assert!(p(market, tf, vec![]).is_none(), "{market} {tf}");
         }
-        assert!(p("binance-perp:BTCUSDT", "1h", vec![f64::NAN]).is_none() && p("binance-perp:BTCUSDT", "1h", vec![1.0; 17]).is_none());
+        assert!(p("binance-perp:BTCUSDT", "1h", vec![f64::NAN]).is_none() && p("binance-perp:BTCUSDT", "1h", vec![1.0; tradoor_formula::MAX_INPUTS + 1]).is_none());
     }
 
     #[test]

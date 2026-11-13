@@ -1,0 +1,23 @@
+// Anchored VWAP: since the session, the week, the month and the year opened
+// The average price paid since each began: each bar's typical price (high + low
+// + close) / 3, weighted by its volume. The session line only where bars are
+// shorter than a day.
+
+// The average since `fresh` was last true: its sums kept by each call, bar to bar.
+fn vwapSince(fresh) {
+  state volumeSum = 0
+  state priceSum = 0
+  if fresh {
+    volumeSum = 0
+    priceSum = 0
+  }
+  volumeSum = volumeSum + volume
+  priceSum = priceSum + hlc3 * volume
+  return volumeSum > 0 ? priceSum / volumeSum : na
+}
+
+session = vwapSince(changed(day))
+plot(interval < 86400000 ? session : na, "Session", #2962ff, 1)
+plot(vwapSince(changed(week)), "Weekly", #ffa726, 2)
+plot(vwapSince(changed(month)), "Monthly", #e040fb, 2)
+plot(vwapSince(changed(year)), "Yearly", #e8e8e8, 2)

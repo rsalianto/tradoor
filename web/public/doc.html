@@ -86,11 +86,16 @@
       <li><a href="#history">Looking back: x[n]</a></li>
       <li><a href="#logic">Arithmetic and logic</a></li>
       <li><a href="#na">No value: na</a></li>
-      <li><a href="#flow">if and for</a></li>
+      <li><a href="#texts">Texts</a></li>
+      <li><a href="#flow">if, for and while</a></li>
+      <li><a href="#lists">Lists</a></li>
+      <li><a href="#functions">Functions of your own</a></li>
       <li><a href="#remember">Functions over bars</a></li>
       <li><a href="#math">Maths</a></li>
-      <li><a href="#drawing">Drawing</a></li>
       <li><a href="#colours">Colours</a></li>
+      <li><a href="#drawing">Plots, marks and shading</a></li>
+      <li><a href="#shapes">Lines, labels and boxes</a></li>
+      <li><a href="#table">The table</a></li>
       <li><a href="#examples">Examples</a></li>
       <li><a href="#from-pine">From Pine Script, with an AI</a></li>
       <li><a href="#mistakes">Mistakes and messages</a></li>
@@ -105,17 +110,17 @@
 
   <main>
     <h1 id="frost-script"><svg class="ice" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L12 22M3.3 7L20.7 17M3.3 17L20.7 7M12 6.4L10 4.2M12 6.4L14 4.2M7.2 9.2L4.2 9.8M7.2 9.2L6.2 6.3M7.2 14.8L6.2 17.7M7.2 14.8L4.2 14.2M12 17.6L14 19.8M12 17.6L10 19.8M16.8 14.8L19.8 14.2M16.8 14.8L17.8 17.7M16.8 9.2L17.8 6.3M16.8 9.2L19.8 9.8"/></svg>Frost Script</h1>
-    <p class="lede">tradoor's own language for indicators: a few readable lines that work out a value on every bar and draw it — on the chart or in a pane of its own — with settings, signals and the same numbers as the built-in indicators.</p>
+    <p class="lede">tradoor's own language for indicators: readable lines that work out a value on every bar and draw it — lines, histograms, levels, marks, shapes, labels and a table, on the chart or in a pane of their own — with settings of every kind and the same numbers as the built-in indicators.</p>
 
-    <p>A script reads the chart's candles and gives back lines, levels and marks. That is all it can do: it has no word for the network, your account, your browser or the page, so a script someone else wrote can draw wrong lines at worst, and nothing more. See <a href="#safety">Safety</a>.</p>
-    <p>Every built-in indicator that can be written in Frost Script shows its own source: open its settings and the <b>Source</b> tab. They are the best place to start.</p>
+    <p>A script reads the chart's candles and gives back what to draw. That is all it can do: it has no word for the network, your account, your browser or the page, so a script someone else wrote can draw wrong lines at worst, and nothing more. See <a href="#safety">Safety</a>.</p>
+    <p>Every built-in indicator that can be written in Frost Script shows its own source: open its settings and the <b>Source</b> tab — the EMA ribbon, Ichimoku, the swing map and the key levels among them. Each gives exactly the numbers the built-in does, and they are the best place to start.</p>
 
     <h2 id="start">Your first script</h2>
     <ol>
       <li>On a chart, open <b>Add an indicator</b> and press <b>New Frost Script</b>. Writing a script needs you <a href="#account">signed in with Telegram</a>.</li>
       <li>The editor opens on a small script. Change it, or start from one of the examples on the left.</li>
       <li>Under the text it says <b>✓ Checks</b>, or which line and column a mistake is on — click the message to go there.</li>
-      <li><b>Save and add to chart</b>. The script is now one of your indicators, in the picker under <b>Frost Script</b>, with its own settings, style and source.</li>
+      <li><b>Save and add to chart</b>. The script is now one of your indicators, in the picker under <b>My scripts</b>, with its own settings, style and source.</li>
     </ol>
 <pre><code><span class="c">// A moving average, and a mark where price crosses above it</span>
 input length = 20 min 2 max 500 "Length"
@@ -126,17 +131,19 @@ mark(crossover(close, average), "Up", below, green)</code></pre>
     <h2 id="runs">How a script runs</h2>
     <p>The script is worked out once for every bar on the chart, from the oldest to the newest, top to bottom. On each bar, <code>close</code> is that bar's close, a variable holds what it was set to on that bar, and <code>plot</code> puts that bar's point on the line.</p>
     <ul>
-      <li>It runs over the chart's <b>closed bars</b>, as the built-in indicators do, and again as each new bar closes. The bar still forming is not part of it.</li>
+      <li>It runs over the chart's <b>closed bars</b>, as the built-in indicators do, and again as each new bar closes. The bar still forming is not part of it: the newest closed bar is the last, and <code>islast</code> is true on it.</li>
       <li>It runs in your browser, in tradoor's own engine for Frost Script. Nothing of it runs on the server.</li>
     </ul>
 
     <h2 id="syntax">Writing it down</h2>
     <ul>
-      <li>One statement a line. <code>;</code> also ends one, so two may share a line.</li>
+      <li>One statement a line. <code>;</code> also ends one, so two may share a line. Inside round brackets a statement may run on over several lines.</li>
       <li><code>//</code> starts a note, to the end of the line.</li>
-      <li>Numbers are written <code>14</code>, <code>2.5</code>, <code>.5</code>. Text goes in double quotes, and only in titles and labels: <code>"RSI"</code>.</li>
+      <li>Numbers are written <code>14</code>, <code>2.5</code>, <code>.5</code>: digits and one point, 15 digits at most. Texts go in double quotes: <code>"RSI"</code>; <code>"\n"</code> is a line break in one.</li>
+      <li>Colours are written by name, as <code>#rrggbb</code>, or with <code>rgb()</code>: see <a href="#colours">Colours</a>.</li>
       <li>Names are letters, digits and <code>_</code>, starting with a letter or <code>_</code>, up to 40 long. Capitals count: <code>Length</code> is not <code>length</code>.</li>
-      <li>These words belong to the language: <code>input state if else for to and or not pane na true false</code>. So do the bar values, function names and colour names below — a variable cannot take them.</li>
+      <li>These words belong to the language: <code>input state if else for to while break continue fn return and or not pane na true false</code>, and so do the bar values, function, colour and style names below. A variable cannot take them.</li>
+      <li>What a function is given goes in order, or by name: <code>plot(x, "X", width = 2)</code>, <code>line(a, b, c, d, color = red, style = dashed)</code>.</li>
     </ul>
 
     <h2 id="values">Bar values</h2>
@@ -144,56 +151,61 @@ mark(crossover(close, average), "Up", below, green)</code></pre>
       <tr><th>Name</th><th>On each bar</th></tr>
       <tr><td><code>open high low close</code></td><td>Its prices.</td></tr>
       <tr><td><code>volume</code></td><td>What traded in it.</td></tr>
-      <tr><td><code>hl2</code></td><td>(high + low) / 2</td></tr>
-      <tr><td><code>hlc3</code></td><td>(high + low + close) / 3 — the typical price VWAP weighs</td></tr>
-      <tr><td><code>ohlc4</code></td><td>(open + high + low + close) / 4</td></tr>
+      <tr><td><code>hl2 hlc3 ohlc4</code></td><td>(high + low) / 2, (high + low + close) / 3, (open + high + low + close) / 4</td></tr>
       <tr><td><code>tr</code></td><td>True range: the larger of high − low and how far either reaches from the close before. On the first bar, high − low.</td></tr>
-      <tr><td><code>bar</code></td><td>Its place: 0 for the first bar the chart holds, then 1, 2, …</td></tr>
-      <tr><td><code>time</code></td><td>When it opened, in milliseconds since 1970, UTC.</td></tr>
-      <tr><td><code>day week month year</code></td><td>Which UTC day, week (from Monday), month and year it is in, as a number that changes when a new one begins: <code>changed(week)</code> is true on a week's first bar.</td></tr>
+      <tr><td><code>bar</code></td><td>Its place: 0 for the first bar the chart holds, then 1, 2, … <code>lastbar</code> is the newest's.</td></tr>
+      <tr><td><code>isfirst islast</code></td><td>True on the first bar, and on the newest closed one.</td></tr>
+      <tr><td><code>time</code></td><td>When it opened, in milliseconds since 1970, UTC. <code>interval</code> is a bar's length, in milliseconds.</td></tr>
+      <tr><td><code>day week month year</code></td><td>Which UTC day, week (from Monday), month and year it is in, as a number that changes when a new one begins: <code>changed(week)</code> is true on a week's first bar. <code>year</code> is also the year itself.</td></tr>
+      <tr><td><code>hour minute dayofweek dayofmonth monthofyear</code></td><td>Its time, UTC. <code>dayofweek</code> is 1 on a Sunday, 2 on a Monday, as Pine counts; the words <code>sunday</code> to <code>saturday</code> stand for those numbers.</td></tr>
+      <tr><td><code>tick decimals</code></td><td>The market's price step, and how many decimals its prices are written with.</td></tr>
       <tr><td><code>na</code></td><td>No value. See <a href="#na">na</a>.</td></tr>
       <tr><td><code>true false</code></td><td>1 and 0.</td></tr>
     </table>
 
     <h2 id="settings">Settings</h2>
 <pre><code>input length = 14 min 2 max 500 "Length"
-input mult = 2 min 0.1 max 10 step 0.1 "Multiplier"</code></pre>
+input mult = 2 min 0.1 max 10 step 0.1 "Multiplier"
+input showLabels = true "Show labels"
+input lineColor = #2962ff "Line colour"
+input size = "small" from "tiny", "small", "normal", "large" "Label size"
+input start = date(2024, 1, 1) "Range start"</code></pre>
     <ul>
-      <li><code>input name = default</code>, then any of <code>min</code>, <code>max</code>, <code>step</code> and a label in quotes. The label is what the settings dialog shows; without one it shows the name.</li>
-      <li>A setting is the same on every bar. Use it anywhere a number goes, and as a length.</li>
-      <li>A setting takes whole numbers when its default is whole and its step, if it has one, is whole too. Otherwise it moves by its step, 0.1 if none is given.</li>
-      <li>The default must be between <code>min</code> and <code>max</code>. A value typed in the settings is kept to that range.</li>
-      <li>Up to 16 settings. They go at the top level, not inside <code>if</code> or <code>for</code>.</li>
+      <li>A setting is a <b>number</b>, a tick (<code>true</code> or <code>false</code>), a <b>colour</b>, a <b>choice</b> of texts, or a <b>moment</b> (<code>date(year, month, day, hour, minute)</code>, UTC). Its settings dialog shows a number field, a tick box, a colour picker, a list or a date to match.</li>
+      <li>A number takes any of <code>min</code>, <code>max</code> and <code>step</code>. It takes whole numbers when its default is whole and its step, if it has one, is whole too.</li>
+      <li>A choice's value is the text chosen: <code>size == "small"</code>.</li>
+      <li>The label in quotes is what the settings dialog shows; without one it shows the name.</li>
+      <li>A setting is the same on every bar: use it anywhere a number goes, and as a length. Up to 32, at the top level.</li>
     </ul>
 
     <h2 id="variables">Variables and state</h2>
 <pre><code>range = high - low                 <span class="c">// set on every bar</span>
-state count = 0                    <span class="c">// starts at 0 on the first bar…</span>
+state count = 0                    <span class="c">// starts at 0 the first time…</span>
 count = count + 1                  <span class="c">// …and keeps its value from bar to bar</span></code></pre>
     <ul>
       <li><code>name = value</code> sets a variable for this bar. A plain variable starts every bar with no value, until a line sets it.</li>
-      <li><code>state name = start</code> starts once, on the first bar, and keeps its value from one bar to the next: a running total, a trend, a stop that trails. Its start is a plain value — a number, a setting, <code>na</code> — not a function over bars.</li>
-      <li>A variable may be set again lower down, or inside <code>if</code> and <code>for</code>; it holds the last value set.</li>
+      <li><code>state name = start</code> starts once, the first time the line is reached, and keeps its value from one bar to the next: a running total, a trend, a stop that trails, the line it drew. Its start is a plain value — a number, a text, a setting, <code>na</code> — not a function over bars.</li>
+      <li>A variable holds a number or a text, and keeps to the one it was first set to.</li>
       <li>A variable can be read before the line that sets it, as <code>average[1]</code> in its own definition.</li>
+      <li>A variable may share a function's name — <code>sum</code>, <code>label</code>, <code>rising</code> — as a call has brackets; not a bar value's, a colour's or a word of the language's.</li>
     </ul>
 
     <h2 id="history">Looking back: x[n]</h2>
 <pre><code>gap = open - close[1]              <span class="c">// from the close a bar ago</span>
-rising = close > close[1] and close[1] > close[2]</code></pre>
+climbing = close > close[1] and close[1] > close[2]</code></pre>
     <ul>
       <li><code>x[n]</code> is what <code>x</code> ended bar n bars ago on. <code>x[0]</code> is <code>x</code> now.</li>
-      <li>It works on variables and on the bar values: <code>close[1]</code>, <code>high[i]</code> in a loop.</li>
-      <li><code>n</code> is from 0 to 5,000, and can be worked out: <code>close[length]</code>, <code>low[i]</code>. Before the first bar there is no value.</li>
-      <li>A setting has no past: it is the same on every bar.</li>
+      <li>It works on number variables and on the bar values: <code>close[1]</code>, <code>high[i]</code> in a loop. To look back at a sum, name it first.</li>
+      <li><code>n</code> is from 0 to 5,000, and can be worked out: <code>close[length]</code>. Before the first bar there is no value.</li>
     </ul>
 
     <h2 id="logic">Arithmetic and logic</h2>
     <table>
       <tr><th>Write</th><th>Means</th></tr>
-      <tr><td><code>+ - * / %</code></td><td>Add, subtract, multiply, divide, remainder. <code>-x</code> turns the sign.</td></tr>
-      <tr><td><code>== != &lt; &lt;= &gt; &gt;=</code></td><td>Compare: 1 when true, 0 when not.</td></tr>
+      <tr><td><code>+ - * / %</code></td><td>Add, subtract, multiply, divide, remainder. <code>-x</code> turns the sign. <code>+</code> also joins texts.</td></tr>
+      <tr><td><code>== != &lt; &lt;= &gt; &gt;=</code></td><td>Compare: 1 when true, 0 when not. Texts compare with <code>==</code> and <code>!=</code>.</td></tr>
       <tr><td><code>and or not</code></td><td>Logic. Any number other than 0 is true; 0 and <code>na</code> are not.</td></tr>
-      <tr><td><code>c ? a : b</code></td><td><code>a</code> where <code>c</code> is true, else <code>b</code>.</td></tr>
+      <tr><td><code>c ? a : b</code></td><td><code>a</code> where <code>c</code> is true, else <code>b</code>: both numbers, or both texts.</td></tr>
       <tr><td><code>( )</code></td><td>First. Then <code>-x</code>; then <code>* / %</code>; then <code>+ -</code>; then comparisons; then <code>not</code>, <code>and</code>, <code>or</code>; then <code>? :</code>.</td></tr>
     </table>
 
@@ -201,12 +213,25 @@ rising = close > close[1] and close[1] > close[2]</code></pre>
     <p>A value can be missing: an average before it has enough bars, <code>close[1]</code> on the first bar, a division by zero. Frost Script calls it <code>na</code>, and a line simply has a gap where its value is <code>na</code>.</p>
     <ul>
       <li>Arithmetic with <code>na</code> gives <code>na</code>; so does a division by zero.</li>
-      <li>A comparison with <code>na</code> is not true, so an <code>if</code> on it does not run.</li>
+      <li>A comparison with <code>na</code> is not true, so an <code>if</code> on it does not run — and <code>x != y</code> is not true where <code>x</code> is <code>na</code>: write <code>isna(x) or x != y</code>.</li>
       <li><code>max(na, 0)</code> is <code>na</code>, not 0: no value in, no value out.</li>
-      <li><code>isna(x)</code> asks; <code>nz(x)</code> gives 0 for <code>na</code>, <code>nz(x, y)</code> gives <code>y</code>.</li>
+      <li><code>isna(x)</code> asks; <code>nz(x)</code> gives 0 for <code>na</code>, <code>nz(x, y)</code> gives <code>y</code>. As a colour, <code>na</code> is none: nothing is drawn.</li>
     </ul>
 
-    <h2 id="flow">if and for</h2>
+    <h2 id="texts">Texts</h2>
+<pre><code>tag = close > open ? "Up" : "Down"
+line1 = tag + " " + str(round(change(close), 2))
+note = "Since " + duration(time - time[10]) + "\nat " + str(close, decimals)</code></pre>
+    <table>
+      <tr><th>Write</th><th>Gives</th></tr>
+      <tr><td><code>"text" + "text"</code></td><td>The two joined. A number joined to a text is written plainly.</td></tr>
+      <tr><td><code>str(x)</code></td><td>A number as a text: whole numbers bare, others to up to 8 decimals.</td></tr>
+      <tr><td><code>str(x, 2)</code></td><td>To 2 decimals. <code>str(x, decimals)</code> writes it as the market writes a price.</td></tr>
+      <tr><td><code>duration(ms)</code></td><td>A stretch of time: <code>3h</code>, <code>2d 4h</code>.</td></tr>
+    </table>
+    <p>Texts go into titles, labels, the table and settings' choices; a text a script makes is cut at 1,000 characters.</p>
+
+    <h2 id="flow">if, for and while</h2>
 <pre><code>input length = 10 min 1 max 100
 if close > open {
   colour = 1
@@ -219,32 +244,66 @@ if close > open {
 total = 0
 for i = 0 to length - 1 {
   total = total + volume[i]
+}
+for k = 9 to 0 by -1 {             <span class="c">// down, by any step</span>
+  if close[k] > open[k] {
+    break
+  }
 }</code></pre>
     <ul>
       <li>Blocks go in braces. <code>else</code> may start the line after the closing brace.</li>
-      <li><code>for i = a to b</code> counts up from <code>a</code> to <code>b</code>, both included; if <code>b</code> is below <code>a</code> it does not run. One loop goes round 1,000 times at most.</li>
-      <li>Inside <code>if</code> and <code>for</code>: setting variables, maths, <code>x[n]</code>, more <code>if</code> and <code>for</code>. Not there: drawing, settings, <code>state</code>, <code>pane</code>, and the functions over bars below.</li>
+      <li><code>for i = a to b</code> counts up from <code>a</code> to <code>b</code>, both included; if <code>b</code> is below <code>a</code> it does not run. <code>by -1</code> counts down, <code>by 2</code> in twos.</li>
+      <li><code>while condition { }</code> goes round while the condition holds. <code>break</code> leaves a loop, <code>continue</code> goes on to its next round. One loop goes round 10,000 times at most.</li>
+      <li>Inside <code>if</code>, <code>for</code> and <code>while</code>: setting variables, <code>state</code>, maths, texts, lists, shapes, the table's cells, functions of your own. Not there: plots and marks, settings, <code>pane</code>, and the functions over bars below.</li>
+    </ul>
+
+    <h2 id="lists">Lists</h2>
+<pre><code>state swings = list()              <span class="c">// kept from bar to bar</span>
+ph = pivothigh(5, 5)
+if not isna(ph) {
+  swings.push(ph)
+}
+average = swings.avg()
+plot(swings.size() > 0 ? swings.last() : na, "Last swing")</code></pre>
+    <ul>
+      <li><code>name = list()</code> makes an empty list of numbers; <code>state name = list()</code> keeps it from bar to bar.</li>
+      <li><code>push(v) pop() shift() unshift(v) get(i) set(i, v) insert(i, v) remove(i) clear() size() first() last() sum() avg() min() max() indexof(v) includes(v) sort() reverse()</code>, each written after the list's name: <code>swings.get(0)</code>.</li>
+      <li><code>get(-1)</code> is the last. A place outside the list is an error that says so.</li>
+      <li>A list holds numbers: lines and labels by the number they are given, a kind by 1 or 0. Up to 5,000 values — pushed when full, its oldest goes — and 32 lists.</li>
+    </ul>
+
+    <h2 id="functions">Functions of your own</h2>
+<pre><code>fn middle(length) {
+  return (highest(high, length) + lowest(low, length)) / 2
+}
+fn band(x, width) {
+  return x + width, x - width
+}
+base = middle(26)
+upper, lower = band(base, atr(14))</code></pre>
+    <ul>
+      <li><code>fn name(a, b) { … }</code> at the top level; <code>return</code> gives back a value, or several: <code>p, q = f(x)</code>. One that gives back nothing is called on a line of its own.</li>
+      <li>A function's names are its own. It reads the script's names, but setting one inside makes a new one of the function's: to change the script's, give the value back, or keep it in a list.</li>
+      <li>Each call has its own <code>state</code> and its own memory for <code>ema()</code> and the rest, as Pine's do. A function may call others, but not itself. Plots, settings and the pane are not inside functions.</li>
     </ul>
 
     <h2 id="remember">Functions over bars</h2>
-    <p>These remember the bars before: an average needs the last <i>length</i> values. So each one is worked out on <b>every</b> bar, which is why they go outside <code>if</code> and <code>for</code> — and why both sides of <code>c ? a : b</code> are always worked out. A length is from 1 to 5,000: a number, a setting, or sums and products of them such as <code>length * 2</code>, rounded to a whole number. It cannot be a variable, or what a function gives.</p>
+    <p>These remember the bars before: an average needs the last <i>length</i> values. So each one is worked out on <b>every</b> bar, which is why they go outside <code>if</code>, <code>for</code> and <code>while</code> — and why both sides of <code>c ? a : b</code> are always worked out. A length is from 1 to 5,000: a number, a setting, or maths on them such as <code>length * 2</code> or <code>round(length / 2)</code>, rounded to a whole number. It cannot be a variable.</p>
     <table>
       <tr><th>Function</th><th>Gives</th></tr>
-      <tr><td><code>sma(x, length)</code></td><td>Simple average of the last <i>length</i> values.</td></tr>
-      <tr><td><code>ema(x, length)</code></td><td>Exponential average: starts at the simple average of the first <i>length</i>, then weighs each new value 2 / (length + 1).</td></tr>
-      <tr><td><code>rma(x, length)</code></td><td>Wilder's average, weight 1 / length, as RSI and ATR use.</td></tr>
-      <tr><td><code>stdev(x, length)</code></td><td>Standard deviation of the last <i>length</i> values (of the whole set, ÷ length), as Bollinger Bands use.</td></tr>
-      <tr><td><code>highest(x, length)</code></td><td>The highest of the last <i>length</i> values.</td></tr>
-      <tr><td><code>lowest(x, length)</code></td><td>The lowest of them.</td></tr>
-      <tr><td><code>sum(x, length)</code></td><td>Their sum.</td></tr>
-      <tr><td><code>rsi(x, length)</code></td><td>Relative Strength Index of <code>x</code>, 0 to 100.</td></tr>
-      <tr><td><code>atr(length)</code></td><td>Average true range: <code>rma(tr, length)</code>.</td></tr>
-      <tr><td><code>change(x)</code>, <code>change(x, n)</code></td><td><code>x − x[1]</code>, or <code>x − x[n]</code>.</td></tr>
-      <tr><td><code>crossover(a, b)</code></td><td>True on the bar <code>a</code> goes from at or below <code>b</code> to above it.</td></tr>
-      <tr><td><code>crossunder(a, b)</code></td><td>True on the bar <code>a</code> goes from at or above <code>b</code> to below it.</td></tr>
-      <tr><td><code>barssince(c)</code></td><td>Bars since <code>c</code> was last true: 0 on that bar. <code>na</code> until it first is.</td></tr>
-      <tr><td><code>valuewhen(c, x)</code></td><td><code>x</code> as it was the last time <code>c</code> was true.</td></tr>
-      <tr><td><code>changed(x)</code></td><td>True on a bar where <code>x</code> is not what it was a bar ago: <code>changed(week)</code>, <code>changed(trend)</code>.</td></tr>
+      <tr><td><code>sma ema rma wma vwma hma</code><br>(x, length)</td><td>Simple, exponential (seeded with the simple average), Wilder's (as RSI and ATR use), weighted, volume-weighted and Hull averages.</td></tr>
+      <tr><td><code>stdev dev median</code> (x, length)</td><td>Standard deviation of the whole set (÷ length), mean absolute deviation, median.</td></tr>
+      <tr><td><code>highest lowest sum</code> (x, length)</td><td>The highest, the lowest, and the sum of the last <i>length</i>. <code>highest(n)</code> reads the highs, <code>lowest(n)</code> the lows.</td></tr>
+      <tr><td><code>highestbars lowestbars</code> (x, length)</td><td>How many bars back the highest or lowest is: 0 or less, as Pine gives it.</td></tr>
+      <tr><td><code>rsi(x, length)</code>, <code>atr(length)</code></td><td>Relative Strength Index, 0 to 100; average true range, <code>rma(tr, length)</code>.</td></tr>
+      <tr><td><code>change(x)</code>, <code>change(x, n)</code>, <code>roc(x, n)</code></td><td><code>x − x[1]</code>, <code>x − x[n]</code>, and that as a percentage of <code>x[n]</code>.</td></tr>
+      <tr><td><code>linreg cci mfi percentrank</code> (x, length)</td><td>Linear regression at the newest bar; commodity channel index; money flow index (with volume); percent of the values before that are at or below this one.</td></tr>
+      <tr><td><code>stoch(x, high, low, length)</code>, <code>correlation(a, b, length)</code></td><td>Stochastic, 0 to 100; correlation, −1 to 1.</td></tr>
+      <tr><td><code>rising falling</code> (x, n)</td><td>True where <code>x</code> is above (below) each of its <i>n</i> values before.</td></tr>
+      <tr><td><code>pivothigh pivotlow</code> (left, right)</td><td>The high (low) <i>right</i> bars back, where it is higher (lower) than the <i>left</i> bars before it and the <i>right</i> bars after; <code>na</code> elsewhere. Known <i>right</i> bars late, as in Pine. A value may come first: <code>pivothigh(close, 5, 5)</code>.</td></tr>
+      <tr><td><code>crossover crossunder cross</code> (a, b)</td><td>True on the bar <code>a</code> goes from at or below <code>b</code> to above it, the other way, or either.</td></tr>
+      <tr><td><code>barssince(c)</code>, <code>valuewhen(c, x)</code></td><td>Bars since <code>c</code> was last true (0 on that bar), and <code>x</code> as it was then.</td></tr>
+      <tr><td><code>changed(x)</code>, <code>cum(x)</code></td><td>True on a bar where <code>x</code> is not what it was a bar ago; the sum of every <code>x</code> so far.</td></tr>
     </table>
     <p>An average that meets <code>na</code> starts over after it, as the built-in indicators do.</p>
 
@@ -252,30 +311,16 @@ for i = 0 to length - 1 {
     <p>These work out a value from what they are given, and go anywhere.</p>
     <table>
       <tr><th>Function</th><th>Gives</th></tr>
-      <tr><td><code>abs(x)</code></td><td>Without its sign.</td></tr>
-      <tr><td><code>sqrt(x)</code></td><td>Square root; <code>na</code> below zero.</td></tr>
-      <tr><td><code>log(x)</code>, <code>exp(x)</code></td><td>Natural logarithm (<code>na</code> at zero and below), and e to the <code>x</code>.</td></tr>
+      <tr><td><code>abs sqrt log log10 exp sign</code> (x)</td><td>Without its sign; square root (<code>na</code> below zero); logarithms (<code>na</code> at zero and below); e to the <code>x</code>; −1, 0 or 1.</td></tr>
       <tr><td><code>pow(x, y)</code></td><td><code>x</code> to the power <code>y</code>.</td></tr>
-      <tr><td><code>round(x)</code>, <code>round(x, digits)</code></td><td>To the nearest whole number, or to 0–10 decimals.</td></tr>
-      <tr><td><code>floor(x)</code>, <code>ceil(x)</code></td><td>Down, or up, to a whole number.</td></tr>
-      <tr><td><code>min(a, b, …)</code>, <code>max(a, b, …)</code></td><td>The least or greatest of 2 to 8 values; <code>na</code> if any is.</td></tr>
+      <tr><td><code>round(x)</code>, <code>round(x, digits)</code>, <code>floor ceil</code></td><td>To the nearest whole number or to 0–10 decimals; down; up.</td></tr>
+      <tr><td><code>min max avg</code> (a, b, …)</td><td>The least, the greatest, and the average of 2 to 12 values; <code>na</code> if any is.</td></tr>
       <tr><td><code>clamp(x, low, high)</code></td><td><code>x</code> kept between the two.</td></tr>
-      <tr><td><code>nz(x)</code>, <code>nz(x, y)</code></td><td><code>x</code>, or 0 — or <code>y</code> — where it is <code>na</code>.</td></tr>
-      <tr><td><code>isna(x)</code></td><td>True where <code>x</code> has no value.</td></tr>
+      <tr><td><code>nz(x)</code>, <code>nz(x, y)</code>, <code>isna(x)</code></td><td><code>x</code>, or 0 — or <code>y</code> — where it is <code>na</code>; whether it is.</td></tr>
+      <tr><td><code>sin cos tan atan</code> (x), <code>atan2(y, x)</code>, <code>pi</code></td><td>In radians.</td></tr>
+      <tr><td><code>date(year, month, day, hour, minute)</code></td><td>A moment in milliseconds, UTC; the hour and minute may be left out.</td></tr>
+      <tr><td><code>barat(time)</code></td><td>The place of the bar holding a moment; <code>na</code> before the first.</td></tr>
     </table>
-
-    <h2 id="drawing">Drawing</h2>
-    <p>Drawing goes at the top level and draws on every bar. A script draws up to 16 lines (plots, histograms and levels together), 8 fills and 8 marks. Each line needs a title of its own; it is what the legend and the Style tab show.</p>
-    <table>
-      <tr><th>Write</th><th>Draws</th></tr>
-      <tr><td><code>plot(value, "Title", colour, width)</code></td><td>A line through each bar's value, with gaps where it is <code>na</code>. Colour and width (0.5 to 6, else 1.5) may be left out.</td></tr>
-      <tr><td><code>histogram(value, "Title", colour)</code></td><td>A bar from zero for each value. With no colour, above zero and below take the chart's up and down colours.</td></tr>
-      <tr><td><code>hline(value, "Title", colour)</code></td><td>A dashed level, as <code>hline(70, "Upper")</code>. Gray unless another colour is given.</td></tr>
-      <tr><td><code>fill("Upper", "Lower", colour)</code></td><td>Shades between two lines drawn above it, named by their titles.</td></tr>
-      <tr><td><code>mark(condition, "Text", above or below, colour)</code></td><td>A mark at the bar where the condition is true: below its low (green unless named) or above its high (red unless named). Text up to 12 characters.</td></tr>
-      <tr><td><code>pane own</code></td><td>Draws the script in a pane of its own below the chart, with its own scale. <code>pane price</code>, the default, draws on the price chart.</td></tr>
-    </table>
-    <div class="note">To colour a line by a condition, draw it twice, each with <code>na</code> where it should not show — as SuperTrend draws its long and short stops. Every line's colour, width and style can also be changed in the indicator's <b>Style</b> tab.</div>
 
     <h2 id="colours">Colours</h2>
     <p>
@@ -284,27 +329,77 @@ for i = 0 to length - 1 {
       <span class="swatch" style="background:#ff4d5f"></span><code>red</code>
       <span class="swatch" style="background:#ff9800"></span><code>orange</code>
       <span class="swatch" style="background:#ffeb3b"></span><code>yellow</code>
-      <span class="swatch" style="background:#2962ff"></span><code>blue</code><br>
-      <span class="swatch" style="background:#00bcd4"></span><code>aqua</code>
+      <span class="swatch" style="background:#2962ff"></span><code>blue</code>
+      <span class="swatch" style="background:#00bcd4"></span><code>aqua</code><br>
       <span class="swatch" style="background:#009688"></span><code>teal</code>
       <span class="swatch" style="background:#b388ff"></span><code>purple</code>
       <span class="swatch" style="background:#f06292"></span><code>pink</code>
       <span class="swatch" style="background:#e8e8e8"></span><code>white</code>
       <span class="swatch" style="background:#787b86"></span><code>gray</code>
+      <span class="swatch" style="background:#000000"></span><code>black</code>
+      <span class="swatch" style="background:#b2b5be"></span><code>silver</code><br>
+      <span class="swatch" style="background:#880e4f"></span><code>maroon</code>
+      <span class="swatch" style="background:#311b92"></span><code>navy</code>
+      <span class="swatch" style="background:#808000"></span><code>olive</code>
+      <span class="swatch" style="background:#e040fb"></span><code>fuchsia</code>
     </p>
-    <p>A line with no colour takes the next of blue, orange, purple, aqua, red, green, yellow and pink.</p>
+    <ul>
+      <li>Any colour: <code>#ff9800</code>, <code>#f90</code>, <code>#ff980080</code> (its last two the opacity), <code>rgb(255, 152, 0)</code>, <code>rgb(255, 152, 0, 0.5)</code>.</li>
+      <li><code>alpha(colour, opacity)</code> sets how solid it is, 0 to 1: <code>alpha(blue, 0.2)</code>. <code>gradient(value, low, high, colourLow, colourHigh)</code> mixes between two.</li>
+      <li>A colour is a value like any other: <code>c = close > open ? green : red</code>, a setting, a list's value. <code>na</code> is no colour.</li>
+      <li>A line with no colour takes the next of blue, orange, purple, aqua, red, green, yellow and pink. Every colour can also be changed in the indicator's <b>Style</b> tab.</li>
+    </ul>
+
+    <h2 id="drawing">Plots, marks and shading</h2>
+    <p>These draw along the bars, at the top level, on every bar. Each line needs a title of its own (up to 40 characters): it is what the legend and the Style tab show.</p>
+    <table>
+      <tr><th>Write</th><th>Draws</th></tr>
+      <tr><td><code>plot(value, "Title", color, width, style, offset)</code></td><td>A line through each bar's value, with gaps where it is <code>na</code>. <code>style</code>: <code>line steps dots dashed dotted</code>. Width 0.5 to 10. <code>offset</code> moves it by bars: 26 draws it 26 bars ahead, past the newest. A colour that changes from bar to bar colours the line bar by bar.</td></tr>
+      <tr><td><code>histogram(value, "Title", color, offset)</code></td><td>A bar from zero for each value, in a colour of its own bar by bar if it is given one; with none, above zero and below take the chart's up and down colours.</td></tr>
+      <tr><td><code>hline(value, "Title", color, width, style)</code></td><td>A level, dashed unless another style is named; gray unless another colour is.</td></tr>
+      <tr><td><code>fill("Upper", "Lower", color)</code></td><td>Shades between two lines drawn above it, named by their titles.</td></tr>
+      <tr><td><code>mark(condition, "Text", above or below, color)</code></td><td>A mark at the bar where the condition is true: below its low (green unless named) or above its high (red unless named). Text up to 12 characters, or none.</td></tr>
+      <tr><td><code>background(color)</code></td><td>Shades the bar's whole height, in its pane; <code>na</code> leaves it.</td></tr>
+      <tr><td><code>barcolor(color)</code></td><td>Colours the bar's candle; <code>na</code> leaves it as it is.</td></tr>
+      <tr><td><code>pane own</code></td><td>Draws the script in a pane of its own below the chart, with its own scale. <code>pane price</code>, the default, draws on the price chart.</td></tr>
+    </table>
+    <div class="note">A colour as solid as can be is shaded lightly in <code>fill</code> and <code>background</code>, so the candles show through; give one an opacity of its own with <code>alpha()</code>. <code>plot(x, "X", color = na)</code> keeps a line's values, for a fill, without drawing it. Up to 32 lines, 16 fills, 16 marks and 4 backgrounds.</div>
+
+    <h2 id="shapes">Lines, labels and boxes</h2>
+<pre><code>state last = na
+ph = pivothigh(5, 5)
+if not isna(ph) {
+  delete(last)
+  last = line(bar - 5, ph, bar + 20, ph, color = red, style = dashed)
+  tag = label(bar - 5, ph, "High\n" + str(ph, decimals), color = red, place = above)
+}</code></pre>
+    <p>Shapes are drawn anywhere — in <code>if</code>, loops and functions — and stay until they are deleted. A shape's <b>x</b> is a bar's place (<code>bar</code>, <code>bar - 5</code>, <code>bar + 10</code> ahead of the newest), its <b>y</b> a price. Each is given back as a number to keep, move or delete it by.</p>
+    <table>
+      <tr><th>Write</th><th>Draws</th></tr>
+      <tr><td><code>line(x1, y1, x2, y2, color, width, style, extend)</code></td><td>A straight line. <code>style</code>: <code>solid dashed dotted</code>. <code>extend</code>: <code>none left right both</code>, on past its points.</td></tr>
+      <tr><td><code>label(x, y, text, color, textcolor, place, size, box)</code></td><td>A text at a point, in a box pointing at it. <code>place</code>: <code>above below left right center</code>; <code>size</code>: <code>tiny small normal large</code>; <code>box = false</code> draws the text alone. Its text may run over several lines.</td></tr>
+      <tr><td><code>box(x1, y1, x2, y2, color, border, width)</code></td><td>A rectangle, filled and outlined.</td></tr>
+      <tr><td><code>delete(id)</code></td><td>Lets one go. <code>na</code>, or one already gone, is left alone.</td></tr>
+      <tr><td><code>set_x1 set_y1 set_x2 set_y2</code> (id, v), <code>set_xy1 set_xy2</code> (id, x, y)</td><td>Moves one end. For a label, <code>set_x set_y set_xy</code>.</td></tr>
+      <tr><td><code>set_text set_color set_textcolor set_width</code></td><td>Changes it.</td></tr>
+      <tr><td><code>get_x1 get_y1 get_x2 get_y2</code> (id), <code>get_text(id)</code></td><td>Reads it back.</td></tr>
+    </table>
+    <p>Up to 500 lines, 500 labels and 200 boxes: past these, the oldest goes as a new one is drawn.</p>
+
+    <h2 id="table">The table</h2>
+<pre><code>table("top right")
+averageRange = sma(high - low, 20)
+if islast {
+  cell(0, 0, "Average range", gray)
+  cell(1, 0, str(averageRange, decimals), white, alpha(blue, 0.4))
+}</code></pre>
+    <ul>
+      <li><code>table("top right")</code>, once at the top level, says where the table stands: <code>top middle bottom</code>, then <code>left center right</code>. It may be a choice setting: <code>table(position)</code>.</li>
+      <li><code>cell(column, row, text, color, background)</code> sets one cell, anywhere: columns 0 to 3, rows 0 to 15. Set them on the last bar, with <code>if islast</code>.</li>
+    </ul>
 
     <h2 id="examples">Examples</h2>
-    <h3>RSI, as tradoor works it out</h3>
-<pre><code>pane own
-input length = 14 min 2 max 1000 "Length"
-move = change(close)
-gain = rma(max(move, 0), length)
-loss = rma(max(-move, 0), length)
-strength = loss == 0 ? 100 : gain == 0 ? 0 : 100 - 100 / (1 + gain / loss)
-plot(strength, "RSI", purple)
-hline(80, "Upper", gray)
-hline(20, "Lower", gray)</code></pre>
+    <p>The editor's examples are tradoor's built-in indicators written in Frost Script, each giving exactly the built-in's numbers: SMA, EMA, the EMA 12/25 ribbon and EMA 200, Bollinger Bands, Keltner Channels, Ichimoku, RSI, Stochastic RSI, MACD, ATR, VWAP, anchored VWAP, the historical key levels, the swing structure map, trading sessions, moon phases and volume, and a SuperTrend. Open any of them, or any built-in's <b>Source</b> tab, to read it.</p>
     <h3>SuperTrend, with a mark at each turn</h3>
 <pre><code>input length = 10 min 1 max 1000 "ATR length"
 input mult = 3 min 0.1 max 10 step 0.1 "Multiplier"
@@ -325,22 +420,28 @@ if trend == 1 {
   }
 }
 turned = changed(trend)
-plot(trend == 1 ? stop : na, "Long stop", green)
-plot(trend == -1 ? stop : na, "Short stop", red)
+plot(stop, "Stop", trend == 1 ? green : red)
 mark(turned and trend == 1, "Buy", below, green)
 mark(turned and trend == -1, "Sell", above, red)</code></pre>
-    <h3>Volume well above its average</h3>
-<pre><code>pane own
-input length = 20 min 2 max 500 "Average of"
-input times = 2 min 1 max 10 step 0.1 "Times the average"
-usual = sma(volume, length)
-histogram(volume, "Volume")
-plot(usual * times, "Spike line", orange)
-mark(volume > usual * times, "Spike", above, orange)</code></pre>
-    <p>Every built-in indicator that is written in Frost Script — SMA, EMA, Bollinger Bands, Keltner Channels, RSI, Stochastic RSI, MACD, ATR, VWAP — is in the editor's examples and in its own <b>Source</b> tab, and gives exactly the numbers the built-in does.</p>
+    <h3>The day's range so far, labelled at its high</h3>
+<pre><code>state dayHigh = na
+state dayLow = na
+state tag = na
+if changed(day) or isna(dayHigh) {
+  dayHigh = high
+  dayLow = low
+} else {
+  dayHigh = max(dayHigh, high)
+  dayLow = min(dayLow, low)
+}
+plot(dayHigh, "Day high", green, 1, steps)
+plot(dayLow, "Day low", red, 1, steps)
+if islast {
+  tag = label(bar, dayHigh, "Range " + str(dayHigh - dayLow, decimals), color = alpha(gray, 0.6), place = above, size = small)
+}</code></pre>
 
     <h2 id="from-pine">From Pine Script, with an AI</h2>
-    <p>An indicator written in TradingView's Pine Script v6 can be turned into Frost Script by an AI chat — Claude, ChatGPT, Gemini or another. The instructions below teach it the whole language and how each part of Pine Script maps onto it, or why it cannot.</p>
+    <p>An indicator written in TradingView's Pine Script v6 can be turned into Frost Script by an AI chat — Claude, ChatGPT, Gemini or another. The instructions below teach it the whole language and how each part of Pine Script maps onto it: its arrays, functions, lines, labels, boxes and tables included.</p>
     <ol>
       <li>Copy the instructions: the button below, or <b>Pine Script → Frost: copy AI instructions</b> in the Frost Script editor.</li>
       <li>Paste them into the AI chat, and then the Pine Script v6 source of the indicator.</li>
@@ -355,7 +456,7 @@ mark(volume > usual * times, "Spike", above, orange)</code></pre>
       <summary>Read the instructions</summary>
       <pre id="ai-text">Loading…</pre>
     </details>
-    <div class="note">What Frost Script has no word for stays behind: other timeframes and symbols (<code>request.security</code>), strategies, alerts, labels, boxes and tables, arrays, and functions of your own. The AI is told to say what it left out, and to turn a strategy's entries into marks.</div>
+    <div class="note">What Frost Script has no word for stays behind: other timeframes and symbols (<code>request.security</code>), strategies, alerts, the clock (<code>timenow</code>), polylines, matrices and maps. The AI is told to say what it left out, and to turn a strategy's entries into marks.</div>
 
     <h2 id="mistakes">Mistakes and messages</h2>
     <p>A script is checked as it is typed. A mistake says its line and column and what is wrong, and the line's number turns red. Some you will meet:</p>
@@ -363,11 +464,14 @@ mark(volume > usual * times, "Spike", above, orange)</code></pre>
       <tr><th>Message</th><th>What to do</th></tr>
       <tr><td><code>foo is not known here</code></td><td>A name not set anywhere, or spelt differently (capitals count).</td></tr>
       <tr><td><code>ema(value, length)</code></td><td>The function takes other arguments: here a value and a length.</td></tr>
-      <tr><td><code>a length is a number or a setting</code></td><td>A length cannot change from bar to bar: use a number or an <code>input</code>.</td></tr>
-      <tr><td><code>… call it outside if and for</code></td><td>A function over bars, or drawing, inside a block. Work the value out above the block, and use it inside.</td></tr>
-      <tr><td><code>close is built in</code></td><td>A variable with a name the language uses: pick another.</td></tr>
-      <tr><td><code>name it, as x = …</code></td><td>A line that works out a value and keeps it nowhere.</td></tr>
+      <tr><td><code>a length is a number or a setting</code></td><td>A length cannot change from bar to bar: use a number, a setting, or maths on them.</td></tr>
+      <tr><td><code>… call it outside if, for and while</code></td><td>A function over bars, or a plot, inside a block. Work the value out above the block, and use it inside.</td></tr>
+      <tr><td><code>close is built in</code></td><td>A variable named as a bar value, a colour or a word of the language: pick another. A function's name is free: <code>sum = 0</code> is fine.</td></tr>
+      <tr><td><code>… keeps it nowhere: name it</code></td><td>A line that works out a value and keeps it nowhere.</td></tr>
       <tr><td><code>two lines are called "A"</code></td><td>Give each line its own title.</td></tr>
+      <tr><td><code>x holds a number: it cannot be set to a text</code></td><td>A variable keeps to the kind it was first set to: give the text another name.</td></tr>
+      <tr><td><code>… is not a place in this list of 3</code></td><td>A list read or set past its end: check its <code>size()</code> first.</td></tr>
+      <tr><td><code>f(…) calls itself</code></td><td>A function cannot call itself: write it as a loop.</td></tr>
       <tr><td><code>this script takes too long to work out</code></td><td>Loops that together ask too much: fewer, or shorter. See <a href="#limits">Limits</a>.</td></tr>
     </table>
     <p>A script that runs into a problem on the chart says so in the chart's legend, beside its name.</p>
@@ -376,22 +480,25 @@ mark(volume > usual * times, "Spike", above, orange)</code></pre>
     <p>Every script ends, and quickly. One that asks for more than these stops with a message saying where.</p>
     <table>
       <tr><th>Limit</th><th>At most</th></tr>
-      <tr><td>Length of a script</td><td>20,000 characters, 5,000 words and signs</td></tr>
+      <tr><td>Length of a script</td><td>40,000 characters, 12,000 words and signs</td></tr>
       <tr><td>Brackets and blocks inside each other</td><td>40 deep</td></tr>
-      <tr><td>Settings</td><td>16</td></tr>
-      <tr><td>Variables</td><td>128</td></tr>
-      <tr><td>Lines, histograms and levels · fills · marks</td><td>16 · 8 · 8</td></tr>
+      <tr><td>Settings · a choice's options</td><td>32 · 16</td></tr>
+      <tr><td>Variables, counting each function call's own</td><td>1,000</td></tr>
+      <tr><td>Functions · lists · a list's values</td><td>64 · 32 · 5,000</td></tr>
+      <tr><td>Lines, histograms and levels · fills · marks · backgrounds</td><td>32 · 16 · 16 · 4</td></tr>
+      <tr><td>Shapes kept: lines · labels · boxes</td><td>500 · 500 · 200</td></tr>
+      <tr><td>Table</td><td>4 columns, 16 rows</td></tr>
       <tr><td>A length (sma, ema, highest…)</td><td>5,000</td></tr>
       <tr><td>Looking back with x[n]</td><td>5,000 bars</td></tr>
-      <tr><td>One loop</td><td>1,000 rounds</td></tr>
+      <tr><td>One loop</td><td>10,000 rounds</td></tr>
       <tr><td>All the work of one run over the chart</td><td>40 million steps</td></tr>
-      <tr><td>Titles · mark text · names</td><td>40 · 12 · 40 characters</td></tr>
+      <tr><td>Titles and names · mark text · a text in quotes · a text made</td><td>40 · 12 · 200 · 1,000 characters</td></tr>
     </table>
 
     <h2 id="safety">Safety</h2>
     <p>Frost Script is safe by what it is, not by what it forbids. A script is read and worked out by tradoor's own engine for it, written in Rust. It is never turned into JavaScript or any other code a browser runs.</p>
     <ul>
-      <li><b>Nothing to reach.</b> The language has no word for the network, storage, your account, your browser, the page or the clock. In the browser it runs in a module that imports nothing at all: it is given candles and gives back numbers.</li>
+      <li><b>Nothing to reach.</b> The language has no word for the network, storage, your account, your browser, the page or the clock. In the browser it runs in a module that imports nothing at all: it is given candles and gives back numbers and short texts — what to draw, and where.</li>
       <li><b>It always ends.</b> Every <a href="#limits">limit</a> is held, so a script cannot freeze a chart.</li>
       <li><b>Checked twice.</b> The server checks a script with the same engine when it is saved; your browser checks it again before it runs.</li>
       <li><b>Text is text.</b> Titles, labels and mark text are shown as plain text, never as page code.</li>
