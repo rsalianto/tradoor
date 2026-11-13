@@ -34,7 +34,8 @@ Deno.test('a release is due from its time until its figure, where one is coming'
   assertEquals(isDue(figures, 999), false, 'not yet');
   assertEquals(isDue(figures, 2_000), true);
   assertEquals(isDue({ ...figures, actual: '0.4%' }, 2_000), false, 'it is in');
-  assertEquals(isDue(figures, 1_000 + 21 * 60_000), false, 'and not for ever');
+  assertEquals(isDue(figures, 1_000 + 40 * 60_000), true, 'a late figure is still due');
+  assertEquals(isDue(figures, 1_000 + 181 * 60_000), false, 'and not for ever');
   assertEquals(isDue(event(1_000, 'Fed Chair Speaks'), 2_000), false, 'a speech has no figure');
 });
 

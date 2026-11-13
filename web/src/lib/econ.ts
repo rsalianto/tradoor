@@ -30,8 +30,8 @@ export function countdown(ms: number): string {
   return `${d > 0 ? `${d}d ` : ''}${d > 0 || h > 0 ? `${pad(h)}:` : ''}${pad(m)}:${pad(s)}`;
 }
 
-/** How long after its time a release counts as due rather than simply without a figure. */
-const DUE_MS = 20 * 60_000;
+/** How long after its time a release counts as due rather than simply without a figure: Nasdaq's can be half an hour late, or more. */
+const DUE_MS = 3 * 3_600_000;
 
 /** Its time has come, its figure has not, and there is a figure to come: a speech has none. */
 export const isDue = (e: EconEvent, now: number): boolean => !e.allDay && e.at <= now && now - e.at < DUE_MS && e.actual === null && (e.forecast !== null || e.previous !== null);

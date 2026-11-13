@@ -45,10 +45,15 @@ const TICK: Duration = Duration::from_secs(15);
 const HOUR: i64 = 60 * MINUTE;
 /// Today, for a schedule that moves and figures that arrive.
 const TODAY_MS: i64 = 5 * MINUTE;
-/// Today again, while a release is out and its figure is not in.
-const WAITING_MS: i64 = 45_000;
-/// How long after its time a release's figure is waited for so closely.
+/// Today again, while a release is out and its figure is not in. Nasdaq's figures
+/// mostly come a minute or two after their time, but now and then half an hour
+/// or more late (PPI, 13 November 2026): a late one is still looked for each minute.
+const WAITING_MS: i64 = 30_000;
+const LATE_MS: i64 = MINUTE;
+/// How long after its time a release's figure is waited for so closely; then each
+/// minute, until Nasdaq is taken to have none for it.
 const WAITED_MS: i64 = 20 * MINUTE;
+const GIVEN_UP_MS: i64 = 3 * HOUR;
 /// A past day, until its figures settle at 03:00 New York the next morning; then never.
 const SETTLING_MS: i64 = 30 * MINUTE;
 const FUTURE_MS: i64 = 12 * HOUR;
@@ -59,6 +64,11 @@ const LEAST_MS: i64 = 30_000;
 /// many readers press it, however often, Nasdaq hears of today once a minute at most.
 const REFRESH_MS: i64 = 60_000;
 const FAILED_MS: i64 = 5 * MINUTE;
+/// Today, after a failed read: soon again, for a figure may be waiting.
+const TODAY_FAILED_MS: i64 = MINUTE;
+/// Days read in one look at most: today's turn comes round again within seconds,
+/// however many other days are still to be read.
+const PER_LOOK: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -297,7 +307,12 @@ fn fomc_events(meetings: &[(i64, bool)]) -> Vec<Event> {
 /// Whether a day should be read again; `hurried`, a reader asked for today afresh.
 fn due(day: i64, held: Option<&Held>, today: i64, now: i64, hurried: bool) -> bool {
     let Some(held) = held else { return true };
-    if now - held.tried < if held.failed { FAILED_MS } else { LEAST_MS } {
+    let wait = match (held.failed, day == today) {
+        (false, _) => LEAST_MS,
+        (true, true) => TODAY_FAILED_MS,
+        (true, false) => FAILED_MS,
+    };
+    if now - held.tried < wait {
         return false;
     }
     if held.read == 0 {
@@ -314,8 +329,12 @@ fn due(day: i64, held: Option<&Held>, today: i64, now: i64, hurried: bool) -> bo
         return age > FUTURE_MS;
     }
     // A release with a figure to come: one out, and not in. Speeches have none to wait for.
-    let waiting = held.events.iter().any(|e| !e.all_day && e.at <= now && now - e.at < WAITED_MS && e.actual.is_none() && (e.forecast.is_some() || e.previous.is_some()));
-    age > if waiting { WAITING_MS } else { TODAY_MS }
+    let since = held.events.iter().filter(|e| !e.all_day && e.at <= now && now - e.at < GIVEN_UP_MS && e.actual.is_none() && (e.forecast.is_some() || e.previous.is_some())).map(|e| now - e.at).min();
+    age > match since {
+        Some(after) if after < WAITED_MS => WAITING_MS,
+        Some(_) => LATE_MS,
+        None => TODAY_MS,
+    }
 }
 
 /// What is shown: Nasdaq's days, and the Fed's dates where Nasdaq has no FOMC row
@@ -345,7 +364,9 @@ impl Calendar {
     async fn keep(self: Arc<Self>) {
         loop {
             let now = now_ms();
-            for (i, day) in self.due_days(now).into_iter().enumerate() {
+            let days = self.due_days(now);
+            let more = days.len() > PER_LOOK;
+            for (i, day) in days.into_iter().take(PER_LOOK).enumerate() {
                 if i > 0 {
                     sleep(PAUSE).await;
                 }
@@ -353,6 +374,10 @@ impl Calendar {
             }
             if self.fed_due(now) {
                 self.read_fed().await;
+            }
+            if more {
+                sleep(PAUSE).await;
+                continue;
             }
             tokio::select! {
                 () = sleep(TICK) => {}
@@ -559,8 +584,15 @@ mod tests {
         assert!(!due(today + DAY, Some(&held(HOUR, Vec::new())), today, now, false));
         assert!(due(today + DAY, Some(&held(13 * HOUR, Vec::new())), today, now, false));
         assert!(!due(today - 3 * DAY, Some(&held(20 * HOUR, Vec::new())), today, now, false), "settled: never again");
-        let failed = Held { read: 0, tried: now - MINUTE, failed: true, ..Held::default() };
-        assert!(!due(today, Some(&failed), today, now, false), "a day that failed waits its turn");
+        let late = |minutes: i64| Event { at: now - minutes * MINUTE, ..released(Some("0.3%"), None) };
+        assert!(due(today, Some(&held(MINUTE + 1, vec![late(35)])), today, now, false), "a late figure, still looked for each minute");
+        assert!(!due(today, Some(&held(40_000, vec![late(35)])), today, now, false));
+        assert!(due(today, Some(&held(40_000, vec![late(5)])), today, now, false), "a figure just due, each half minute");
+        assert!(!due(today, Some(&held(MINUTE + 1, vec![late(200)])), today, now, false), "three hours on, Nasdaq has none");
+        let failed = |ago: i64| Held { read: 0, tried: now - ago, failed: true, ..Held::default() };
+        assert!(!due(today, Some(&failed(40_000)), today, now, false), "a day that failed waits its turn");
+        assert!(due(today, Some(&failed(MINUTE + 1)), today, now, false), "today's turn comes round in a minute");
+        assert!(!due(today + DAY, Some(&failed(2 * MINUTE)), today, now, false), "another day's in five");
         // A reader's refresh: today, once a minute at most, however often it is pressed.
         assert!(due(today, Some(&held(90_000, Vec::new())), today, now, true));
         assert!(!due(today, Some(&held(40_000, Vec::new())), today, now, true), "read under a minute ago");
