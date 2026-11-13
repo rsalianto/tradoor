@@ -1533,6 +1533,11 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 .fx-status .ok { color: var(--bull); }
 .fx-error { padding: 0; border: 0; background: none; color: var(--warn); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
 .fx-error:hover { text-decoration: underline; }
+.fx-foot { display: flex; align-items: flex-start; gap: 12px; }
+.fx-foot .fx-help { flex: 1; min-width: 0; }
+.fx-ai { flex: none; padding: 0; border: 0; background: none; color: #8fd3ff; font: inherit; font-size: 11px; cursor: pointer; }
+.fx-ai:hover { text-decoration: underline; }
+@media (max-width: 640px) { .fx-foot { flex-direction: column; gap: 6px; } }
 .fx-help { font-size: 11px; color: var(--muted); }
 .fx-help summary { color: var(--dim); cursor: pointer; }
 .fx-help summary a { color: #8fd3ff; }
@@ -1555,6 +1560,9 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 /* Frost Script's mark, in the colour of ice. */
 .fx-title { display: inline-flex; align-items: center; gap: 6px; }
 .fx-title svg, .picker .fx-write svg { color: #8fd3ff; }
+/* Centred on the line, the crystal sits below the letters' middle: lifted onto it, as measured. */
+.fx-title svg { translate: 0 -1.75px; }
+.picker .fx-write svg { translate: 0 -1.1px; }
 .picker .fx-write { display: inline-flex; align-items: center; gap: 5px; }
 .fx-banner { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid color-mix(in oklab, #8fd3ff 40%, transparent); background: color-mix(in oklab, #8fd3ff 7%, transparent); color: var(--muted); font-size: 11px; line-height: 1.5; }
 .fx-banner > span { flex: 1; }

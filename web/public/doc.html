@@ -8,6 +8,7 @@
 <meta name="description" content="Frost Script, tradoor's language for indicators of your own: how a script runs, settings, variables, every function, drawing, limits and safety.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script src="/moved.js"></script>
+<script src="/doc.js" defer></script>
 <style>
   :root { --bg: #070907; --surface: #0d100e; --surface-2: #131714; --border: #232823; --text: #dfe6e0; --muted: #9aa29b; --dim: #5d645e; --bull: #aafd35; --bear: #ff4d5f; --warn: #ffc247; --ice: #8fd3ff; --font: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
   * { box-sizing: border-box; }
@@ -22,14 +23,20 @@
   .wrap { display: flex; max-width: 1180px; margin: 0 auto; }
   nav { position: sticky; top: 41px; align-self: flex-start; width: 240px; flex: none; max-height: calc(100vh - 41px); overflow-y: auto; padding: 22px 16px 40px 20px; border-right: 1px solid var(--border); font-size: 12px; }
   nav .group { margin: 0 0 6px; color: var(--dim); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
-  nav .group .ice { color: var(--ice); }
+  /* The app's ice crystal, drawn, sized to the text it stands by and set on its middle. */
+  svg.ice { display: inline-block; width: 1em; height: 1em; vertical-align: -0.19em; margin-right: 0.35em; fill: none; stroke: var(--ice); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   nav ol { list-style: none; margin: 0 0 18px; padding: 0; }
   nav li a { display: block; padding: 3px 0 3px 10px; border-left: 1px solid var(--border); color: var(--muted); }
   nav li a:hover { color: var(--text); border-left-color: var(--ice); text-decoration: none; }
   nav .soon { color: var(--dim); font-size: 11px; padding-left: 10px; }
   main { flex: 1; min-width: 0; padding: 26px 32px 80px; }
   h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: 0.02em; }
-  h1 .ice { color: var(--ice); }
+  .ai { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
+  .ai button { font: inherit; font-size: 12px; color: var(--bg); background: var(--ice); border: 0; padding: 6px 14px; cursor: pointer; }
+  .ai button:disabled { opacity: 0.5; cursor: default; }
+  .ai span { color: var(--muted); font-size: 12px; }
+  .ai-text summary { cursor: pointer; color: var(--muted); }
+  .ai-text pre { max-height: 420px; white-space: pre-wrap; }
   .lede { margin: 0 0 26px; color: var(--muted); max-width: 72ch; }
   h2 { margin: 42px 0 10px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 15px; letter-spacing: 0.04em; }
   h3 { margin: 24px 0 6px; font-size: 13px; color: var(--ice); }
@@ -67,7 +74,7 @@
 </header>
 <div class="wrap">
   <nav aria-label="Contents">
-    <p class="group"><span class="ice">❄</span> Frost Script</p>
+    <p class="group"><svg class="ice" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L12 22M3.3 7L20.7 17M3.3 17L20.7 7M12 6.4L10 4.2M12 6.4L14 4.2M7.2 9.2L4.2 9.8M7.2 9.2L6.2 6.3M7.2 14.8L6.2 17.7M7.2 14.8L4.2 14.2M12 17.6L14 19.8M12 17.6L10 19.8M16.8 14.8L19.8 14.2M16.8 14.8L17.8 17.7M16.8 9.2L17.8 6.3M16.8 9.2L19.8 9.8"/></svg>Frost Script</p>
     <ol>
       <li><a href="#frost-script">What it is</a></li>
       <li><a href="#start">Your first script</a></li>
@@ -85,6 +92,7 @@
       <li><a href="#drawing">Drawing</a></li>
       <li><a href="#colours">Colours</a></li>
       <li><a href="#examples">Examples</a></li>
+      <li><a href="#from-pine">From Pine Script, with an AI</a></li>
       <li><a href="#mistakes">Mistakes and messages</a></li>
       <li><a href="#limits">Limits</a></li>
       <li><a href="#safety">Safety</a></li>
@@ -94,7 +102,7 @@
   </nav>
 
   <main>
-    <h1 id="frost-script"><span class="ice">❄</span> Frost Script</h1>
+    <h1 id="frost-script"><svg class="ice" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L12 22M3.3 7L20.7 17M3.3 17L20.7 7M12 6.4L10 4.2M12 6.4L14 4.2M7.2 9.2L4.2 9.8M7.2 9.2L6.2 6.3M7.2 14.8L6.2 17.7M7.2 14.8L4.2 14.2M12 17.6L14 19.8M12 17.6L10 19.8M16.8 14.8L19.8 14.2M16.8 14.8L17.8 17.7M16.8 9.2L17.8 6.3M16.8 9.2L19.8 9.8"/></svg>Frost Script</h1>
     <p class="lede">tradoor's own language for indicators: a few readable lines that work out a value on every bar and draw it — on the chart or in a pane of its own — with settings, signals and the same numbers as the built-in indicators.</p>
 
     <p>A script reads the chart's candles and gives back lines, levels and marks. That is all it can do: it has no word for the network, your account, your browser or the page, so a script someone else wrote can draw wrong lines at worst, and nothing more. See <a href="#safety">Safety</a>.</p>
@@ -102,7 +110,7 @@
 
     <h2 id="start">Your first script</h2>
     <ol>
-      <li>On a chart, open <b>Add an indicator</b> and press <b>❄ New Frost Script</b>. Writing a script needs you <a href="#account">signed in with Telegram</a>.</li>
+      <li>On a chart, open <b>Add an indicator</b> and press <b>New Frost Script</b>. Writing a script needs you <a href="#account">signed in with Telegram</a>.</li>
       <li>The editor opens on a small script. Change it, or start from one of the examples on the left.</li>
       <li>Under the text it says <b>✓ Checks</b>, or which line and column a mistake is on — click the message to go there.</li>
       <li><b>Save and add to chart</b>. The script is now one of your indicators, in the picker under <b>Frost Script</b>, with its own settings, style and source.</li>
@@ -217,7 +225,7 @@ for i = 0 to length - 1 {
     </ul>
 
     <h2 id="remember">Functions over bars</h2>
-    <p>These remember the bars before: an average needs the last <i>length</i> values. So each one is worked out on <b>every</b> bar, which is why they go outside <code>if</code> and <code>for</code> — and why both sides of <code>c ? a : b</code> are always worked out. A length is a number or a setting, from 1 to 5,000.</p>
+    <p>These remember the bars before: an average needs the last <i>length</i> values. So each one is worked out on <b>every</b> bar, which is why they go outside <code>if</code> and <code>for</code> — and why both sides of <code>c ? a : b</code> are always worked out. A length is from 1 to 5,000: a number, a setting, or sums and products of them such as <code>length * 2</code>, rounded to a whole number. It cannot be a variable, or what a function gives.</p>
     <table>
       <tr><th>Function</th><th>Gives</th></tr>
       <tr><td><code>sma(x, length)</code></td><td>Simple average of the last <i>length</i> values.</td></tr>
@@ -328,6 +336,24 @@ histogram(volume, "Volume")
 plot(usual * times, "Spike line", orange)
 mark(volume > usual * times, "Spike", above, orange)</code></pre>
     <p>Every built-in indicator that is written in Frost Script — SMA, EMA, Bollinger Bands, Keltner Channels, RSI, Stochastic RSI, MACD, ATR, VWAP — is in the editor's examples and in its own <b>Source</b> tab, and gives exactly the numbers the built-in does.</p>
+
+    <h2 id="from-pine">From Pine Script, with an AI</h2>
+    <p>An indicator written in TradingView's Pine Script v6 can be turned into Frost Script by an AI chat — Claude, ChatGPT, Gemini or another. The instructions below teach it the whole language and how each part of Pine Script maps onto it, or why it cannot.</p>
+    <ol>
+      <li>Copy the instructions: the button below, or <b>Pine Script → Frost: copy AI instructions</b> in the Frost Script editor.</li>
+      <li>Paste them into the AI chat, and then the Pine Script v6 source of the indicator.</li>
+      <li>Paste the script it answers with into the editor. It is checked at once: if a line is wrong, give the AI the message and the line, and ask it to put it right.</li>
+      <li>Before you rely on it, put it on a chart beside the original and compare the numbers on a few bars.</li>
+    </ol>
+    <div class="ai">
+      <button type="button" id="ai-copy" disabled>Copy the instructions for an AI</button>
+      <span id="ai-note">An AI that reads links can be given this one: <a href="/frost-script-ai.txt">tradoorterminal.com/frost-script-ai.txt</a></span>
+    </div>
+    <details class="ai-text">
+      <summary>Read the instructions</summary>
+      <pre id="ai-text">Loading…</pre>
+    </details>
+    <div class="note">What Frost Script has no word for stays behind: other timeframes and symbols (<code>request.security</code>), strategies, alerts, labels, boxes and tables, arrays, and functions of your own. The AI is told to say what it left out, and to turn a strategy's entries into marks.</div>
 
     <h2 id="mistakes">Mistakes and messages</h2>
     <p>A script is checked as it is typed. A mistake says its line and column and what is wrong, and the line's number turns red. Some you will meet:</p>

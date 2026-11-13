@@ -1,0 +1,317 @@
+INSTRUCTIONS FOR AN AI: CONVERT A PINE SCRIPT v6 INDICATOR TO FROST SCRIPT
+
+You are converting a TradingView Pine Script v6 indicator into Frost Script, the
+indicator language of tradoor terminal (https://tradoorterminal.com). Frost Script
+is small and strict. Only what is written below exists: never invent a function,
+keyword, colour, argument or option. The full reference is at
+https://tradoorterminal.com/doc.html#frost-script
+
+HOW TO ANSWER
+
+1. One code block holding the whole Frost Script, and nothing else in it.
+2. After it, a name for the script (the editor keeps the name; the script has no
+   indicator() line), then a short list of what changed and anything that could
+   not be carried over, and why.
+3. Before answering, check every line against the rules below: each name is
+   defined or listed here, each function has the arguments shown, no function
+   over bars or drawing sits inside if or for, each line title is unique.
+
+HOW A SCRIPT RUNS
+
+- Like Pine: the script runs once for every bar, oldest first, top to bottom.
+  It runs on closed bars only, so barstate.isconfirmed is always true.
+- Every value is a number. true is 1, false is 0. na means no value.
+- There are no types, strings, arrays, maps, matrices, objects or functions of
+  your own. Text appears only in quotes as a title or a mark's text.
+
+WRITING IT DOWN
+
+- One statement a line. A statement cannot carry on to the next line: join
+  Pine's wrapped lines into one. ; also ends a statement.
+- // starts a comment. Text uses double quotes only: "RSI", never 'RSI'.
+- Names: letters, digits and _, starting with a letter or _, at most 40 long.
+  Capitals count.
+- Taken words, never variable names: input state if else for to and or not
+  pane na true false above below, every bar value, function, drawing and colour
+  name below. Rename a Pine variable that collides: high -> hi, red -> bear.
+- Blocks use braces, not indentation:
+    if close > open {
+      up = 1
+    } else if close < open {
+      up = -1
+    } else {
+      up = 0
+    }
+- for i = a to b { ... } counts up by 1 from a to b, both included; it does not
+  run when b < a. At most 1,000 rounds. There is no while, break, continue,
+  switch or "by" step.
+
+BAR VALUES
+
+open high low close volume  this bar's values
+hl2 hlc3 ohlc4              (h+l)/2, (h+l+c)/3, (o+h+l+c)/4
+tr                          true range; on the first bar high - low
+bar                         0 on the chart's first bar, then 1, 2, ...
+time                        bar open, ms since 1970, UTC
+day week month year         counters that change when a new UTC day, week
+                            (from Monday), month or year begins. Not the day
+                            of the month: use changed(day) for a new day.
+
+SETTINGS
+
+  input length = 14 min 2 max 500 "Length"
+  input mult = 2 min 0.1 max 10 step 0.1 "Multiplier"
+
+- input name = default, then any of min, max, step and a label in quotes.
+- Whole numbers when the default (and step, if given) are whole.
+- At most 16, at the top level only. A setting has no history: no length[1].
+
+VARIABLES AND STATE
+
+- x = value sets x for this bar. A plain variable starts each bar as na until a
+  line sets it, so a Pine declaration without var maps to a plain assignment.
+- state x = start keeps its value from bar to bar: Pine's var (and varip). The
+  start is a plain value: a number, a setting or na.
+- Pine's := is plain = in Frost Script. Drop type words (float, int, bool,
+  series, simple, const).
+- x[n] is x as it ended n bars ago, n from 0 to 5,000, and n may be worked out.
+  It works only on a variable or a bar value: name an expression first.
+  Pine (close - open)[1] becomes:  body = close - open  then  body[1]
+
+OPERATORS
+
++ - * / %, == != < <= > >=, and or not, c ? a : b, parentheses.
+- Division is always exact: 5 / 2 is 2.5. Use floor() where Pine meant a whole
+  number.
+- Anything other than 0 is true; 0 and na are false. A comparison with na is
+  false. Arithmetic with na gives na; so does dividing by zero.
+
+FUNCTIONS OVER BARS (at the top level only, never inside if or for)
+
+They remember past bars, so they run on every bar. Work the value out above the
+block and use the variable inside it. Both sides of c ? a : b are worked out.
+A length is 1 to 5,000: a number, a setting, or + - * / of them (length * 2,
+l + r + 1, length / 2), rounded to a whole number. Not a variable and not a
+function's result: round(length / 2) or sqrt(length) is refused (add another
+setting, or write it as a for loop, whose bounds may be anything).
+
+sma(x, length)      simple average
+ema(x, length)      exponential; seeded with the simple average, as Pine's
+rma(x, length)      Wilder's, as RSI and ATR use (Pine ta.rma)
+stdev(x, length)    population standard deviation (Pine ta.stdev, biased)
+highest(x, length)  highest value of the last length
+lowest(x, length)   lowest value
+sum(x, length)      sum of the last length (Pine math.sum)
+rsi(x, length)      0 to 100
+atr(length)         rma(tr, length)
+change(x)           x - x[1];  change(x, n) is x - x[n]
+crossover(a, b)     a goes from at or below b to above it
+crossunder(a, b)    a goes from at or above b to below it
+barssince(c)        bars since c was last true, 0 on that bar
+valuewhen(c, x)     x the last time c was true (Pine occurrence 0 only)
+changed(x)          x differs from a bar ago: changed(week) on a week's start
+
+An average that meets na starts again after it.
+
+MATHS (anywhere)
+
+abs(x) sqrt(x) log(x) exp(x) pow(x, y) round(x) round(x, digits) floor(x)
+ceil(x) min(a, b, ...) max(a, b, ...) (2 to 8 values; na if any is na)
+clamp(x, low, high) nz(x) nz(x, y) isna(x)
+
+No trigonometry and no log10: log10(x) is log(x) / log(10). math.pi is
+3.141592653589793.
+
+DRAWING (at the top level only)
+
+plot(value, "Title", colour, width)   line; gaps where na; width 0.5 to 6
+histogram(value, "Title", colour)     bars from zero; no colour = up/down colours
+hline(value, "Title", colour)         dashed level, gray unless named
+fill("Title A", "Title B", colour)    shades between two lines drawn above it
+mark(condition, "Text", above, colour)   or below; text at most 12 characters
+pane own                              draw in a pane below the chart
+
+- Arguments go by position, never by name: no color=, linewidth=, style=.
+- Each plot, histogram and hline needs its own title, at most 40 characters.
+- At most 16 lines (plots, histograms and levels together), 8 fills, 8 marks.
+- Colours, by name only: green lime red orange yellow blue aqua teal purple pink
+  white gray. No hex, no rgb, no transparency.
+
+PINE v6 TO FROST SCRIPT
+
+//@version=6                       leave out
+indicator(... overlay=true)        leave out (price chart is the default)
+indicator(... overlay=false)       pane own
+input.int / input.float            input name = 14 min 1 max 500 "Label"
+  (minval maxval step)             min max step
+input.bool(true, "Show")           input show = 1 min 0 max 1 "Show (1 on, 0 off)"
+input.source(close, "Source")      pick close; or a numbered setting:
+                                     input src = 0 min 0 max 3 "Source: 0 close, 1 hl2, 2 hlc3, 3 ohlc4"
+                                     source = src == 1 ? hl2 : src == 2 ? hlc3 : src == 3 ? ohlc4 : close
+input.string(options=...)          a numbered setting, as above
+input.color, input.timeframe,      leave out: colours are changed in tradoor's
+input.symbol, input.session        Style tab; other timeframes and symbols are
+                                   not available
+var x = 0 / varip                  state x = 0
+x := y                             x = y
+na(x)                              isna(x)
+nz(x), nz(x, y)                    same
+ta.sma ta.ema ta.rma ta.rsi ta.atr same names without ta.
+ta.stdev ta.highest ta.lowest      stdev highest lowest
+ta.highest(length)                 highest(high, length); ta.lowest(length) is lowest(low, length)
+math.sum(x, n)                     sum(x, n)
+ta.change ta.crossover             change crossover crossunder barssince
+ta.crossunder ta.barssince         (same arguments)
+ta.valuewhen(c, x, 0)              valuewhen(c, x)
+ta.cross(a, b)                     crossover(a, b) or crossunder(a, b)
+ta.tr, ta.tr(true)                 tr
+math.abs math.sqrt math.log        abs sqrt log exp pow floor ceil round min max
+math.exp math.pow math.floor
+math.ceil math.round math.min
+math.max
+math.avg(a, b)                     (a + b) / 2
+math.sign(x)                       x > 0 ? 1 : x < 0 ? -1 : 0
+bar_index                          bar
+barstate.isfirst                   bar == 0
+timeframe.change("D") / ("W")      changed(day) / changed(week); also month, year
+dayofweek (UTC)                    (floor(time / 86400000) + 4) % 7 + 1   (1 is Sunday)
+hour (UTC)                         floor(time / 3600000) % 24
+plot(x, "T", color=c, linewidth=2) plot(x, "T", c, 2)
+plot.style_histogram / _columns    histogram(x, "T", colour)
+other plot styles                  plot (a line)
+plot(..., display=display.none)    leave the plot out, keep the variable
+color.green etc.                   green; color.fuchsia pink, color.maroon red,
+                                   color.navy blue, color.olive green,
+                                   color.silver gray, color.black gray
+color.new(c, transp)               c
+a colour chosen by a condition     draw the line twice, each na where the other
+                                   shows:
+                                     plot(up ? x : na, "X up", green)
+                                     plot(up ? na : x, "X down", red)
+plotshape / plotchar / plotarrow   mark(condition, "Text", below, green)
+  location.belowbar / abovebar     below / above (others: the nearer of the two)
+hline(70, "Upper", color.gray)     hline(70, "Upper", gray)
+fill(p1, p2, color)                fill("Title of p1", "Title of p2", colour)
+switch                             if / else if chain, or nested ?:
+while                              a for loop with a cap and a done flag:
+                                     done = 0
+                                     for i = 0 to 999 {
+                                       if not done and ... {
+                                         ...
+                                       }
+                                     }
+[a, b, c] = ta.macd(...)           work each out on its own line (below)
+user functions f(x) =>, methods    write their body out where they are used
+offset= on a plot or shape         not available: the mark draws on the bar
+                                   where the condition is true
+
+WRITE THESE OUT FROM WHAT EXISTS
+
+ta.wma(x, n)    w = 0
+                for i = 0 to n - 1 {
+                  w = w + x[i] * (n - i)
+                }
+                wma = w / (n * (n + 1) / 2)
+                (x must be a variable or a bar value; n a setting or number)
+ta.vwma(x, n)   sma(x * volume, n) / sma(volume, n)
+ta.hma(x, n)    WMA of (2 * wma(x, n/2) - wma(x, n)) over round(sqrt(n)) bars,
+                each WMA a loop as above (name the inner result first)
+ta.macd         m = ema(close, fast) - ema(close, slow)
+                s = ema(m, signal)
+                h = m - s
+ta.bb           basis = sma(x, n), upper = basis + mult * stdev(x, n), lower
+                = basis - mult * stdev(x, n)
+ta.stoch        k = 100 * (close - lowest(low, n)) / (highest(high, n) - lowest(low, n))
+ta.cci(x, n)    ma = sma(x, n); a loop sums abs(x[i] - ma) for i 0 to n-1 into
+                dev, divided by n; cci = (x - ma) / (0.015 * dev)
+ta.mom(x, n)    change(x, n)
+ta.roc(x, n)    100 * (x - x[n]) / x[n]
+ta.cum(x)       state total = 0  then  total = total + nz(x)
+ta.obv          state obv = 0  then
+                obv = obv + (close > close[1] ? volume : close < close[1] ? -volume : 0)
+ta.vwap         sums of hlc3 * volume and of volume in state variables, set
+                back to 0 when changed(day) (a UTC day), divided one by the other
+ta.dmi / ADX    up = change(high), down = -change(low),
+                plusDM = up > down and up > 0 ? up : 0 (minusDM likewise),
+                then rma of each over atr; adx = rma of 100 * abs(diP - diM) / (diP + diM)
+ta.pivothigh(l, r)   ph = high[r] == highest(high, l + r + 1) ? high[r] : na
+                (known r bars late, as in Pine, and drawn on the bar it is
+                known; ta.pivotlow likewise with low and lowest)
+a value of the day before   state today = na, state yesterday = na,
+                newDay = changed(day) at the top level, then
+                if newDay { yesterday = today; today = high } else { today = isna(today) ? high : max(today, high) }
+                (put each statement on its own line in the script)
+
+NOT AVAILABLE: SAY SO, DO NOT FAKE IT
+
+request.security and any other timeframe or symbol, strategy.* (turn entries
+and exits into marks such as "Buy" and "Sell"), alert() and alertcondition(),
+label.*, line.*, box.*, table.*, polyline.*, bgcolor, barcolor, array.*,
+matrix.*, map.*, str.*, syminfo.*, timeframe.* (other than a change of day,
+week, month or year), session times, ticks and intrabar values,
+barstate.islast and last_bar_index, imports, user types.
+
+If a script relies on one of these at its heart, convert what can be converted
+and explain plainly what was left out.
+
+TWO CONVERSIONS
+
+Pine:
+//@version=6
+indicator("MACD cross", overlay=false)
+fast = input.int(12, "Fast", minval=1)
+slow = input.int(26, "Slow", minval=1)
+sig = input.int(9, "Signal", minval=1)
+[m, s, h] = ta.macd(close, fast, slow, sig)
+plot(h, "Histogram", color = h >= 0 ? color.teal : color.red, style=plot.style_columns)
+plot(m, "MACD", color.blue)
+plot(s, "Signal", color.orange)
+hline(0, "Zero", color.gray)
+plotshape(ta.crossover(m, s), "Cross up", shape.triangleup, location.belowbar, color.green)
+
+Frost Script:
+pane own
+input fast = 12 min 1 max 500 "Fast"
+input slow = 26 min 1 max 500 "Slow"
+input sig = 9 min 1 max 500 "Signal"
+m = ema(close, fast) - ema(close, slow)
+s = ema(m, sig)
+h = m - s
+histogram(h, "Histogram")
+plot(m, "MACD", blue)
+plot(s, "Signal", orange)
+hline(0, "Zero", gray)
+mark(crossover(m, s), "Up", below, green)
+
+Pine:
+//@version=6
+indicator("Trend WMA", overlay=true)
+len = input.int(20, "Length", minval=2)
+var int streak = 0
+w = ta.wma(close, len)
+if close > w
+    streak := streak + 1
+else
+    streak := 0
+plot(w, "WMA", color = close > w ? color.green : color.red, linewidth = 2)
+plotshape(streak == 5, "Streak", shape.labelup, location.belowbar, color.lime, text="5 up")
+
+Frost Script:
+input len = 20 min 2 max 500 "Length"
+// ta.wma written out: the newest close weighs len, the oldest 1
+weighted = 0
+for i = 0 to len - 1 {
+  weighted = weighted + close[i] * (len - i)
+}
+w = weighted / (len * (len + 1) / 2)
+state streak = 0
+if close > w {
+  streak = streak + 1
+} else {
+  streak = 0
+}
+plot(close > w ? w : na, "WMA up", green, 2)
+plot(close > w ? na : w, "WMA down", red, 2)
+mark(streak == 5, "5 up", below, lime)
+
+Now convert the Pine Script v6 indicator I give you next.

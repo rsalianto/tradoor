@@ -16,6 +16,8 @@ import { toast } from '../lib/toasts';
 import { doc, patchPanel } from '../workspace/store';
 
 const CHECK_MS = 250;
+/** What teaches an AI chat Frost Script, to turn a Pine Script v6 indicator into one: the same text the docs show. */
+const AI_TEXT = '/frost-script-ai.txt';
 
 export function FormulaEditor(props: { id?: string; seed?: { name: string; source: string }; panelId?: string }) {
   const opened = props.id ? formulaOf(`fx-${props.id}`) : undefined;
@@ -127,6 +129,21 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
   };
   onMount(() => area.focus());
 
+  // Read ahead, so a click copies at once: some browsers allow the clipboard only while the click is fresh.
+  let aiText: Promise<string> | null = null;
+  const readAiText = () => (aiText ??= fetch(AI_TEXT).then((r) => (r.ok ? r.text() : Promise.reject(new Error(`the instructions did not load (${r.status})`)))));
+  let aiReady = '';
+  onMount(() => void readAiText().then((t) => (aiReady = t), () => (aiText = null)));
+  const copyAi = async () => {
+    try {
+      await navigator.clipboard.writeText(aiReady || (await readAiText()));
+      toast({ tone: 'info', title: 'Copied the instructions for an AI', body: 'Paste them into Claude, ChatGPT, Gemini or another AI chat, then your Pine Script v6 indicator. Paste its answer here, and it is checked as usual.' });
+    } catch (e) {
+      aiText = null;
+      toast({ tone: 'warn', title: 'Not copied', body: `${errorText(e)}. They are on the docs page as well.` });
+    }
+  };
+
   return (
     <div class="backdrop" onPointerDown={close}>
       <div class="dialog fx" tabIndex={-1} onPointerDown={(e) => e.stopPropagation()} onKeyDown={onKey}>
@@ -215,31 +232,40 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
                 }}
               </Show>
             </div>
-            <details class="fx-help">
-              <summary>
-                How Frost Script works ·{' '}
-                <a href="/doc.html#frost-script" target="_blank" rel="noopener">
-                  the full reference ↗
-                </a>
-              </summary>
-              <div>
-                <p>
-                  Each line is worked out on every bar, oldest first. <code>x = …</code> names a value; <code>x[1]</code> is what it was a bar ago. <code>state x = 0</code> keeps its value from one bar to the next.
-                </p>
-                <p>
-                  Bars: <code>open high low close volume hl2 hlc3 ohlc4 tr bar time</code>, and <code>day week month year</code>, which change as a new one begins. <code>na</code> is no value.
-                </p>
-                <p>
-                  Remembering past bars, outside <code>if</code> and <code>for</code>: <code>sma ema rma stdev highest lowest sum rsi atr change crossover crossunder barssince valuewhen changed</code>. Anywhere:{' '}
-                  <code>abs sqrt log exp pow round floor ceil min max clamp nz isna</code>.
-                </p>
-                <p>
-                  Drawing: <code>plot(value, "Title", colour, width)</code>, <code>histogram</code>, <code>hline(80, "Upper")</code>, <code>fill("Upper", "Lower")</code>, <code>mark(condition, "Buy", below, green)</code>. <code>pane own</code> draws below the chart.
-                  Settings: <code>input length = 14 min 2 max 500 "Length"</code>.
-                </p>
-                <p class="dim">A script reads candles and draws lines: it cannot reach the network, your account or the page. Loops go round 1,000 times at most, and one that asks too much stops with an error.</p>
-              </div>
-            </details>
+            <div class="fx-foot">
+              <details class="fx-help">
+                <summary>
+                  How Frost Script works ·{' '}
+                  <a href="/doc.html#frost-script" target="_blank" rel="noopener">
+                    the full reference ↗
+                  </a>
+                </summary>
+                <div>
+                  <p>
+                    Each line is worked out on every bar, oldest first. <code>x = …</code> names a value; <code>x[1]</code> is what it was a bar ago. <code>state x = 0</code> keeps its value from one bar to the next.
+                  </p>
+                  <p>
+                    Bars: <code>open high low close volume hl2 hlc3 ohlc4 tr bar time</code>, and <code>day week month year</code>, which change as a new one begins. <code>na</code> is no value.
+                  </p>
+                  <p>
+                    Remembering past bars, outside <code>if</code> and <code>for</code>: <code>sma ema rma stdev highest lowest sum rsi atr change crossover crossunder barssince valuewhen changed</code>. Anywhere:{' '}
+                    <code>abs sqrt log exp pow round floor ceil min max clamp nz isna</code>.
+                  </p>
+                  <p>
+                    Drawing: <code>plot(value, "Title", colour, width)</code>, <code>histogram</code>, <code>hline(80, "Upper")</code>, <code>fill("Upper", "Lower")</code>, <code>mark(condition, "Buy", below, green)</code>. <code>pane own</code> draws below the chart.
+                    Settings: <code>input length = 14 min 2 max 500 "Length"</code>.
+                  </p>
+                  <p class="dim">A script reads candles and draws lines: it cannot reach the network, your account or the page. Loops go round 1,000 times at most, and one that asks too much stops with an error.</p>
+                </div>
+              </details>
+              <button
+                class="fx-ai"
+                data-tip="Instructions that teach an AI chat (Claude, ChatGPT, Gemini…) Frost Script. Paste them, then a Pine Script v6 indicator, and it answers in Frost Script to paste here."
+                onClick={() => void copyAi()}
+              >
+                Pine Script → Frost: copy AI instructions
+              </button>
+            </div>
           </section>
         </div>
         <footer>
