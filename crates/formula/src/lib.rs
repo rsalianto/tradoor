@@ -31,6 +31,11 @@ pub const MAX_SOURCE: usize = 40_000;
 pub const MAX_TOKENS: usize = 12_000;
 /// How deep brackets and blocks nest.
 pub const MAX_DEPTH: usize = 40;
+/// How deep one expression's tree grows: brackets, calls, and each `+` or `and` of a chain.
+pub const MAX_TREE: usize = 100;
+/// How deep the whole script goes once its functions are written out where they
+/// are called: what bounds the stack its checking and running take.
+pub const MAX_LEVEL: usize = 200;
 /// What one call is given.
 pub const MAX_ARGS: usize = 12;
 /// A text's characters: a label's, a table cell's, one in quotes.
@@ -54,6 +59,9 @@ pub const MAX_NODES: usize = 60_000;
 pub const MAX_LENGTH: usize = 5_000;
 /// How far `x[n]` looks back.
 pub const MAX_LOOKBACK: usize = 5_000;
+/// Past values kept at once, every window and every `[n]` together: what bounds
+/// a script's memory, 8 MB of them.
+pub const MAX_KEPT: usize = 1_000_000;
 /// How often one loop goes round.
 pub const MAX_LOOP: usize = 10_000;
 /// Steps in one run over every bar: past this, the script stops with an error.

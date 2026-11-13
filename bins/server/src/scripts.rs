@@ -91,8 +91,22 @@ fn preview_json(market: Option<String>, timeframe: Option<String>, inputs: Optio
     }
 }
 
+/// Whether a script checks, worked out off the threads that answer requests, on one
+/// of its own with room to spare: how deep a script may go is bounded
+/// (`tradoor_formula::MAX_LEVEL`), and this is the margin over it. Four at a time.
+async fn checks(source: &str) -> bool {
+    static AT_ONCE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    let Ok(_turn) = AT_ONCE.acquire().await else { return false };
+    let source = source.to_string();
+    tokio::task::spawn_blocking(move || {
+        std::thread::Builder::new().name("frost-check".into()).stack_size(64 << 20).spawn(move || tradoor_formula::describe(&source).is_ok()).ok().and_then(|t| t.join().ok()).unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
 /// The name trimmed, and both held to their limits.
-fn checked(body: &Body) -> ApiResult<(String, bool, Option<String>)> {
+fn checked(body: &Body) -> ApiResult<(String, Option<String>)> {
     let name: String = body.name.trim().chars().filter(|c| !c.is_control()).collect();
     if name.is_empty() || name.chars().count() > MAX_NAME {
         return Err(ApiError::bad_request(format!("a name is 1 to {MAX_NAME} characters")));
@@ -104,7 +118,7 @@ fn checked(body: &Body) -> ApiResult<(String, bool, Option<String>)> {
     if about.as_ref().is_some_and(|a| a.chars().count() > MAX_ABOUT) {
         return Err(ApiError::bad_request(format!("a description is {MAX_ABOUT} characters at most")));
     }
-    Ok((name, tradoor_formula::describe(&body.source).is_ok(), about))
+    Ok((name, about))
 }
 
 /// A description as it is kept: plain lines, trimmed, no more than one blank line between paragraphs.
@@ -240,7 +254,8 @@ pub async fn community_script(State(state): State<AppState>, Path(id): Path<Stri
 /// `POST /api/scripts`: a new one.
 pub async fn create(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Body>) -> ApiResult<Json<Value>> {
     let owner = account(&state, &headers)?;
-    let (name, checks, about) = checked(&body)?;
+    let (name, about) = checked(&body)?;
+    let checks = checks(&body.source).await;
     let about = about.unwrap_or_default();
     let client = state.pool.get().await?;
     may_publish(&client, &owner, body.public == Some(true), checks, &about).await?;
@@ -266,7 +281,8 @@ pub async fn create(State(state): State<AppState>, headers: HeaderMap, Json(body
 /// `PUT /api/scripts/{id}`: one of this account's, changed. A removed one stays as the moderator left it.
 pub async fn update(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<Body>) -> ApiResult<Json<Value>> {
     let owner = account(&state, &headers)?;
-    let (name, checks, about) = checked(&body)?;
+    let (name, about) = checked(&body)?;
+    let checks = checks(&body.source).await;
     let client = state.pool.get().await?;
     // What it is to be once changed: a public one stays held to the rules for sharing, whatever is left out.
     let Some(held) = client.query_opt("SELECT public, about FROM frost_script WHERE id = $1 AND owner = $2 AND removed_at IS NULL", &[&id, &owner]).await? else {
@@ -433,11 +449,22 @@ pub async fn moderate(State(state): State<AppState>, headers: HeaderMap, Path(id
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn a_script_is_checked_off_the_request_threads() {
+        assert!(checks("plot(close, \"C\")").await);
+        assert!(!checks("x = ema(close)").await, "kept, and said not to check");
+        // One that nests as deep as the language allows is answered, not the end of the server.
+        let mut deep = String::from("fn g0(x) {\n  return x + 1\n}\n");
+        for i in 1..64 {
+            deep += &format!("fn g{i}(x) {{\n  return {}g{}(x){}\n}}\n", "(".repeat(30), i - 1, " + 1)".repeat(30));
+        }
+        assert!(!checks(&(deep + "plot(g63(close), \"G\")")).await);
+    }
+
     #[test]
     fn a_name_and_a_text_are_held_to_their_limits() {
         let ok = |name: &str, source: &str| checked(&Body { name: name.into(), source: source.into(), public: None, about: None, preview: None });
-        assert_eq!(ok("  My RSI ", "plot(close, \"C\")").unwrap(), ("My RSI".to_string(), true, None));
-        assert_eq!(ok("Draft", "x = ema(close)").unwrap().1, false, "kept, and said not to check");
+        assert_eq!(ok("  My RSI ", "plot(close, \"C\")").unwrap(), ("My RSI".to_string(), None));
         assert!(ok("", "plot(close)").is_err());
         assert!(ok(&"n".repeat(41), "plot(close)").is_err());
         assert!(ok("Big", &"x".repeat(tradoor_formula::MAX_SOURCE + 1)).is_err());

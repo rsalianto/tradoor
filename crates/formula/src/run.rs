@@ -289,7 +289,7 @@ impl State {
                 tradoor_core::sort::heap_sort_by(&mut xs, |x, y| x < y);
                 let m = xs.len() / 2;
                 let v = if xs.len() % 2 == 1 { xs[m] } else { (xs[m - 1] + xs[m]) / 2.0 };
-                (v, (w.len * 4) as u64)
+                (v, (w.len * 8) as u64)
             }
             State::Highest(w) => extreme(w, a, true),
             State::Lowest(w) => extreme(w, a, false),
@@ -552,7 +552,8 @@ struct Machine<'a> {
     marks: Vec<Vec<bool>>,
     backgrounds: Vec<Vec<u32>>,
     bar_colors: Option<Vec<u32>>,
-    lists: Vec<Vec<f64>>,
+    /// Rings: taken from or added at either end at no cost.
+    lists: Vec<VecDeque<f64>>,
     shapes: Shapes,
     cells: Vec<Cell>,
     empty: Rc<str>,
@@ -583,7 +584,7 @@ pub fn run(p: &Program, bars: &Bars, decimals: u8) -> Result<Output, Error> {
         marks: vec![vec![false; n]; p.marks.len()],
         backgrounds: vec![vec![0; n]; p.backgrounds],
         bar_colors: p.bar_colors.then(|| vec![0; n]),
-        lists: vec![Vec::new(); p.lists],
+        lists: vec![VecDeque::new(); p.lists],
         shapes: Shapes::default(),
         cells: Vec::new(),
         empty,
@@ -601,11 +602,12 @@ pub fn run(p: &Program, bars: &Bars, decimals: u8) -> Result<Output, Error> {
             }
         }
         m.lines(&p.body)?;
-        for (slot, remembered) in p.remembered.iter().enumerate() {
-            if *remembered {
+        m.count(p.kept_back, None)?;
+        for (slot, &deep) in p.remembered.iter().enumerate() {
+            if deep > 0 {
                 let past = &mut m.past[slot];
                 past.push_back(m.nums[slot]);
-                if past.len() > MAX_LOOKBACK {
+                if past.len() > deep {
                     past.pop_front();
                 }
             }
@@ -882,6 +884,7 @@ impl Machine<'_> {
                 if truth(c) { a } else { b }
             }
             Ex::Math(f, args) => {
+                self.count(3, None)?;
                 let mut vals = [NA; 12];
                 for (slot, a) in vals.iter_mut().zip(args) {
                     *slot = self.ex(a)?;
@@ -933,10 +936,13 @@ impl Machine<'_> {
                     let piece = self.tx(p)?;
                     out.push_str(&piece);
                 }
-                self.count(out.len() as u64 / 32, None)?;
+                // Charged by what was copied: a long text made again and again is real work.
+                self.count(out.len() as u64 / 2, None)?;
                 cut(out)
             }
             Tx::Num(e, fmt) => {
+                // Writing a number out is some tens of steps' work.
+                self.count(24, None)?;
                 let v = self.ex(e)?;
                 Rc::from(match fmt {
                     Fmt::Plain => plain(v),
@@ -984,34 +990,30 @@ impl Machine<'_> {
             }
             Ok(k as usize)
         };
+        // Charged by how much of the list each goes over or moves: either end is free.
         let steps = match op {
-            ListOp::Sum | ListOp::Avg | ListOp::Min | ListOp::Max | ListOp::IndexOf | ListOp::Includes | ListOp::Reverse | ListOp::Insert | ListOp::Remove | ListOp::Shift | ListOp::Unshift => len as u64 / 8,
-            ListOp::Sort => len as u64 * 2,
+            ListOp::Sum | ListOp::Avg | ListOp::IndexOf | ListOp::Includes | ListOp::Reverse | ListOp::Insert | ListOp::Remove => len as u64 / 8,
+            ListOp::Min | ListOp::Max => len as u64 / 4,
+            ListOp::Sort => len as u64 * 10,
             _ => 0,
         };
         let value = match op {
             ListOp::Push => {
                 if xs.len() >= MAX_LIST {
-                    xs.remove(0);
+                    xs.pop_front();
                 }
-                xs.push(v[0]);
+                xs.push_back(v[0]);
                 NA
             }
             ListOp::Unshift => {
                 if xs.len() >= MAX_LIST {
-                    xs.pop();
+                    xs.pop_back();
                 }
-                xs.insert(0, v[0]);
+                xs.push_front(v[0]);
                 NA
             }
-            ListOp::Pop => xs.pop().unwrap_or(NA),
-            ListOp::Shift => {
-                if xs.is_empty() {
-                    NA
-                } else {
-                    xs.remove(0)
-                }
-            }
+            ListOp::Pop => xs.pop_back().unwrap_or(NA),
+            ListOp::Shift => xs.pop_front().unwrap_or(NA),
             ListOp::Get => xs[index(v[0], len)?],
             ListOp::Set => {
                 let k = index(v[0], len)?;
@@ -1028,15 +1030,15 @@ impl Machine<'_> {
             }
             ListOp::Remove => {
                 let k = index(v[0], len)?;
-                xs.remove(k)
+                xs.remove(k).unwrap_or(NA)
             }
             ListOp::Clear => {
                 xs.clear();
                 NA
             }
             ListOp::Size => len as f64,
-            ListOp::First => xs.first().copied().unwrap_or(NA),
-            ListOp::Last => xs.last().copied().unwrap_or(NA),
+            ListOp::First => xs.front().copied().unwrap_or(NA),
+            ListOp::Last => xs.back().copied().unwrap_or(NA),
             ListOp::Sum | ListOp::Avg => {
                 let (sum, count) = xs.iter().filter(|x| !x.is_nan()).fold((0.0, 0usize), |(s, c), x| (s + x, c + 1));
                 match (op, count) {
@@ -1050,11 +1052,11 @@ impl Machine<'_> {
             ListOp::Includes => flag(xs.contains(&v[0])),
             ListOp::Sort => {
                 // Missing values last.
-                tradoor_core::sort::heap_sort_by(xs, |a, b| if a.is_nan() { false } else if b.is_nan() { true } else { a < b });
+                tradoor_core::sort::heap_sort_by(xs.make_contiguous(), |a, b| if a.is_nan() { false } else if b.is_nan() { true } else { a < b });
                 NA
             }
             ListOp::Reverse => {
-                xs.reverse();
+                xs.make_contiguous().reverse();
                 NA
             }
         };
@@ -1063,6 +1065,8 @@ impl Machine<'_> {
     }
 
     fn shape(&mut self, op: ShapeOp, args: &[Ex], text: Option<&Tx>, _at: At) -> Result<f64, Error> {
+        // A shape made, found or let go is a few steps' work.
+        self.count(4, None)?;
         let mut v = [NA; 8];
         for (slot, a) in v.iter_mut().zip(args) {
             *slot = self.ex(a)?;

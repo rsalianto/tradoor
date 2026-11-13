@@ -399,6 +399,39 @@ fn no_value_stays_no_value_and_division_by_zero_gives_none() {
 }
 
 #[test]
+fn no_script_runs_the_checker_out_of_stack_memory_or_time() {
+    // On a thread with room for a debug build's frames, many times a release build's.
+    std::thread::Builder::new().stack_size(256 << 20).spawn(hostile_scripts_are_stopped).unwrap().join().unwrap();
+}
+
+fn hostile_scripts_are_stopped() {
+    // A chain as long as the text allows is refused as it is read, before its tree is deep.
+    let chain = format!("t = {}\nplot(close, \"C\")", vec!["\"ab\""; 5000].join(" + "));
+    fails(&chain, 1, "more than 100 deep");
+    // Functions that nest each other's results: refused at the limit.
+    let nest = |n: usize| {
+        let mut src = String::from("fn g0(x) {\n  return x + 1\n}\n");
+        for i in 1..n {
+            src += &format!("fn g{i}(x) {{\n  return {}g{}(x){}\n}}\n", "(".repeat(30), i - 1, " + 1)".repeat(30));
+        }
+        src + &format!("plot(g{}(close), \"G\")", n - 1)
+    };
+    assert!(check(&nest(64)).unwrap_err().message.contains("nests more than 200 deep"));
+    assert_eq!(check(&nest(6)).map(|o| o.plots.len()), Ok(1));
+    // As many long windows as a script can write: refused for what they would keep.
+    let body = (0..40).map(|i| format!("median(x + {i}, 5000)")).collect::<Vec<_>>().join(" + ");
+    let calls = (0..40).map(|j| format!("w(close + {j})")).collect::<Vec<_>>().join(" + ");
+    fails(&format!("fn w(x) {{\n  return {body}\n}}\na = {calls}\nplot(a, \"A\")"), 2, "keeps more past values");
+    // A list pushed while full lets its oldest go at no cost; a text grown costs what it copies,
+    // so a loop of them stops at the step limit.
+    assert_eq!(check("state xs = list()\nfor i = 0 to 9999 {\n  xs.push(i)\n}\nplot(xs.size(), \"N\")").map(|o| o.plots[0].values[5]), Ok(5000.0));
+    assert!(check("state t = \"\"\nfor i = 0 to 9999 {\n  t = t + \"abcdefghij\"\n}\nplot(close, \"C\")").unwrap_err().message.contains("too long"));
+    // x[1] keeps one bar, not five thousand: many of them fit.
+    let ones = (0..400).map(|i| format!("v{i} = close + {i}\nw{i} = v{i}[1]")).collect::<Vec<_>>().join("\n") + "\nplot(w1, \"W\")";
+    assert!(check(&ones).is_ok());
+}
+
+#[test]
 fn a_variable_may_share_a_functions_name_but_not_a_bar_values() {
     // As scripts written before rising(…), label(…) and the rest were added do.
     let out = check("rising = close > close[1] and close[1] > close[2]\nsum = 0\nlabel = 2\nfor i = 0 to 2 {\n  sum = sum + close[i]\n}\nplot(rising, \"R\")\nplot(sum, \"S\")\nplot(rising(close, 2), \"F\")\nplot(label, \"L\")").unwrap();

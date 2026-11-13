@@ -39,13 +39,15 @@ thread_local! {
     static OUT: RefCell<Out> = RefCell::new(Out::default());
 }
 
+/// A text on one field of a line: no tab, line break or other control character
+/// of a script's can end the field, or the line, or split a list of choices.
 fn clean(s: &str) -> String {
-    s.replace(['\t', '\n'], " ")
+    s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
-/// A text that keeps its line breaks, as ␟.
+/// A text that keeps its line breaks, as ␟, and no other control character.
 fn multiline(s: &str) -> String {
-    s.replace('\t', " ").replace('\n', "\u{1f}")
+    s.chars().map(|c| if c == '\n' { '\u{1f}' } else if c.is_control() { ' ' } else { c }).collect()
 }
 
 fn colour(c: Option<u32>) -> String {

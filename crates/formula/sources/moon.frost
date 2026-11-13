@@ -17,15 +17,27 @@ fn phaseAt(k) {
   return (jd - 2440587.5) * 86400000 - 69000
 }
 
-// The half-lunations that can fall in this bar: the one it is in, and those either side.
+// The half-lunations that can fall in this bar: the one it is in, and those either side,
+// worked out again only when the bar moves into the next one, some 15 days apart.
 lunation = (time / 86400000 + 2440587.5 - 2451550.09766) / 29.530588861
 half = floor(lunation * 2)
+state lastHalf = na
+state before = na
+state here = na
+state after = na
+if isna(lastHalf) or half != lastHalf {
+  lastHalf = half
+  before = phaseAt((half - 1) / 2)
+  here = phaseAt(half / 2)
+  after = phaseAt((half + 1) / 2)
+}
+// An odd half-lunation is a full moon, an even one a new moon.
 fullHere = false
 newHere = false
-for h = half - 1 to half + 1 {
-  at = phaseAt(h / 2)
+for j = 0 to 2 {
+  at = j == 0 ? before : j == 1 ? here : after
   if at >= time and at < time + interval {
-    if h % 2 == 1 {
+    if (half - 1 + j) % 2 == 1 {
       fullHere = true
     } else {
       newHere = true

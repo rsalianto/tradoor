@@ -3,7 +3,7 @@
 //! so an error can say the line and column. The text is bounded before any of
 //! this, and so is how deep expressions and blocks nest, so no script can run
 //! the parser out of stack.
-use crate::{Error, MAX_ARGS, MAX_DEPTH, MAX_TEXT, MAX_TOKENS};
+use crate::{Error, MAX_ARGS, MAX_DEPTH, MAX_TEXT, MAX_TOKENS, MAX_TREE};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct At {
@@ -216,6 +216,27 @@ pub enum Expr {
 pub struct Node {
     pub expr: Expr,
     pub at: At,
+    /// How many nodes deep it is, itself counted: never past MAX_TREE.
+    pub depth: u16,
+}
+
+impl Node {
+    /// A node over what it holds, or an error where it would be too deep. Each
+    /// is counted as it is made, so no tree past the limit is ever built: a chain
+    /// of `+` or `and` is as deep as it is long.
+    fn new(at: At, expr: Expr) -> Result<Node, Error> {
+        let below = match &expr {
+            Expr::Num(_) | Expr::Text(_) | Expr::Colour(_) | Expr::Name(_) => 0,
+            Expr::Back(_, n) | Expr::Neg(n) | Expr::Not(n) => n.depth,
+            Expr::Binary(_, a, b) => a.depth.max(b.depth),
+            Expr::Pick(c, a, b) => c.depth.max(a.depth).max(b.depth),
+            Expr::Call(_, args, named) => args.iter().chain(named.iter().map(|(_, n)| n)).map(|n| n.depth).max().unwrap_or(0),
+        };
+        if usize::from(below) >= MAX_TREE {
+            return Err(Error::at(at, format!("this is more than {MAX_TREE} deep: give parts of it names of their own first")));
+        }
+        Ok(Node { expr, at, depth: below + 1 })
+    }
 }
 
 /// What a setting starts as, which says what kind it is.
@@ -591,7 +612,7 @@ impl Parser {
             let yes = self.expr()?;
             self.expect_sign(":")?;
             let no = self.expr()?;
-            Node { at: cond.at, expr: Expr::Pick(Box::new(cond), Box::new(yes), Box::new(no)) }
+            Node::new(cond.at, Expr::Pick(Box::new(cond), Box::new(yes), Box::new(no)))?
         } else {
             cond
         };
@@ -603,7 +624,7 @@ impl Parser {
         let mut left = self.and()?;
         while self.take_word("or") {
             let right = self.and()?;
-            left = Node { at: left.at, expr: Expr::Binary(Op::Or, Box::new(left), Box::new(right)) };
+            left = Node::new(left.at, Expr::Binary(Op::Or, Box::new(left), Box::new(right)))?;
         }
         Ok(left)
     }
@@ -612,7 +633,7 @@ impl Parser {
         let mut left = self.not()?;
         while self.take_word("and") {
             let right = self.not()?;
-            left = Node { at: left.at, expr: Expr::Binary(Op::And, Box::new(left), Box::new(right)) };
+            left = Node::new(left.at, Expr::Binary(Op::And, Box::new(left), Box::new(right)))?;
         }
         Ok(left)
     }
@@ -624,7 +645,7 @@ impl Parser {
             self.enter()?;
             let inner = self.not()?;
             self.depth -= 1;
-            return Ok(Node { at, expr: Expr::Not(Box::new(inner)) });
+            return Node::new(at, Expr::Not(Box::new(inner)));
         }
         self.compare()
     }
@@ -642,7 +663,7 @@ impl Parser {
         };
         self.i += 1;
         let right = self.sum()?;
-        Ok(Node { at: left.at, expr: Expr::Binary(op, Box::new(left), Box::new(right)) })
+        Node::new(left.at, Expr::Binary(op, Box::new(left), Box::new(right)))
     }
 
     fn sum(&mut self) -> Result<Node, Error> {
@@ -655,7 +676,7 @@ impl Parser {
             };
             self.i += 1;
             let right = self.product()?;
-            left = Node { at: left.at, expr: Expr::Binary(op, Box::new(left), Box::new(right)) };
+            left = Node::new(left.at, Expr::Binary(op, Box::new(left), Box::new(right)))?;
         }
     }
 
@@ -670,7 +691,7 @@ impl Parser {
             };
             self.i += 1;
             let right = self.unary()?;
-            left = Node { at: left.at, expr: Expr::Binary(op, Box::new(left), Box::new(right)) };
+            left = Node::new(left.at, Expr::Binary(op, Box::new(left), Box::new(right)))?;
         }
     }
 
@@ -681,7 +702,7 @@ impl Parser {
             self.enter()?;
             let inner = self.unary()?;
             self.depth -= 1;
-            return Ok(Node { at, expr: Expr::Neg(Box::new(inner)) });
+            return Node::new(at, Expr::Neg(Box::new(inner)));
         }
         self.primary()
     }
@@ -689,9 +710,9 @@ impl Parser {
     fn primary(&mut self) -> Result<Node, Error> {
         let at = self.at();
         match self.bump() {
-            Tok::Num(v) => Ok(Node { at, expr: Expr::Num(v) }),
-            Tok::Text(t) => Ok(Node { at, expr: Expr::Text(t) }),
-            Tok::Hex(v) => Ok(Node { at, expr: Expr::Colour(v) }),
+            Tok::Num(v) => Node::new(at, Expr::Num(v)),
+            Tok::Text(t) => Node::new(at, Expr::Text(t)),
+            Tok::Hex(v) => Node::new(at, Expr::Colour(v)),
             Tok::Sign("(") => {
                 let inner = self.expr()?;
                 self.expect_sign(")")?;
@@ -701,7 +722,7 @@ impl Parser {
                 if self.is_sign("(") {
                     self.i += 1;
                     let (args, named) = self.args(at)?;
-                    return Ok(Node { at, expr: Expr::Call(w, args, named) });
+                    return Node::new(at, Expr::Call(w, args, named));
                 }
                 // `xs.push(v)`: a list's own function, given the list first.
                 if self.is_sign(".") {
@@ -712,16 +733,16 @@ impl Parser {
                     }
                     self.i += 1;
                     let (mut args, named) = self.args(at)?;
-                    args.insert(0, Node { at, expr: Expr::Name(w) });
-                    return Ok(Node { at, expr: Expr::Call(format!(".{method}"), args, named) });
+                    args.insert(0, Node::new(at, Expr::Name(w))?);
+                    return Node::new(at, Expr::Call(format!(".{method}"), args, named));
                 }
                 if self.is_sign("[") {
                     self.i += 1;
                     let back = self.expr()?;
                     self.expect_sign("]")?;
-                    return Ok(Node { at, expr: Expr::Back(w, Box::new(back)) });
+                    return Node::new(at, Expr::Back(w, Box::new(back)));
                 }
-                Ok(Node { at, expr: Expr::Name(w) })
+                Node::new(at, Expr::Name(w))
             }
             Tok::End => Err(Error::at(at, "the line ends where a value was expected")),
             Tok::Sign(s) => Err(Error::at(at, format!("{s} is not where a value starts"))),

@@ -135,11 +135,20 @@ fn addPoint(barIdx, price, isHigh, barTime) {
         renderPoint(lastIdx)
       }
     } else {
+      // The oldest point let go once the lists are near full, from all of them alike.
+      if n >= 4000 {
+        ptBar.shift()
+        ptPrice.shift()
+        ptHigh.shift()
+        ptTime.shift()
+        legLine.shift()
+        legLabel.shift()
+      }
       ptBar.push(barIdx)
       ptPrice.push(price)
       ptHigh.push(isHigh)
       ptTime.push(barTime)
-      renderPoint(lastIdx + 1)
+      renderPoint(ptHigh.size() - 1)
     }
   }
 }

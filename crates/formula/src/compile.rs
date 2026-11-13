@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use crate::syntax::{At, Default as Given, Expr, Input, Line, Node, Op, Stmt};
 use crate::{
-    Error, InputKind, InputSpec, PlotKind, PlotStyle, MAX_BACKGROUNDS, MAX_CHOICES, MAX_FILLS, MAX_FUNCTIONS, MAX_INPUTS, MAX_LENGTH, MAX_LISTS, MAX_MARKS, MAX_NODES, MAX_PLOTS, MAX_TITLE, MAX_VARS, TABLE_COLUMNS, TABLE_ROWS,
+    Error, InputKind, InputSpec, PlotKind, PlotStyle, MAX_BACKGROUNDS, MAX_CHOICES, MAX_FILLS, MAX_FUNCTIONS, MAX_INPUTS, MAX_KEPT, MAX_LENGTH, MAX_LEVEL, MAX_LISTS, MAX_LOOKBACK, MAX_MARKS, MAX_NODES, MAX_PLOTS, MAX_TITLE, MAX_VARS, TABLE_COLUMNS, TABLE_ROWS,
 };
 
 /// A value every bar has.
@@ -171,6 +171,19 @@ pub enum Keep {
     ValueWhen,
     Changed,
     Cum,
+}
+
+impl Keep {
+    /// About how many past values its state holds at most: what MAX_KEPT counts.
+    fn held(self) -> usize {
+        match self {
+            Keep::Sma(n) | Keep::Wma(n) | Keep::Stdev(n) | Keep::Dev(n) | Keep::Median(n) | Keep::Highest(n) | Keep::Lowest(n) | Keep::HighestBars(n) | Keep::LowestBars(n) | Keep::Sum(n) | Keep::Linreg(n) | Keep::Cci(n) => n,
+            Keep::Vwma(n) | Keep::Hma(n) | Keep::Mfi(n) | Keep::Stoch(n) | Keep::Correlation(n) => 2 * n,
+            Keep::Change(n) | Keep::Roc(n) | Keep::PercentRank(n) | Keep::Rising(n) | Keep::Falling(n) => n + 1,
+            Keep::PivotHigh(l, r) | Keep::PivotLow(l, r) => l + r + 1,
+            _ => 1,
+        }
+    }
 }
 
 /// Name, the values it takes, and the lengths after them.
@@ -468,8 +481,10 @@ pub struct Program {
     /// Which variables keep their value from bar to bar (`state`).
     pub kept: Vec<bool>,
     pub kept_texts: Vec<bool>,
-    /// Which are read back with `[n]`, and so remembered.
-    pub remembered: Vec<bool>,
+    /// How many past bars of each are kept, for `[n]`: 0 for one never read back.
+    pub remembered: Vec<usize>,
+    /// How many are kept at all: the steps each bar's keeping takes.
+    pub kept_back: u64,
     pub sites: Vec<Keep>,
     pub lists: usize,
     pub body: Vec<Run>,
@@ -525,11 +540,16 @@ struct Compiler<'a> {
     /// Loops around the line being compiled, in this function: where `break` may go.
     loops: usize,
     nodes: usize,
+    /// How deep the compiler is in the script now, functions written out where
+    /// they are called counted: what keeps the work, and the tree it makes, shallow.
+    level: usize,
+    /// Past values its windows and `[n]` keep at once, all told.
+    kept: usize,
 }
 
 /// `given` are the inputs' values in the order they are written; missing ones take their default.
 pub fn compile(lines: &[Line], given: &[f64]) -> Result<Program, Error> {
-    let mut c = Compiler { program: Program { table: (0, 2), ..Program::default() }, globals: Vec::new(), frames: Vec::new(), functions: Vec::new(), calling: Vec::new(), loops: 0, nodes: 0 };
+    let mut c = Compiler { program: Program { table: (0, 2), ..Program::default() }, globals: Vec::new(), frames: Vec::new(), functions: Vec::new(), calling: Vec::new(), loops: 0, nodes: 0, level: 0, kept: 0 };
     for line in lines {
         match &line.stmt {
             Stmt::Input(input) => c.input(input, line.at, given)?,
@@ -566,7 +586,8 @@ pub fn compile(lines: &[Line], given: &[f64]) -> Result<Program, Error> {
     }
     c.program.body = c.lines(lines, true)?;
     c.program.kept.resize(c.program.nums, false);
-    c.program.remembered.resize(c.program.nums, false);
+    c.program.remembered.resize(c.program.nums, 0);
+    c.program.kept_back = c.program.remembered.iter().filter(|d| **d > 0).count() as u64;
     c.program.kept_texts.resize(c.program.texts, false);
     Ok(c.program)
 }
@@ -819,6 +840,26 @@ fn title_of(node: &Node, c: &Compiler) -> Option<String> {
 }
 
 impl<'a> Compiler<'a> {
+    /// One deeper, while `work` is done: past MAX_LEVEL, an error, whatever the stack.
+    fn deeper<T>(&mut self, at: At, work: impl FnOnce(&mut Self) -> Result<T, Error>) -> Result<T, Error> {
+        if self.level >= MAX_LEVEL {
+            return Err(Error::at(at, format!("this nests more than {MAX_LEVEL} deep once its functions are written out where they are called: call them inside each other less")));
+        }
+        self.level += 1;
+        let done = work(self);
+        self.level -= 1;
+        done
+    }
+
+    /// More past values kept, and an error past MAX_KEPT: what bounds a script's memory.
+    fn hold(&mut self, values: usize, at: At) -> Result<(), Error> {
+        self.kept += values;
+        if self.kept > MAX_KEPT {
+            return Err(Error::at(at, "this script keeps more past values than Frost Script holds: shorter lengths, or fewer of them"));
+        }
+        Ok(())
+    }
+
     fn grow(&mut self, at: At) -> Result<(), Error> {
         self.nodes += 1;
         if self.nodes > MAX_NODES {
@@ -994,6 +1035,11 @@ impl<'a> Compiler<'a> {
     // ---------------------------------------------------------------- statements
 
     fn lines(&mut self, lines: &[Line], top: bool) -> Result<Vec<Run>, Error> {
+        let at = lines.first().map_or(At { line: 0, col: 0 }, |l| l.at);
+        self.deeper(at, |c| c.lines_here(lines, top))
+    }
+
+    fn lines_here(&mut self, lines: &[Line], top: bool) -> Result<Vec<Run>, Error> {
         let mut out = Vec::new();
         for line in lines {
             self.grow(line.at)?;
@@ -1502,6 +1548,10 @@ impl<'a> Compiler<'a> {
     }
 
     fn any(&mut self, node: &Node, top: bool) -> Result<Any, Error> {
+        self.deeper(node.at, |c| c.any_here(node, top))
+    }
+
+    fn any_here(&mut self, node: &Node, top: bool) -> Result<Any, Error> {
         self.grow(node.at)?;
         Ok(match &node.expr {
             Expr::Num(v) => Any::N(Ex::Num(*v)),
@@ -1520,11 +1570,20 @@ impl<'a> Compiler<'a> {
                         None => return Err(Error::at(node.at, format!("{w} is not known here"))),
                     },
                 };
-                if let Target::Slot(s) = target {
-                    self.program.remembered.resize(self.program.nums, false);
-                    self.program.remembered[s] = true;
+                if let Target::Slot(_) = target {
+                    self.program.remembered.resize(self.program.nums, 0);
                 }
-                Any::N(Ex::Back(target, Box::new(self.num(back, top)?), node.at))
+                let back = self.num(back, top)?;
+                if let Target::Slot(s) = target {
+                    // As far back as it is ever read: a fixed n keeps n bars, one worked out on each bar keeps them all.
+                    let deep = constant(&back).filter(|v| v.is_finite() && *v >= 0.0).map_or(MAX_LOOKBACK, |v| (v.round() as usize).min(MAX_LOOKBACK));
+                    let had = self.program.remembered[s];
+                    if deep > had {
+                        self.hold(deep - had, node.at)?;
+                        self.program.remembered[s] = deep;
+                    }
+                }
+                Any::N(Ex::Back(target, Box::new(back), node.at))
             }
             Expr::Neg(inner) => Any::N(Ex::Neg(Box::new(self.num(inner, top)?))),
             Expr::Not(inner) => Any::N(Ex::Not(Box::new(self.num(inner, top)?))),
@@ -1729,6 +1788,7 @@ impl<'a> Compiler<'a> {
             "changed" => Keep::Changed,
             _ => Keep::Cum,
         };
+        self.hold(keep.held(), node.at)?;
         self.program.sites.push(keep);
         Ok(Any::N(Ex::Keep(self.program.sites.len() - 1, values)))
     }
