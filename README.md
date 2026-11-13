@@ -91,6 +91,17 @@ Every market on Binance, Bybit, OKX, Bitget, Kraken, Hyperliquid, Lighter, Gate,
 
 Search for an indicator or pick one from its group. A click adds it with its usual settings and leaves the list open for the next. Each has settings of its own, and adding another of the same with other settings puts both on the chart. Star the ones you use and they stay at the top on every device you sign in on.
 
+### Frost Script
+
+```
+input length = 20 min 2 max 500 "Length"
+average = ema(close, length)
+plot(average, "Average", blue)
+mark(crossover(close, average), "Up", below, green)
+```
+
+An indicator of your own, in Frost Script, tradoor's own language for them: a few readable lines that work out a value on every bar and draw lines, histograms, levels, fills and buy or sell marks, on the price chart or in a pane of their own, with settings like any built-in. The editor checks a script as it is typed and points at the line and column of a mistake. Every built-in that can be written in Frost Script shows its source in its settings, and the script gives the same numbers. A script someone else wrote can draw a wrong line at worst: tradoor's own engine in Rust works it out, in a module that imports nothing, the language has no word for the network, the page or an account, and every loop and length has a limit. Scripts are kept with an account signed in with Telegram. An indicator written in Pine Script v6 can be turned into one by an AI chat such as Claude or ChatGPT, with the instructions the editor copies. The [reference](https://tradoorterminal.com/doc.html) has the whole language.
+
 ### DOM and Tape
 
 <p align="center">
@@ -219,6 +230,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 - One minute to a year; 2D, 3D, 2W, 3M, 6M and 12M folded from days with a live forming bar
 - An open world for 15 minutes and shorter: a window of the newest bars, widened as you pan back
 - EMA 12/25 ribbon, EMA 200, RSI, Stoch RSI, MACD, volume, key levels, Bollinger Bands, Keltner Channels, Ichimoku Cloud, VWAP with bands, VWAP levels, anchored VWAP, volume delta, visible-range volume profile, trading sessions, moon phases and open interest; every one with its own settings
+- Indicators of your own in Frost Script, checked as you type, with every built-in's source to start from, and instructions that let an AI chat turn a Pine Script v6 indicator into one
 - Linear or log price axis, auto scale, panes you size yourself
 - A 4K picture of any chart to the clipboard
 
@@ -276,6 +288,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 - **Chart engine**: Rust compiled to WebAssembly (about 173 KB gzip after wasm-opt), run in a Web Worker. Candles are drawn with WebGL2 on an OffscreenCanvas, text on a 2D layer and the liquidation feed on a third, so the page thread never touches a candle.
 - **History**: Immutable columnar partition files, about 16 bytes per 1-minute bar: five years of BTCUSDT perpetual minutes is 42 MB. Served from disk or a CDN and cached by the browser for a year.
 - **Live**: Exchange WebSockets straight to the browser: trades folded into the forming bar between kline updates, order books kept for the DOM, and liquidations feeding a ticker above the volume and a tape of their own as they land. The server relays a stream only when the browser cannot reach the exchange.
+- **Frost Script**: a small interpreter in Rust (`crates/formula`), compiled to a WebAssembly module of its own that imports nothing and runs in the chart's worker. The server checks every saved script with the same crate.
 - **Server**: Rust — Axum and Tokio — for the market catalogue, drawings and workspaces, accounts, the journal and training, and a day of liquidations for a few tickers.
 - **Database**: PostgreSQL 18, for metadata only. Candles never enter it.
 - **UI**: SolidJS (about 58 KB brotli): splits, tabs, docking by drag, link groups, command palette, theme; one chart and a menu on a phone.
@@ -312,7 +325,7 @@ How the pieces fit is in [docs/architecture.md](docs/architecture.md), and the p
 ```sh
 cp .env.example .env          # choose a database password
 docker compose up -d          # PostgreSQL 18 in its own container, on 127.0.0.1:5438
-./scripts/build-wasm.sh       # the chart engine, into web/src/wasm/pkg
+./scripts/build-wasm.sh       # the chart engine and Frost Script's module, into web/src/wasm
 cargo build --release
 
 set -a; . ./.env; set +a
@@ -448,6 +461,21 @@ beacon, counting page views, with the Content Security Policy widened to its
 host (`web/site.ts`; `deploy/nginx/security-headers.conf` sends the same). It
 sets no cookie, and the browser id tradoor keeps drawings and layouts under is
 not given to it. Without `CF_BEACON` the page loads no analytics at all.
+
+</details>
+
+<details>
+<summary><b>Status page and announcements</b></summary>
+
+<br>
+
+Set `TRADOOR_ADMIN_KEY` in the server's `.env` (`openssl rand -hex 32`) and
+`/online.html` opens with it: readers on screen, Telegram accounts and alert
+chats, the server's pools, memory and load, every Frost Script with its author
+to read, remove or restore, and an announcement to show atop tradoor for every
+reader until they close it. Readers on screen are counted, never named. After a
+few wrong keys from one address, or many from all, it answers none for a while.
+Unset, the page has nothing to read.
 
 </details>
 
