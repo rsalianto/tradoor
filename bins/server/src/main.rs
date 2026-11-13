@@ -26,6 +26,7 @@ mod journal;
 mod limits;
 mod liquidations;
 mod open_interest;
+mod presence;
 mod relay;
 mod research;
 mod session;
@@ -49,7 +50,7 @@ use tradoor_venues::binance;
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
-    #[arg(long, env = "DATABASE_URL", global = true)]
+    #[arg(long, env = "DATABASE_URL", global = true, hide_env_values = true)]
     database_url: Option<String>,
     #[arg(long, env = "TRADOOR_DATA_DIR", default_value = "./data", global = true)]
     data_dir: PathBuf,
@@ -70,7 +71,7 @@ struct Cli {
     open_interest: Vec<String>,
     /// A Telegram bot's token (from @BotFather), for alerts sent to a chat.
     /// Without it the Telegram section of Settings says it is not set up.
-    #[arg(long, env = "TRADOOR_TELEGRAM_TOKEN", default_value = "")]
+    #[arg(long, env = "TRADOOR_TELEGRAM_TOKEN", default_value = "", hide_env_values = true)]
     telegram_token: String,
     /// The site's address (https://your-domain), for the link in a Telegram
     /// message that opens its chart. Without it the messages carry none.
@@ -81,6 +82,11 @@ struct Cli {
     /// Empty reads none: the history is then what the server recorded itself.
     #[arg(long, env = "TRADOOR_FOOTPRINT_HISTORY", default_value = "", value_delimiter = ',')]
     footprint_history: Vec<String>,
+    /// A key of 32 characters or more opens the owner's status page
+    /// (/online.html): readers on screen, Telegram accounts, the server's state.
+    /// Without one the page has nothing to read.
+    #[arg(long, env = "TRADOOR_ADMIN_KEY", default_value = "", hide_env_values = true)]
+    admin_key: String,
 }
 
 #[derive(Subcommand)]
@@ -208,6 +214,8 @@ async fn main() -> anyhow::Result<()> {
                 telegram,
                 liquidations: (!tickers.is_empty()).then(|| liquidations::Collector::start(work.clone(), tickers, doh.clone())),
                 pool,
+                work,
+                presence: presence::Presence::start(&cli.admin_key),
                 data: DataDir::new(&cli.data_dir),
                 catalog,
                 relay: relay::Relay::new(doh)?,

@@ -21,6 +21,7 @@ import { toast } from '../lib/toasts';
 import { takeNotice } from '../lib/owner';
 import { insertMarket, isSection, visible } from '../lib/watchlist';
 import { referralCard, startReferral } from '../lib/referral';
+import { tellPresence } from '../lib/presence';
 import { Layout, panelTitle } from '../workspace/Layout';
 import { ChartPanel } from '../panels/ChartPanel';
 import { addPanel, LINK_COLORS, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, tabsOf, TPO_SPLITS, type ChartPanelState, type DropZone, type LayoutNode, type Panel, type PanelType, type WatchlistPanelState } from '../workspace/model';
@@ -113,7 +114,7 @@ function commands(): Command[] {
   list.push(
     { group: 'App', label: 'Settings and colours…', run: () => setOverlay({ kind: 'settings' }) },
     { group: 'App', label: 'Keyboard shortcuts', hint: '?', run: () => setOverlay({ kind: 'help' }) },
-    { group: 'App', label: 'Partners — Breakout, Nado, Bybit and Binance', run: () => setOverlay({ kind: 'referrals' }) },
+    { group: 'App', label: 'Partners — Lighter, Nado, Bybit and Binance', run: () => setOverlay({ kind: 'referrals' }) },
     {
       group: 'App',
       label: 'Reset workspace to default',
@@ -468,6 +469,7 @@ export function App() {
     const notice = takeNotice();
     if (notice) toast({ tone: 'info', title: 'Signed out', body: notice, action: () => setOverlay({ kind: 'settings' }) }, 30_000);
     if (!IS_CRAWLER) {
+      tellPresence();
       startReferral();
       setTimeout(() => void import('../lib/signal-alerts').then((m) => m.watchSignals()), 4_000);
     }
@@ -528,7 +530,7 @@ export function App() {
             <LayoutPicker onClose={() => setTopMenu(null)} />
           </Show>
         </span>
-        <button class="item ref-btn" data-tip="Partners: Breakout, Nado, Bybit and Binance" onClick={() => setOverlay({ kind: 'referrals' })}>
+        <button class="item ref-btn" data-tip="Partners: Lighter, Nado, Bybit and Binance" onClick={() => setOverlay({ kind: 'referrals' })}>
           <Icon name="gift" size={13} /> <span>Rewards</span>
         </button>
         <Health />

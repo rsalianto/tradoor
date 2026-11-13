@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<title>tradoor status</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root { --bg: #070907; --surface: #0d100e; --border: #232823; --text: #dfe6e0; --muted: #868c87; --dim: #565c57; --bull: #aafd35; --bear: #ff4d5f; --warn: #ffc247; --font: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.5 var(--font); }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+  header b { color: var(--bull); letter-spacing: .16em; }
+  header .spacer { flex: 1; }
+  header .when { letter-spacing: 0; text-transform: none; }
+  button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); padding: 5px 12px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .card { background: var(--surface); border: 1px solid var(--border); padding: 14px 16px; margin-bottom: 12px; }
+  .card h2 { margin: 0 0 10px; color: var(--muted); font-size: 10.5px; font-weight: 400; letter-spacing: .14em; text-transform: uppercase; }
+  .big { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .big .n { color: var(--bull); font-size: 56px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .big .of { color: var(--muted); }
+  .rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; margin-top: 12px; }
+  .rows div span { display: block; color: var(--dim); font-size: 10.5px; }
+  .rows div b { font-weight: 400; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 620px) { .two { grid-template-columns: 1fr; } .big .n { font-size: 44px; } }
+  .two .card { margin-bottom: 0; }
+  .two .rows { grid-template-columns: 1fr 1fr; margin-top: 0; }
+  .ok { color: var(--bull); } .bad { color: var(--bear); } .warn { color: var(--warn); }
+  .stale main > section { opacity: .45; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); padding: 6px 10px; min-width: 0; flex: 1 1 260px; }
+  input:focus { outline: none; border-color: var(--bull); }
+  .note { color: var(--muted); margin: 10px 0 0; }
+  .note.bad { color: var(--bear); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <b>tradoor</b> status
+    <span class="spacer"></span>
+    <span class="when" id="when"></span>
+    <button type="button" id="lock" hidden>Lock</button>
+  </header>
+
+  <div class="card" id="gate">
+    <h2>Admin key</h2>
+    <form id="form" autocomplete="on">
+      <input type="text" name="username" value="tradoor-admin" autocomplete="username" hidden>
+      <input type="password" id="key" name="password" autocomplete="current-password" placeholder="TRADOOR_ADMIN_KEY" spellcheck="false" required>
+      <button type="submit">Open</button>
+    </form>
+    <p class="note" id="gate-note">Kept in this tab only, until it is closed.</p>
+  </div>
+
+  <section id="view" hidden>
+    <div class="card">
+      <h2>On screen now</h2>
+      <div class="big"><span class="n" id="online">–</span><span class="of" id="online-of"></span></div>
+      <div class="rows">
+        <div><span>last 15 minutes</span><b id="recent">–</b></div>
+        <div><span>today, UTC</span><b id="today">–</b></div>
+        <div><span>peak today</span><b id="peak">–</b></div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="card">
+        <h2>Telegram <span id="bot"></span></h2>
+        <div class="rows">
+          <div><span>accounts</span><b id="accounts">–</b></div>
+          <div><span>new today</span><b id="new-today">–</b></div>
+          <div><span>seen in 24 h</span><b id="seen">–</b></div>
+          <div><span>alert chats</span><b id="chats">–</b></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Server <span id="state"></span></h2>
+        <div class="rows">
+          <div><span>version · up</span><b id="up">–</b></div>
+          <div><span>database</span><b id="db">–</b></div>
+          <div><span>requests pool</span><b id="requests">–</b></div>
+          <div><span>background pool</span><b id="work">–</b></div>
+          <div><span>memory</span><b id="memory">–</b></div>
+          <div><span>host load</span><b id="load">–</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<script src="/online.js"></script>
+</body>
+</html>

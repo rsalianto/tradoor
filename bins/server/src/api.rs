@@ -17,7 +17,12 @@ use crate::{account, alerts, catalog::Catalog, drawings, econ, favourites, flow,
 
 #[derive(Clone)]
 pub struct AppState {
+    /// Connections for readers' requests.
     pub pool: deadpool_postgres::Pool,
+    /// Connections for the work in the background, read here only for the status page.
+    pub work: deadpool_postgres::Pool,
+    /// Who has the site on screen, for the owner's status page.
+    pub presence: Arc<crate::presence::Presence>,
     pub data: DataDir,
     pub catalog: Arc<Catalog>,
     /// Absent when no ticker's liquidations are being kept.
@@ -111,6 +116,8 @@ pub fn short_owner(id: &str) -> &str {
 pub fn router(state: AppState, data_dir: PathBuf, web_dir: Option<PathBuf>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
+        .route("/presence", axum::routing::post(crate::presence::ping))
+        .route("/admin/status", get(crate::presence::status))
         .route("/markets", get(markets))
         .route("/catalog", get(catalog_wire))
         .route("/history", get(history))

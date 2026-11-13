@@ -23,25 +23,6 @@ interface Partner {
   badge?: string;
 }
 
-/** Breakout's mark, from its site: the two halves of its "b", blue over white, on the black disc every partner's mark sits on. */
-function BreakoutLogo(props: { size?: number }) {
-  return (
-    <svg class="xlogo" width={props.size ?? 14} height={props.size ?? 14} viewBox="0 0 256 256" aria-hidden="true">
-      <circle cx="128" cy="128" r="128" fill="#000" />
-      <g transform="translate(62.5 46.3) scale(3.9)">
-        <path
-          fill="#008df3"
-          d="M27.56 23.96c-.34-2.27-1.41-4.37-3.05-5.99a10.84 10.84 0 0 0-7.65-3.13c-2.86 0-5.61 1.12-7.65 3.13a10.6 10.6 0 0 0-3.05 5.99H0V0c1.44.3 2.77 1.01 3.81 2.05a7.5 7.5 0 0 1 2.24 5.34v5.07l2.38-1.36C11 9.63 13.9 8.86 16.86 8.87c4.46 0 8.75 1.75 11.92 4.88 1.54 1.51 2.76 3.32 3.61 5.3a16.4 16.4 0 0 1 1.25 4.92h-6.09Z"
-        />
-        <path
-          fill="#fff"
-          d="M27.56 27.1c-.34 2.27-1.41 4.37-3.05 5.99a10.84 10.84 0 0 1-7.65 3.13c-2.86 0-5.61-1.12-7.65-3.13a10.6 10.6 0 0 1-3.05-5.99H2.25L0 27v7.51c0 2.02.79 3.91 2.24 5.34a7.6 7.6 0 0 0 3.81 2.05v-3.58c3.04 2.51 6.87 3.89 10.81 3.88 4.46 0 8.75-1.75 11.92-4.88 1.54-1.51 2.76-3.31 3.61-5.3a16.4 16.4 0 0 0 1.25-4.92h-6.09Z"
-        />
-      </g>
-    </svg>
-  );
-}
-
 /** Nado's mark, from its site, on the black disc every exchange's mark sits on. tradoor does not chart Nado, so it is not among EXCHANGES. */
 function NadoLogo(props: { size?: number }) {
   return (
@@ -57,16 +38,16 @@ function NadoLogo(props: { size?: number }) {
 }
 
 const exchangeLogo =
-  (id: 'bybit' | 'binance'): Component<{ size?: number }> =>
+  (id: 'lighter' | 'bybit' | 'binance'): Component<{ size?: number }> =>
   (p) => <ExchangeLogo exchange={EXCHANGES[id]} size={p.size} />;
 
 const PARTNERS: readonly Partner[] = [
   {
-    name: 'Breakout',
-    Logo: BreakoutLogo,
-    url: 'https://portal.breakoutprop.com/buy-evaluation?ref=C595806',
-    offer: "Powered by Kraken · trade the firm's capital, up to $200K · keep 80–90% of the profits",
-    more: 'Crypto, stocks and commodities · payouts 24/7 on demand · two loss limits, no time limits · evaluations from $20, paid once',
+    name: 'Lighter',
+    Logo: exchangeLogo('lighter'),
+    url: 'https://app.lighter.xyz/?referral=TRADOOR&source=tradoor',
+    offer: 'Self-custody perpetuals on Ethereum · zero trading fees on a standard account',
+    more: 'Matching and liquidations proven with zero-knowledge proofs · charted in tradoor with its DOM, tape and footprints',
     lead: true,
     badge: 'New',
   },
@@ -126,7 +107,6 @@ export function ReferralDialog(props: { onClose(): void }) {
             )}
           </For>
         </div>
-        <p class="ref-note">Breakout is a funded-trader evaluation, not an exchange: its fee is paid once and not refunded, and most traders need more than one attempt to pass.</p>
         <a class="ref-sponsor" href="https://github.com/sponsors/rsalianto" target="_blank" rel="noopener">
           <span class="heart" aria-hidden="true">
             ♥

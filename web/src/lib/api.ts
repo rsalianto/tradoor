@@ -550,6 +550,8 @@ export interface TelegramStatus {
 }
 
 export const api = {
+  /** This tab is on screen, for the count of those here now (lib/presence). */
+  here: () => send('/api/presence', { method: 'POST' }),
   async health(): Promise<{ ok: boolean; db: boolean }> {
     // Asked once: this is the one read whose job is to tell of a bad moment.
     const { body } = await request<{ ok: boolean; db: boolean }>('/api/health', { once: true });

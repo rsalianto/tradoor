@@ -998,7 +998,6 @@ table.venues tr.off td { color: var(--dim); }
 .ref-row .who span { color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-row .go { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent); color: var(--primary); font-size: 11px; white-space: nowrap; transition: background 0.12s, color 0.12s; }
 .ref-row:hover .go { background: var(--primary); color: var(--bg); }
-.ref-note { margin: -4px 14px 12px; color: var(--dim); font-size: 10.5px; line-height: 1.5; }
 /* At the foot, and meant to be seen: GitHub Sponsors' own pink. */
 .ref-sponsor { display: flex; align-items: center; gap: 12px; margin: 0 14px 14px; padding: 11px 12px; border: 1px solid color-mix(in oklab, #db61a2 45%, transparent); background: color-mix(in oklab, #db61a2 7%, var(--surface-2)); color: var(--text); text-decoration: none; transition: border-color 0.12s, background 0.12s; }
 .ref-sponsor:hover { border-color: #db61a2; background: color-mix(in oklab, #db61a2 12%, var(--surface-2)); }
