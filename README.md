@@ -89,7 +89,7 @@ Every market on Binance, Bybit, OKX, Bitget, Kraken, Hyperliquid, Lighter, Gate,
   <sub>The picker: starred ones first, then the rest by what they are for.</sub>
 </p>
 
-Search for an indicator or pick one from its group. A click adds it with its usual settings and leaves the list open for the next. Each has settings of its own, and adding another of the same with other settings puts both on the chart. Star the ones you use and they stay at the top on every device you sign in on.
+Three tabs: **Built-in**, tradoor's own; **Community**, the Frost Scripts traders made public, each under its author's username; and **My scripts**. One search runs through all three, and each tab says how many it matches. Search for an indicator or pick one from its group. A click adds it with its usual settings and leaves the list open for the next. Each has settings of its own, and adding another of the same with other settings puts both on the chart. Star the ones you use and they stay at the top on every device you sign in on.
 
 ### Frost Script
 
@@ -101,6 +101,12 @@ mark(crossover(close, average), "Up", below, green)
 ```
 
 An indicator of your own, in Frost Script, tradoor's own language for them: a few readable lines that work out a value on every bar and draw lines, histograms, levels, fills and buy or sell marks, on the price chart or in a pane of their own, with settings like any built-in. The editor checks a script as it is typed and points at the line and column of a mistake. Every built-in that can be written in Frost Script shows its source in its settings, and the script gives the same numbers. A script someone else wrote can draw a wrong line at worst: tradoor's own engine in Rust works it out, in a module that imports nothing, the language has no word for the network, the page or an account, and every loop and length has a limit. Scripts are kept with an account signed in with Telegram. An indicator written in Pine Script v6 can be turned into one by an AI chat such as Claude or ChatGPT, with the instructions the editor copies. The [reference](https://tradoorterminal.com/doc.html) has the whole language.
+
+#### Community scripts
+
+A script is private, its author's alone, until its author makes it public. Sharing one takes a description of what it shows and how to read it, and a username: chosen once in Settings, in place of the Telegram name so its author can stay anonymous, and bound to that Telegram account for good, so a name on a script always means the same author. A public script is in the picker's Community tab for anyone to add, signed in or not, and the chart's legend names its author. Made private again, it leaves every chart but its author's.
+
+Every public script is on the [Community showcase](https://tradoorterminal.com/community.html), a page of its own: a card for each, with its chart, description and author, a search, and a link for each script to share. No picture is kept. tradoor's own engine draws every card on live data, on the market and timeframe of the chart the script was shared from and with its author's settings, at the card's own size. Open one for a live chart to move about in and its source code, and add it to a chart in tradoor in a click.
 
 ### DOM and Tape
 
@@ -231,6 +237,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 - An open world for 15 minutes and shorter: a window of the newest bars, widened as you pan back
 - EMA 12/25 ribbon, EMA 200, RSI, Stoch RSI, MACD, volume, key levels, Bollinger Bands, Keltner Channels, Ichimoku Cloud, VWAP with bands, VWAP levels, anchored VWAP, volume delta, visible-range volume profile, trading sessions, moon phases and open interest; every one with its own settings
 - Indicators of your own in Frost Script, checked as you type, with every built-in's source to start from, and instructions that let an AI chat turn a Pine Script v6 indicator into one
+- Community scripts: share yours under a username chosen once, add anyone's from the picker, or browse them on the showcase, each drawn live on the chart it was shared from
 - Linear or log price axis, auto scale, panes you size yourself
 - A 4K picture of any chart to the clipboard
 
@@ -289,6 +296,7 @@ The same terminal on a phone, with touch gestures, and on any browser that runs 
 - **History**: Immutable columnar partition files, about 16 bytes per 1-minute bar: five years of BTCUSDT perpetual minutes is 42 MB. Served from disk or a CDN and cached by the browser for a year.
 - **Live**: Exchange WebSockets straight to the browser: trades folded into the forming bar between kline updates, order books kept for the DOM, and liquidations feeding a ticker above the volume and a tape of their own as they land. The server relays a stream only when the browser cannot reach the exchange.
 - **Frost Script**: a small interpreter in Rust (`crates/formula`), compiled to a WebAssembly module of its own that imports nothing and runs in the chart's worker. The server checks every saved script with the same crate.
+- **Community showcase**: `web/community.html`, a second page sharing nothing with the app but the engine worker. Each card's chart is made in the worker, drawn once in 2D at the card's size, taken as a picture and let go, one at a time, so only the script opened stays live. Only a script's text and where it was shared from are kept.
 - **Server**: Rust — Axum and Tokio — for the market catalogue, drawings and workspaces, accounts, the journal and training, and a day of liquidations for a few tickers.
 - **Database**: PostgreSQL 18, for metadata only. Candles never enter it.
 - **UI**: SolidJS (about 58 KB brotli): splits, tabs, docking by drag, link groups, command palette, theme; one chart and a menu on a phone.
@@ -471,8 +479,8 @@ not given to it. Without `CF_BEACON` the page loads no analytics at all.
 
 Set `TRADOOR_ADMIN_KEY` in the server's `.env` (`openssl rand -hex 32`) and
 `/online.html` opens with it: readers on screen, Telegram accounts and alert
-chats, the server's pools, memory and load, every Frost Script with its author
-to read, remove or restore, and an announcement to show atop tradoor for every
+chats, the server's pools, memory and load, every Frost Script with its author,
+public or private, to read, remove or restore, and an announcement to show atop tradoor for every
 reader until they close it. Readers on screen are counted, never named. After a
 few wrong keys from one address, or many from all, it answers none for a while.
 Unset, the page has nothing to read.
