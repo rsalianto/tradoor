@@ -10,6 +10,7 @@
 mod account;
 mod alert_watch;
 mod alerts;
+mod announce;
 mod api;
 mod catalog;
 mod dns;
@@ -193,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
             let open_interest = if coins.is_empty() { None } else { Some(open_interest::Recorder::start(work.clone(), coins, &doh).await?) };
             let token = cli.telegram_token.trim().to_string();
             let sessions = session::Sessions::load(pool.clone()).await?;
+            let announcements = announce::Board::load(pool.clone()).await?;
             let telegram = if token.is_empty() { None } else { Some(telegram::Telegram::start(pool.clone(), token, &doh, sessions.clone())?) };
             let catalog = Arc::new(catalog::Catalog::new(cli.binance_spot_rest.clone(), &doh)?);
             let indices = indices::Indices::start(pool.clone(), &doh)?;
@@ -225,6 +227,7 @@ async fn main() -> anyhow::Result<()> {
                 indices,
                 training,
                 sessions,
+                announcements,
             };
             let app = api::router(state, cli.data_dir.clone(), cli.web_dir.clone());
             let listener = tokio::net::TcpListener::bind(cli.bind).await.with_context(|| format!("binding {}", cli.bind))?;

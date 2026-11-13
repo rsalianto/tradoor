@@ -23,6 +23,8 @@ pub struct AppState {
     pub work: deadpool_postgres::Pool,
     /// Who has the site on screen, for the owner's status page.
     pub presence: Arc<crate::presence::Presence>,
+    /// What the owner tells every reader, from the status page.
+    pub announcements: Arc<crate::announce::Board>,
     pub data: DataDir,
     pub catalog: Arc<Catalog>,
     /// Absent when no ticker's liquidations are being kept.
@@ -125,6 +127,8 @@ pub fn router(state: AppState, data_dir: PathBuf, web_dir: Option<PathBuf>) -> R
         .route("/health", get(health))
         .route("/presence", axum::routing::post(crate::presence::ping))
         .route("/admin/status", get(crate::presence::status))
+        .route("/announcement", get(crate::announce::current))
+        .route("/admin/announcement", get(crate::announce::read).put(crate::announce::publish).delete(crate::announce::take_down))
         .route("/admin/scripts", get(crate::scripts::moderate_list))
         .route("/admin/scripts/{id}", get(crate::scripts::moderate_read).post(crate::scripts::moderate))
         .route("/scripts", get(crate::scripts::list).post(crate::scripts::create))

@@ -23,6 +23,8 @@ import { readPref, writePref } from '../lib/prefs';
 import { insertMarket, isSection, visible } from '../lib/watchlist';
 import { referralCard, startReferral } from '../lib/referral';
 import { editing, loadFormulas, setEditing } from '../lib/formulas';
+import { watchAnnouncements } from '../lib/announcement';
+import { AnnouncementBar } from '../components/AnnouncementBar';
 import { tellPresence } from '../lib/presence';
 import { Layout, panelTitle } from '../workspace/Layout';
 import { ChartPanel } from '../panels/ChartPanel';
@@ -480,6 +482,7 @@ export function App() {
     if (!IS_CRAWLER) {
       tellPresence();
       void loadFormulas();
+      watchAnnouncements();
       startReferral();
       setTimeout(() => void import('../lib/signal-alerts').then((m) => m.watchSignals()), 4_000);
     }
@@ -559,6 +562,8 @@ export function App() {
         </button>
       </header>
       <main style={{ display: 'flex', 'flex-direction': 'column', 'min-height': '0', overflow: 'hidden', position: 'relative' }}>
+        {/* Atop the workspace, inside its row of the shell's grid: shown or not, the rows stay. */}
+        <AnnouncementBar />
         <Show when={engineError()}>{(message) => <div class="banner">▲ Charts cannot be drawn: {message()}</div>}</Show>
         <Layout />
         {/* Under the journal or training, which cover it the moment their code has arrived. */}

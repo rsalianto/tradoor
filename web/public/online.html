@@ -43,6 +43,15 @@
   .ice { color: #8fd3ff; letter-spacing: 0; }
   .bar { display: flex; gap: 6px; align-items: center; margin: 14px 0 8px; }
   .bar #fx-find { flex: 1 1 160px; min-width: 0; padding: 5px 10px; }
+  .an-form { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+  .an-form input, .an-form textarea, .an-form select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); padding: 6px 10px; min-width: 0; }
+  .an-form textarea { resize: vertical; }
+  /* The page's inputs grow along a row; down this column they keep their own height. */
+  .an-form > input, .an-form > textarea { flex: none; width: 100%; }
+  .an-form #an-link { flex: 1 1 220px; }
+  .an-form .bar { margin: 0; }
+  .an-form button.go { border-color: var(--bull); color: var(--bull); }
+  #an-state { letter-spacing: 0; text-transform: none; }
   .fold { margin-top: 14px; }
   .fold > summary { cursor: pointer; color: var(--muted); list-style: none; padding: 6px 0; border-top: 1px solid var(--border); }
   .fold > summary::-webkit-details-marker { display: none; }
@@ -114,6 +123,20 @@
           <div><span>host load</span><b id="load">–</b></div>
         </div>
       </div>
+    </div>
+    <div class="card">
+      <h2>Announcement <span id="an-state"></span></h2>
+      <form id="an-form" class="an-form">
+        <input id="an-title" maxlength="80" placeholder="Title, 80 characters at most" required autocomplete="off">
+        <textarea id="an-body" maxlength="400" rows="3" placeholder="Text, optional: 400 characters at most"></textarea>
+        <div class="bar">
+          <input id="an-link" placeholder="https:// link, optional" autocomplete="off" spellcheck="false">
+          <select id="an-tone" aria-label="Tone"><option value="info">Info</option><option value="warn">Warning</option></select>
+          <button type="button" id="an-down">Take down</button>
+          <button type="submit" class="go">Publish</button>
+        </div>
+      </form>
+      <p class="note" id="an-note">Shown atop tradoor to every reader until they close it; a new one shows again to all.</p>
     </div>
     <div class="card scripts">
       <h2><span class="ice" aria-hidden="true">❄</span> Frost Script</h2>

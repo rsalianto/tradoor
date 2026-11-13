@@ -1560,3 +1560,15 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 .fx-banner > span { flex: 1; }
 .fx-banner.warn { border-color: color-mix(in oklab, var(--warn) 45%, transparent); background: color-mix(in oklab, var(--warn) 8%, transparent); color: var(--warn); }
 .dialog.fx .dbtn:disabled { opacity: 0.45; cursor: default; }
+
+/* ---- the owner's announcement, atop the app */
+.announce { display: flex; align-items: center; gap: 8px; flex: none; min-height: 28px; padding: 4px 6px 4px 12px; border-bottom: 1px solid color-mix(in oklab, var(--primary) 30%, var(--border)); background: color-mix(in oklab, var(--primary) 7%, var(--surface)); color: var(--muted); font-size: 11.5px; line-height: 1.4; flex-wrap: wrap; }
+.announce b { color: var(--text); font-weight: 600; }
+.announce-mark { color: var(--primary); font-size: 8px; }
+.announce a { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); text-decoration: none; }
+.announce a:hover { text-decoration: underline; }
+.announce .x { padding: 4px 6px; color: var(--dim); }
+.announce .x:hover { color: var(--text); }
+.announce.warn { border-bottom-color: color-mix(in oklab, var(--warn) 45%, var(--border)); background: color-mix(in oklab, var(--warn) 9%, var(--surface)); }
+.announce.warn .announce-mark, .announce.warn a { color: var(--warn); }
+@media (max-width: 700px) { .announce { font-size: 11px; } .announce-body { flex-basis: 100%; order: 3; } }

@@ -549,6 +549,15 @@ export interface TelegramStatus {
   chats: TelegramChat[];
 }
 
+/** What the site's owner tells every reader (bins/server announce): text, and an https link at most. */
+export interface Announcement {
+  id: number;
+  title: string;
+  body: string;
+  link: string | null;
+  tone: 'info' | 'warn';
+}
+
 /** A Frost Script as the server keeps it: `removed` by the moderator, saying `why`, runs for no one. */
 export interface Script {
   id: string;
@@ -590,6 +599,7 @@ export const api = {
   signOut: () => send('/api/account/session', { method: 'DELETE' }),
   signOutEverywhere: () => json<{ signedOut: number }>('/api/account/sessions', { method: 'DELETE' }),
   favourites: () => json<{ kinds: string[] }>('/api/account/favourites'),
+  announcement: () => json<{ announcement: Announcement | null }>('/api/announcement'),
   /** This account's Frost Scripts (bins/server scripts): signed in with Telegram only. */
   scripts: () => json<{ scripts: Script[] }>('/api/scripts'),
   createScript: (s: { name: string; source: string }) => json<Script>('/api/scripts', { method: 'POST', body: s }),

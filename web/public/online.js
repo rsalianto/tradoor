@@ -81,6 +81,7 @@
     set('fx-authors', n(fx.authors));
     set('fx-new', n(fx.newToday));
     set('fx-removed', n(fx.removed), fx.removed ? 'warn' : '');
+    if (!announced) void announcement();
     // Folded and not read yet: how many there are, from the counts.
     if (!scriptsRead) set('fx-summary', typeof fx.total === 'number' ? `${n(fx.total)} ${fx.total === 1 ? 'script' : 'scripts'}: open to read them` : 'The scripts');
   }
@@ -183,6 +184,42 @@
     box.append(head);
     return box;
   }
+
+  // ---- the announcement atop the app: what is up, put up anew, or taken down.
+  let announced = false;
+  async function announcement() {
+    announced = true;
+    const r = await admin('/api/admin/announcement').catch(() => null);
+    if (!r?.ok) return set('an-state', '● not read', 'bad');
+    const { current } = await r.json();
+    if (current) {
+      $('an-title').value = current.title;
+      $('an-body').value = current.body;
+      $('an-link').value = current.link ?? '';
+      $('an-tone').value = current.tone;
+      set('an-state', `● up since ${when(current.id)}`, 'ok');
+    } else {
+      set('an-state', '● none up', 'warn');
+    }
+  }
+  $('an-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = { title: $('an-title').value, body: $('an-body').value, link: $('an-link').value || null, tone: $('an-tone').value };
+    const r = await admin('/api/admin/announcement', { method: 'PUT', body: JSON.stringify(body) }).catch(() => null);
+    if (r?.ok) {
+      set('an-note', 'Published: every reader sees it within a few minutes.');
+      void announcement();
+    } else {
+      const why = r ? (await r.json().catch(() => ({}))).error : null;
+      set('an-note', `Not published: ${why ?? 'no answer from the server'}.`, 'bad');
+    }
+  });
+  $('an-down').addEventListener('click', async () => {
+    if (!confirm('Take the announcement down for everyone?')) return;
+    const r = await admin('/api/admin/announcement', { method: 'DELETE' }).catch(() => null);
+    set('an-note', r?.ok ? 'Taken down.' : 'Not taken down: no answer from the server.', r?.ok ? '' : 'bad');
+    void announcement();
+  });
 
   for (const b of document.querySelectorAll('[data-show]')) {
     b.addEventListener('click', () => {
