@@ -72,9 +72,11 @@ export function site(): Plugin {
         let out = html.replace('<meta charset="UTF-8" />', `<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy" content="${csp(!!beacon)}" />`);
         if (beacon) out = out.replace('</body>', `  ${beaconTag(beacon)}\n  </body>`);
         if (url) {
+          // Each page its own address: the app at the root, the showcase at its file.
+          const page = ctx.path === '/index.html' ? '/' : ctx.path;
           out = out
             .replaceAll('content="/og.png"', `content="${url}/og.png"`)
-            .replace('<meta property="og:type"', `<link rel="canonical" href="${url}/" />\n    <meta property="og:url" content="${url}/" />\n    <meta property="og:type"`);
+            .replace('<meta property="og:type"', `<link rel="canonical" href="${url}${page}" />\n    <meta property="og:url" content="${url}${page}" />\n    <meta property="og:type"`);
         }
         return out;
       },
@@ -83,7 +85,7 @@ export function site(): Plugin {
       const robots = ['User-agent: *', 'Allow: /', 'Disallow: /api/', 'Disallow: /data/', ...(url ? ['', `Sitemap: ${url}/sitemap.xml`] : [])].join('\n');
       this.emitFile({ type: 'asset', fileName: 'robots.txt', source: `${robots}\n` });
       if (url) {
-        const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${url}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n</urlset>\n`;
+        const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${url}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>\n  <url><loc>${url}/community.html</loc><changefreq>daily</changefreq><priority>0.7</priority></url>\n  <url><loc>${url}/doc.html</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>\n</urlset>\n`;
         this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: sitemap });
       }
     },

@@ -201,7 +201,8 @@ export interface Calls {
   daily: { args: { market: string; days: number }; result: DailyBars };
   /** A picture of one chart as it stands, `wide` pixels across at most. */
   /** The chart drawn again `wide` across, and how many of its pixels make one of the page's. */
-  capture: { args: { id: string; wide: number }; result: { picture: ImageBitmap; px: number } };
+  /** `mark: false` leaves the tradoor mark out: for a page of tradoor's own, where it would only repeat. */
+  capture: { args: { id: string; wide: number; mark?: boolean }; result: { picture: ImageBitmap; px: number } };
   /** Fetch a market's history before a chart asks for it. */
   prefetch: { args: { market: string; timeframe: string }; result: null };
   /** `?debug`: whether the worker hears the page — how many messages it has had, and the market a chart was last asked for. */

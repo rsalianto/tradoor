@@ -96,15 +96,16 @@ impl ChartEngine {
     /// Draw the chart as it stands into `canvas` at `scale` the pixels, for a
     /// picture to keep. The 2D renderer draws it: a still costs nothing to draw
     /// slowly, and its pixels can be read back where a GPU canvas in a worker
-    /// cannot be counted on to hold them.
-    pub fn draw_into(&mut self, shapes: web_sys::OffscreenCanvas, labels: web_sys::OffscreenCanvas, scale: f32, now: f64) -> Result<(), JsValue> {
+    /// cannot be counted on to hold them. `mark`: the tradoor mark in it, as a
+    /// picture passed on carries; a page of tradoor's own showing it leaves it out.
+    pub fn draw_into(&mut self, shapes: web_sys::OffscreenCanvas, labels: web_sys::OffscreenCanvas, scale: f32, now: f64, mark: bool) -> Result<(), JsValue> {
         let (width, height, dpr) = self.size;
         let mut surface = gl::Surface::Flat(gl::Flat::new(shapes)?);
         let mut text = text::TextLayer::new(labels)?;
         let smooth = matches!(self.gl, gl::Surface::Gpu(_));
         self.chart.set_smooth_lines(false);
         // A picture carries the mark in it, as it stands still.
-        self.chart.set_page_mark(false);
+        self.chart.set_page_mark(!mark);
         self.chart.resize(width, height, dpr * scale);
         self.chart.touch();
         let frame = self.chart.render(now as i64);

@@ -1248,7 +1248,7 @@ const MAX_CAPTURE_SCALE = 6;
  * pixels across. Nothing on screen changes: the engine goes back to the size it
  * was at the moment it is done.
  */
-async function captureCall({ id, wide }: Calls['capture']['args']): Promise<Calls['capture']['result']> {
+async function captureCall({ id, wide, mark }: Calls['capture']['args']): Promise<Calls['capture']['result']> {
   const slot = slots.get(id);
   if (!slot) throw new Error('that chart is not open');
   const { width, height, dpr } = slot.size();
@@ -1258,7 +1258,7 @@ async function captureCall({ id, wide }: Calls['capture']['args']): Promise<Call
   const shapes = new OffscreenCanvas(w, h);
   const labels = new OffscreenCanvas(w, h);
   slot.flushLive();
-  slot.engine.draw_into(shapes, labels, scale, Date.now());
+  slot.engine.draw_into(shapes, labels, scale, Date.now(), mark ?? true);
   const out = new OffscreenCanvas(w, h);
   const ctx = out.getContext('2d');
   if (!ctx) throw new Error('this browser will not draw the picture');

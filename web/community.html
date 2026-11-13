@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Community Frost Scripts · tradoor terminal</title>
+    <meta name="description" content="Indicators written in Frost Script and shared by tradoor's traders, each drawn live on the chart it was shared from. Add one to a chart in a click." />
+    <meta property="og:title" content="Community Frost Scripts · tradoor terminal" />
+    <meta property="og:description" content="Indicators written in Frost Script and shared by tradoor's traders, drawn live by tradoor's own engine." />
+    <meta property="og:image" content="/og.png" />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script src="/moved.js"></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="home" href="/"><b>tradoor</b></a>
+      <span>community</span>
+      <span class="spacer"></span>
+      <a href="/doc.html#frost-script">Frost Script docs</a>
+      <a href="/" class="open">Open tradoor</a>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>
+          <svg class="ice" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L12 22M3.3 7L20.7 17M3.3 17L20.7 7M12 6.4L10 4.2M12 6.4L14 4.2M7.2 9.2L4.2 9.8M7.2 9.2L6.2 6.3M7.2 14.8L6.2 17.7M7.2 14.8L4.2 14.2M12 17.6L14 19.8M12 17.6L10 19.8M16.8 14.8L19.8 14.2M16.8 14.8L17.8 17.7M16.8 9.2L17.8 6.3M16.8 9.2L19.8 9.8" /></svg>Community scripts
+        </h1>
+        <p class="lede">Indicators written in Frost Script and shared by tradoor's traders. Each is drawn live, by tradoor's own engine, on the chart its author shared it from.</p>
+      </section>
+      <div class="bar">
+        <input id="find" type="search" placeholder="Find by name, description or @username" spellcheck="false" autocomplete="off" aria-label="Find a script" />
+        <select id="order" aria-label="Order">
+          <option value="new">The last changed first</option>
+          <option value="name">By name</option>
+        </select>
+        <span id="count" class="count"></span>
+      </div>
+      <div id="grid" class="grid" aria-live="polite"></div>
+      <p class="note">A script cannot reach your account, your browser or the page: at worst it draws a line that misleads. Read its source before you trade on it. <a href="/doc.html#community">How sharing works</a></p>
+    </main>
+    <dialog id="open" class="open-script" aria-label="A script">
+      <div class="head">
+        <div class="titles">
+          <h2 id="o-name"></h2>
+          <div class="by"><a id="o-by" href="#"></a> · <span id="o-when"></span></div>
+        </div>
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="chart" class="on">Chart</button>
+          <button type="button" role="tab" data-tab="source">Source code</button>
+        </div>
+        <button type="button" class="x" id="o-close" aria-label="Close">esc ✕</button>
+      </div>
+      <div class="pane chart-pane" id="o-chart">
+        <div class="chart-label" id="o-market"></div>
+        <div class="canvasbox" id="o-box"></div>
+        <div class="chart-wait" id="o-wait">Drawing…</div>
+      </div>
+      <pre class="pane source" id="o-source" hidden></pre>
+      <div class="foot">
+        <p id="o-about" class="about"></p>
+        <div class="acts">
+          <a id="o-use" class="go" href="/">Add to a chart in tradoor</a>
+          <button type="button" id="o-copy">Copy its link</button>
+        </div>
+      </div>
+    </dialog>
+    <script type="module" src="/src/community/main.ts"></script>
+  </body>
+</html>

@@ -32,5 +32,7 @@ export default defineConfig({
     target: 'es2022',
     modulePreload: { polyfill: false },
     assetsInlineLimit: 0,
+    // The app, and the Community's showcase: a page of its own that draws scripts with the same engine.
+    rolldownOptions: { input: { index: 'index.html', community: 'community.html' } },
   },
 });

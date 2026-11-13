@@ -20,8 +20,10 @@ export function preload(): Plugin {
       order: 'post',
       handler(_html, ctx): HtmlTagDescriptor[] {
         const files = Object.keys(ctx.bundle ?? {});
+        // The app's panels are the app's: the showcase loads only the engine.
+        const app = ctx.path === '/index.html';
         return [
-          ...files.filter((f) => MODULES.test(f)).map((f): HtmlTagDescriptor => ({ tag: 'link', attrs: { rel: 'modulepreload', href: `/${f}` }, injectTo: 'head' })),
+          ...files.filter((f) => app && MODULES.test(f)).map((f): HtmlTagDescriptor => ({ tag: 'link', attrs: { rel: 'modulepreload', href: `/${f}` }, injectTo: 'head' })),
           // Fetched by the worker, so only the browser's cache carries it over; a
           // preload the page itself never uses is warned of, a prefetch is not.
           // No `crossorigin`: Cloudflare refuses a prefetch that sends an Origin
