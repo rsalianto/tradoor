@@ -1,3 +1,4 @@
+import { setSmoothZoom, smoothZoom } from '../app/ui';
 import { createSignal, For, type JSX, onCleanup, Show } from 'solid-js';
 import { api, errorText, type TelegramStatus } from '../lib/api';
 import { OWNER_PATTERN, ownerId, session, switchOwner } from '../lib/owner';
@@ -237,6 +238,16 @@ function GeneralSection() {
                 </option>
               )}
             </For>
+          </select>
+        </Row>
+        <Row label="Mouse wheel zoom" tip="How a notch of a mouse wheel zooms a chart: at once, a step a notch, or eased out over a fifth of a second. A trackpad and a pinch are smooth either way.">
+          <select class="box wide" onChange={(e) => setSmoothZoom(e.currentTarget.value === 'smooth')}>
+            <option value="step" selected={!smoothZoom()}>
+              In steps (default)
+            </option>
+            <option value="smooth" selected={smoothZoom()}>
+              Smooth
+            </option>
           </select>
         </Row>
       </div>

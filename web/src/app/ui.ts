@@ -118,6 +118,13 @@ export function setMagnet(mode: MagnetMode): void {
   setMagnetSignal(mode);
   writePref('magnet', mode);
 }
+/** A mouse wheel's notch zooms in one step (the default), or glides out over a few frames. One setting for every chart, in this browser. */
+export const [smoothZoom, setSmoothZoomSignal] = createSignal(readPref('smoothZoom') === '1');
+export function setSmoothZoom(on: boolean): void {
+  setSmoothZoomSignal(on);
+  writePref('smoothZoom', on ? '1' : '0');
+}
+
 /** Off, weak, strong, off again. */
 export const cycleMagnet = (): void => setMagnet(MAGNETS[(MAGNETS.indexOf(magnet()) + 1) % MAGNETS.length]!);
 

@@ -5,7 +5,7 @@
  */
 import { batch, createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, onMount, Show, untrack } from 'solid-js';
 import { lazy } from '../lib/lazy';
-import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, setShownTrades, setStudyEditing, sharedRail, shownPattern, shownTrades, studyEditing, type ShownPattern, type ShownTrades } from '../app/ui';
+import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, setShownTrades, setStudyEditing, sharedRail, shownPattern, shownTrades, smoothZoom, studyEditing, type ShownPattern, type ShownTrades } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
 import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, ReplayState, StudyMeta, TpoHover } from '../engine/protocol';
@@ -68,6 +68,10 @@ const TOOL_STEPS: Record<string, string> = {
   short: 'Short: click where the entry goes',
 };
 
+/** A wheel delta this large is a mouse's notch, glided out when zoom is smooth; a trackpad's are smaller. */
+const WHEEL_NOTCH = 40;
+/** The share of a notch still to come that each frame takes: about a fifth of a second a notch. */
+const WHEEL_GLIDE = 0.35;
 /** A finger's way with any tool but the brush: the crosshair pinned by a tap, moved by sliding, a tap for each point. */
 const TOUCH_STEPS = 'Tap for the crosshair, slide anywhere to aim it, tap to place each point';
 
@@ -681,11 +685,31 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       send({ t: 'resize', id: sid, width: r.width, height: r.height, dpr: devicePixelRatio });
     });
     observer.observe(box);
+    /**
+     * With Smooth zoom (Settings, General), a mouse wheel's notch is glided out over
+     * a few frames: each takes a share of what is left, so it eases out and adds up
+     * to the notch. A trackpad's small deltas go straight through either way.
+     */
+    const glide = { x: 0, y: 0, dx: 0, dy: 0, frame: 0 };
+    const glideStep = () => {
+      const take = (v: number) => (Math.abs(v) < 1 ? v : v * WHEEL_GLIDE);
+      const [dx, dy] = [take(glide.dx), take(glide.dy)];
+      glide.dx -= dx;
+      glide.dy -= dy;
+      send({ t: 'wheel', id: sid, x: glide.x, y: glide.y, dx, dy });
+      glide.frame = glide.dx !== 0 || glide.dy !== 0 ? requestAnimationFrame(glideStep) : 0;
+    };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const p = local(e);
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? box.clientHeight : 1;
-      send({ t: 'wheel', id: sid, x: p.x, y: p.y, dx: e.deltaX * unit, dy: e.deltaY * unit });
+      const [dx, dy] = [e.deltaX * unit, e.deltaY * unit];
+      if (!smoothZoom() || (Math.abs(dx) < WHEEL_NOTCH && Math.abs(dy) < WHEEL_NOTCH && glide.frame === 0)) {
+        send({ t: 'wheel', id: sid, x: p.x, y: p.y, dx, dy });
+        return;
+      }
+      Object.assign(glide, { x: p.x, y: p.y, dx: glide.dx + dx, dy: glide.dy + dy });
+      if (glide.frame === 0) glide.frame = requestAnimationFrame(glideStep);
     };
     box.addEventListener('wheel', onWheel, { passive: false });
     // `?liqdemo=30` invents thirty liquidations a minute, for judging the feed.
@@ -721,6 +745,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     onCleanup(() => {
       observer.disconnect();
       box.removeEventListener('wheel', onWheel);
+      cancelAnimationFrame(glide.frame);
       chartControllers.delete(id);
       setControllersChanged((n) => n + 1);
       // A tab switched away keeps its chart; a closed panel frees it.
