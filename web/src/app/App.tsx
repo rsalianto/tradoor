@@ -18,7 +18,8 @@ import { stepTimeframe, TIMEFRAMES } from '../lib/timeframes';
 import { showAlertsPanel, startAlerts, unread } from '../lib/alerts';
 import { Toasts } from '../components/Toasts';
 import { toast } from '../lib/toasts';
-import { takeNotice } from '../lib/owner';
+import { session, takeNotice } from '../lib/owner';
+import { readPref, writePref } from '../lib/prefs';
 import { insertMarket, isSection, visible } from '../lib/watchlist';
 import { referralCard, startReferral } from '../lib/referral';
 import { editing, loadFormulas, setEditing } from '../lib/formulas';
@@ -471,6 +472,11 @@ export function App() {
     // Signed out by the server or another browser: said once, with the way back.
     const notice = takeNotice();
     if (notice) toast({ tone: 'info', title: 'Signed out', body: notice, action: () => setOverlay({ kind: 'settings' }) }, 30_000);
+    // Signed in on the old address (public/moved.js marks it): here once more, and the account brings the rest.
+    if (readPref('movedSignedIn') && !session()) {
+      writePref('movedSignedIn', '');
+      toast({ tone: 'info', title: 'tradoor moved to tradoorterminal.com', body: 'Sign in with Telegram again here: your account brings your layouts, drawings, journal and scripts along.', action: () => setOverlay({ kind: 'settings' }) }, 30_000);
+    }
     if (!IS_CRAWLER) {
       tellPresence();
       void loadFormulas();

@@ -1,10 +1,10 @@
 <p align="center">
-  <a href="https://tradoor.rsalianto.com/">
+  <a href="https://tradoorterminal.com/">
     <img src="web/public/logo.svg" width="112" height="112" alt="tradoor: a lime door ajar on a dark tile">
   </a>
 </p>
 
-<h1 align="center">tradoor</h1>
+<h1 align="center">tradoor terminal</h1>
 
 <p align="center">
   <b>A trading terminal in the browser, built for speed.</b><br>
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="https://tradoor.rsalianto.com/"><img alt="Open tradoor" src="https://img.shields.io/badge/Open%20tradoor-tradoor.rsalianto.com-aafd35?style=for-the-badge&labelColor=070907" height="36"></a>
+  <a href="https://tradoorterminal.com/"><img alt="Open tradoor terminal" src="https://img.shields.io/badge/Open%20tradoor-tradoorterminal.com-aafd35?style=for-the-badge&labelColor=070907" height="36"></a>
 </p>
 
 <p align="center">
