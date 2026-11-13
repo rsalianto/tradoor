@@ -121,10 +121,11 @@ pub async fn status(State(state): State<AppState>, headers: HeaderMap) -> ApiRes
     let owner = owner(&headers)?;
     let client = state.pool.get().await?;
     let account = client.query_opt("SELECT name, since FROM account WHERE owner = $1 ORDER BY since LIMIT 1", &[&owner]).await?;
+    let username = if account.is_some() { crate::username::of(&client, &owner).await? } else { None };
     Ok(Json(json!({
         "telegram": state.telegram.is_some(),
         "bot": state.telegram.as_ref().and_then(|t| t.bot()),
-        "account": account.map(|r| json!({ "name": r.get::<_, Option<String>>(0), "since": r.get::<_, i64>(1), "devices": state.sessions.count(&owner) })),
+        "account": account.map(|r| json!({ "name": r.get::<_, Option<String>>(0), "since": r.get::<_, i64>(1), "devices": state.sessions.count(&owner), "username": username })),
     })))
 }
 

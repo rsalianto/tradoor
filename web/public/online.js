@@ -79,6 +79,7 @@
     const fx = s.scripts ?? {};
     set('fx-total', n(fx.total));
     set('fx-authors', n(fx.authors));
+    set('fx-public', n(fx.public));
     set('fx-new', n(fx.newToday));
     set('fx-removed', n(fx.removed), fx.removed ? 'warn' : '');
     if (!announced) void announcement();
@@ -139,10 +140,17 @@
 
   function row(s) {
     const box = el('div', 'script');
-    box.dataset.find = `${s.name} ${s.author} ${s.authorId}`.toLowerCase();
+    box.dataset.find = `${s.name} ${s.author} ${s.authorId} ${s.username ?? ''} ${s.about ?? ''}`.toLowerCase();
     const head = el('div', 'head');
-    head.append(el('span', 'name', s.name), el('span', 'meta', `by ${s.author} · ${s.authorId} · ${when(s.updated)} · ${(s.size / 1024).toFixed(1)} kB · ${s.checks ? 'checks' : 'has a mistake'}`));
+    head.append(el('span', 'name', s.name), el('span', s.public ? 'pub' : 'meta', s.public ? `public as @${s.username ?? '?'}` : 'private'), el('span', 'meta', `by ${s.author} · ${s.authorId} · ${when(s.updated)} · ${(s.size / 1024).toFixed(1)} kB · ${s.checks ? 'checks' : 'has a mistake'}`));
     if (s.removed) head.append(el('span', 'gone', `removed${s.why ? `: ${s.why}` : ''}`));
+    if (s.public) {
+      const shown = el('a', 'meta', 'on the showcase ↗');
+      shown.href = `/community.html#${encodeURIComponent(s.id)}`;
+      shown.target = '_blank';
+      shown.rel = 'noopener';
+      head.append(shown);
+    }
     const acts = el('span', 'acts');
     const view = el('button', '', 'Source');
     let pre = null;
@@ -182,6 +190,7 @@
     acts.append(del);
     head.append(acts);
     box.append(head);
+    if (s.about) box.append(el('p', 'about', s.about));
     return box;
   }
 

@@ -2,6 +2,8 @@ import { createSignal, onCleanup, Show } from 'solid-js';
 import { api, errorText, type AccountStatus } from '../lib/api';
 import { Icon } from '../lib/icons';
 import { holdSession, startOver } from '../lib/owner';
+import { noteUsername, username } from '../lib/username';
+import { UsernameClaim } from './Username';
 import { deviceZone, formatDateTime, LOCAL_ZONE, offsetMinutes, timeZone } from '../lib/timezone';
 
 /** The clock the reader reads the page in, which their Telegram messages follow. */
@@ -38,6 +40,7 @@ export function AccountCard(props: { onSignedIn?: () => void }) {
       const next = await api.account();
       setStatus(next);
       setError(null);
+      if (next.account) noteUsername(next.account.username ?? null);
       if (!next.account && next.telegram && next.bot && !invite()) void mint();
     } catch (e) {
       setError(errorText(e));
@@ -153,6 +156,32 @@ export function AccountCard(props: { onSignedIn?: () => void }) {
                   <button class="btn" disabled={leaving()} onClick={() => void signOut()}>
                     Sign out of this browser
                   </button>
+                </div>
+                <div class="set-username">
+                  <div class="set-username-head">
+                    <b>Username</b>
+                    <Show when={username()} fallback={<span class="dim">not chosen yet</span>}>
+                      {(u) => (
+                        <span class="uname-kept">
+                          @{u()} <span class="dim">· yours for good</span>
+                        </span>
+                      )}
+                    </Show>
+                  </div>
+                  <Show
+                    when={username()}
+                    fallback={
+                      <>
+                        <p class="note">
+                          What you go by where others see you, such as the Frost Scripts you share — in place of your Telegram name, so you can stay anonymous. You choose it once: it can never be changed,
+                          and stays with this Telegram account.
+                        </p>
+                        <UsernameClaim />
+                      </>
+                    }
+                  >
+                    <p class="note">Shown with the Frost Scripts you share, in place of your Telegram name. It is bound to this Telegram account and cannot be changed.</p>
+                  </Show>
                 </div>
                 <div class="set-actions">
                   <span class="dim">

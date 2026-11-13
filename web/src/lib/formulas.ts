@@ -7,15 +7,21 @@
  * On a chart a script is a study like any other, its kind `fx-` and its id:
  * `fx-k3j9a2:14:2` is that script with its settings at 14 and 2. The worker's
  * formula module works it out over the chart's bars; nothing of it runs here.
+ *
+ * A script its author made public is in the Community, under their creator name,
+ * for anyone to add, signed in or not: a chart that holds one reads its text by
+ * its id. Made private again, or removed by the moderator, it draws no more.
  */
 import { createSignal } from 'solid-js';
 import { call } from '../engine/client';
 import type { FormulaDescription, FormulaRun, StudyDefinition } from '../engine/protocol';
-import { api, type Script } from './api';
+import { api, type CommunityScript, type Script, type ScriptPreview } from './api';
 import { identity, session } from './owner';
 import { readJson, writePref } from './prefs';
+import { noteUsername, username } from './username';
 
-export type Formula = Script;
+/** A script of the reader's own, or, with `by` its author's username, someone else's public one. */
+export type Formula = Script & { by?: string };
 
 const KEY = 'frostScripts';
 
@@ -43,7 +49,10 @@ export function loadFormulas(): Promise<void> {
   if (!session()) return Promise.resolve();
   loading ??= api
     .scripts()
-    .then((r) => keep(r.scripts))
+    .then((r) => {
+      keep(r.scripts);
+      noteUsername(r.username);
+    })
     .catch(() => {
       // Out of reach: the copy held here stands, and the next page asks again.
       loading = null;
@@ -52,8 +61,8 @@ export function loadFormulas(): Promise<void> {
 }
 
 /** Kept on the server, new or over the one of its id. Throws what the server said. */
-export async function saveFormula(f: { id?: string; name: string; source: string }): Promise<Formula> {
-  const body = { name: f.name.trim().slice(0, 40) || 'My script', source: f.source };
+export async function saveFormula(f: { id?: string; name: string; source: string; public: boolean; about: string; preview?: ScriptPreview }): Promise<Formula> {
+  const body = { name: f.name.trim().slice(0, 40) || 'My script', source: f.source, public: f.public, about: f.about, preview: f.preview };
   const saved = f.id ? await api.updateScript(f.id, body) : await api.createScript(body);
   keep([saved, ...list().filter((x) => x.id !== saved.id)]);
   return saved;
@@ -66,7 +75,67 @@ export async function deleteFormula(id: string): Promise<void> {
 
 export const kindOf = (f: Pick<Formula, 'id'>): string => `fx-${f.id}`;
 export const isFormulaKind = (kind: string): boolean => kind.startsWith('fx-');
-export const formulaOf = (kind: string): Formula | undefined => list().find((f) => kindOf(f) === kind);
+
+// ---------------------------------------------------------------- the Community
+
+const [listed, setListed] = createSignal<CommunityScript[] | null>(null);
+/** Everyone's public scripts, the last changed first; null until read. */
+export const community = listed;
+const [communityError, setCommunityError] = createSignal<string | null>(null);
+export { communityError };
+let listedAt = 0;
+let listing: Promise<void> | null = null;
+
+/** The Community's list: read when first shown, and again once it is a minute old. */
+export function loadCommunity(): Promise<void> {
+  if (listing) return listing;
+  if (listed() && Date.now() - listedAt < 60_000) return Promise.resolve();
+  const read = api
+    .community()
+    .then((r) => {
+      setListed(r.scripts);
+      setCommunityError(null);
+      listedAt = Date.now();
+    })
+    .catch((e: unknown) => {
+      setCommunityError(e instanceof Error ? e.message : String(e));
+    })
+    .finally(() => {
+      listing = null;
+    });
+  listing = read;
+  return read;
+}
+
+/** Others' public scripts the charts hold, by id, read once a page: `gone` once private or removed. */
+const [shared, setShared] = createSignal<ReadonlyMap<string, Formula | 'gone'>>(new Map());
+const asked = new Set<string>();
+
+function readShared(id: string): void {
+  if (asked.has(id)) return;
+  asked.add(id);
+  api
+    .communityScript(id)
+    .then((s): Formula => ({ id: s.id, name: s.name, source: s.source, checks: true, updated: s.updated, removed: false, why: null, public: true, about: s.about, preview: s.preview, by: s.username }))
+    .then(
+      (f) => setShared((m) => new Map(m).set(id, f)),
+      (e: unknown) => {
+        // Not found: made private or removed. Out of reach: asked again on the next page.
+        if ((e as { status?: number }).status === 404) setShared((m) => new Map(m).set(id, 'gone'));
+        else asked.delete(id);
+      },
+    );
+}
+
+/** A script by its kind: the reader's own, or someone's public one, read the first time it is asked for. */
+export function formulaOf(kind: string): Formula | undefined {
+  const own = list().find((f) => kindOf(f) === kind);
+  if (own || !isFormulaKind(kind)) return own;
+  const id = kind.slice(3);
+  const got = shared().get(id);
+  if (got === undefined) readShared(id);
+  return got === 'gone' ? undefined : got;
+}
 
 /** A chart's formulas from its studies, ready for the worker: one gone from the library is left out. */
 export function formulaRuns(studies: string): FormulaRun[] {
@@ -77,7 +146,10 @@ export function formulaRuns(studies: string): FormulaRun[] {
       const [kind, ...params] = id.split(':');
       const f = formulaOf(kind!);
       // One the moderator removed runs for no one, its author included.
-      return f && !f.removed ? [{ id, label: [f.name, ...params].join(' '), source: f.source, inputs: params.map(Number) }] : [];
+      if (!f || f.removed) return [];
+      // A shared script says whose it is, on every chart it is on.
+      const author = f.by ?? (f.public ? username() : null);
+      return [{ id, label: [f.name, ...params].join(' ') + (author ? ` · @${author}` : ''), source: f.source, inputs: params.map(Number) }];
     });
 }
 

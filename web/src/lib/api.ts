@@ -533,7 +533,7 @@ export interface AccountStatus {
   telegram: boolean;
   bot: string | null;
   /** The account and how many browsers are signed in to it. */
-  account: { name: string | null; since: number; devices?: number } | null;
+  account: { name: string | null; since: number; devices?: number; username?: string | null } | null;
 }
 
 /** A sign-in waiting on the reader's yes in Telegram, done with a session for this browser, or gone. */
@@ -567,6 +567,42 @@ export interface Script {
   updated: number;
   removed: boolean;
   why: string | null;
+  /** Listed in the Community, under the account's username. */
+  public: boolean;
+  /** What it shows and how to read it, in its author's words: needed to share it. */
+  about: string;
+  /** The chart it was shared from, for the showcase to draw it on. */
+  preview: ScriptPreview | null;
+}
+
+/** A market, a timeframe and a script's settings: a chart the showcase draws live. */
+export interface ScriptPreview {
+  market: string;
+  timeframe: string;
+  inputs: number[];
+}
+
+/** A public Frost Script as the Community lists it, by its author's username; `source` only when read on its own. */
+export interface CommunityScript {
+  id: string;
+  name: string;
+  username: string;
+  updated: number;
+  created: number;
+  /** Its description: in the list, its first 240 characters, `more` saying there is more. */
+  about: string;
+  more?: boolean;
+  preview: ScriptPreview | null;
+  source?: string;
+}
+
+/** A script as it is saved: a preview, when given, is the chart it is shared from. */
+export interface ScriptBody {
+  name: string;
+  source: string;
+  public?: boolean;
+  about?: string;
+  preview?: ScriptPreview;
 }
 
 export const api = {
@@ -601,9 +637,14 @@ export const api = {
   favourites: () => json<{ kinds: string[] }>('/api/account/favourites'),
   announcement: () => json<{ announcement: Announcement | null }>('/api/announcement'),
   /** This account's Frost Scripts (bins/server scripts): signed in with Telegram only. */
-  scripts: () => json<{ scripts: Script[] }>('/api/scripts'),
-  createScript: (s: { name: string; source: string }) => json<Script>('/api/scripts', { method: 'POST', body: s }),
-  updateScript: (id: string, s: { name: string; source: string }) => json<Script>(`/api/scripts/${encodeURIComponent(id)}`, { method: 'PUT', body: s }),
+  scripts: () => json<{ scripts: Script[]; username: string | null }>('/api/scripts'),
+  createScript: (s: ScriptBody) => json<Script>('/api/scripts', { method: 'POST', body: s }),
+  updateScript: (id: string, s: ScriptBody) => json<Script>(`/api/scripts/${encodeURIComponent(id)}`, { method: 'PUT', body: s }),
+  /** The account's username, chosen once and for good. */
+  claimUsername: (name: string) => json<{ username: string }>('/api/account/username', { method: 'PUT', body: { name } }),
+  /** Everyone's public scripts, without their text; anyone may read them. */
+  community: () => json<{ scripts: CommunityScript[] }>('/api/community'),
+  communityScript: (id: string) => json<CommunityScript & { source: string }>(`/api/community/${encodeURIComponent(id)}`),
   deleteScript: (id: string) => send(`/api/scripts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   setFavourite: (kind: string, on: boolean) => send(`/api/account/favourites/${encodeURIComponent(kind)}`, { method: on ? 'PUT' : 'DELETE' }),
   telegram: () => json<TelegramStatus>('/api/telegram'),

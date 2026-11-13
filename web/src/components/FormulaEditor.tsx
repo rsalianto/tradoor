@@ -9,13 +9,18 @@ import type { FormulaDescription } from '../engine/protocol';
 import { EXAMPLES, NEW_FORMULA } from '../lib/formula-sources';
 import { setOverlay } from '../app/ui';
 import { errorText } from '../lib/api';
-import { canWrite, deleteFormula, describe, formulaOf, formulas, kindOf, saveFormula, setEditing } from '../lib/formulas';
+import { canWrite, deleteFormula, describe, formulaOf, formulas, kindOf, loadCommunity, saveFormula, setEditing } from '../lib/formulas';
+import { username } from '../lib/username';
+import { UsernameClaim } from './Username';
 import { splitList } from '../lib/study-style';
 import { Icon } from '../lib/icons';
 import { toast } from '../lib/toasts';
-import { doc, patchPanel } from '../workspace/store';
+import { doc, marketOf, patchPanel, timeframeOf } from '../workspace/store';
 
 const CHECK_MS = 250;
+/** A description, in characters: at least, to share the script, and at most (bins/server scripts). */
+const SHARED_ABOUT = 30;
+const MAX_ABOUT = 1000;
 /** What teaches an AI chat Frost Script, to turn a Pine Script v6 indicator into one: the same text the docs show. */
 const AI_TEXT = '/frost-script-ai.txt';
 
@@ -24,10 +29,26 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
   const [id, setId] = createSignal<string | undefined>(opened?.id);
   const [name, setName] = createSignal(opened?.name ?? props.seed?.name ?? 'My script');
   const [source, setSource] = createSignal(opened?.source ?? props.seed?.source ?? NEW_FORMULA);
-  const [saved, setSaved] = createSignal(opened ? { name: opened.name, source: opened.source } : null);
+  const [shared, setShared] = createSignal(opened?.public ?? false);
+  const [about, setAbout] = createSignal(opened?.about ?? '');
+  const [saved, setSaved] = createSignal(opened ? { name: opened.name, source: opened.source, shared: opened.public, about: opened.about ?? '' } : null);
   const [check, setCheck] = createSignal<FormulaDescription | null>(null);
   const [busy, setBusy] = createSignal(false);
-  const dirty = () => saved()?.name !== name() || saved()?.source !== source();
+  const dirty = () => saved()?.name !== name() || saved()?.source !== source() || (saved()?.shared ?? false) !== shared() || (saved()?.about ?? '') !== about().trim();
+  /**
+   * The chart it is shared from, as the showcase draws it: the one the editor
+   * was opened from, its market and timeframe, and the script's settings there.
+   */
+  const preview = () => {
+    const panel = props.panelId ? doc.panels[props.panelId] : undefined;
+    if (panel?.type !== 'chart') return undefined;
+    const kind = id() ? kindOf({ id: id()! }) : '';
+    const on = splitList(panel.studies).find((s) => kind && s.split(':')[0] === kind);
+    const inputs = on ? on.split(':').slice(1).map(Number).filter(Number.isFinite) : [];
+    return { market: marketOf(panel), timeframe: timeframeOf(panel), inputs };
+  };
+  /** Characters a shared script's description still lacks; 0 for none. */
+  const short = () => Math.max(0, SHARED_ABOUT - about().trim().length);
   /** The open script, as the library has it now: removed by the moderator, it says why. */
   const current = () => formulas().find((f) => f.id === id());
   const removed = () => current()?.removed === true;
@@ -44,11 +65,13 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
   const lines = () => source().split('\n').length;
   const close = () => setEditing(null);
 
-  const open = (f: { id?: string; name: string; source: string }) => {
+  const open = (f: { id?: string; name: string; source: string; public?: boolean; about?: string }) => {
     setId(f.id);
     setName(f.name);
     setSource(f.source);
-    setSaved(f.id ? { name: f.name, source: f.source } : null);
+    setShared(f.public ?? false);
+    setAbout(f.about ?? '');
+    setSaved(f.id ? { name: f.name, source: f.source, shared: f.public ?? false, about: f.about ?? '' } : null);
     area.scrollTop = 0;
   };
 
@@ -57,10 +80,16 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
     if (!canWrite() || busy()) return null;
     setBusy(true);
     try {
-      const kept = await saveFormula({ id: id(), name: name(), source: source() });
+      if (shared() && !username()) throw new Error('choose your username first: public scripts are shared under it');
+      if (shared() && short() > 0) throw new Error(`describe it first, in ${SHARED_ABOUT} characters at least: what it shows, and how to read it`);
+      const kept = await saveFormula({ id: id(), name: name(), source: source(), public: shared(), about: about(), preview: shared() ? preview() : undefined });
       setId(kept.id);
       setName(kept.name);
-      setSaved({ name: kept.name, source: kept.source });
+      setShared(kept.public);
+      setAbout(kept.about);
+      setSaved({ name: kept.name, source: kept.source, shared: kept.public, about: kept.about });
+      // The Community shows it, or no longer does, at its next reading.
+      if (kept.public || saved()?.shared) void loadCommunity();
       return kept.id;
     } catch (e) {
       toast({ tone: 'warn', title: 'Not saved', body: errorText(e) });
@@ -196,7 +225,61 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
             <Show when={removed()}>
               <div class="fx-banner warn">Removed by the moderator{current()?.why ? `: ${current()!.why}` : ''}. It runs for no one, and cannot be changed; you can still delete it.</div>
             </Show>
-            <input class="dinput fx-name" value={name()} maxLength={40} aria-label="Name" onInput={(e) => setName(e.currentTarget.value)} />
+            <div class="fx-row">
+              <input class="dinput fx-name" value={name()} maxLength={40} aria-label="Name" onInput={(e) => setName(e.currentTarget.value)} />
+              <select
+                class="box fx-vis"
+                aria-label="Who sees it"
+                disabled={!canWrite() || removed()}
+                data-tip="Private: yours alone. Public: in the indicator picker's Community tab under your username, for anyone to add to a chart"
+                onChange={(e) => setShared(e.currentTarget.value === 'public')}
+              >
+                <option value="private" selected={!shared()}>
+                  Private
+                </option>
+                <option value="public" selected={shared()}>
+                  Public
+                </option>
+              </select>
+            </div>
+            <Show when={canWrite()}>
+              <textarea
+                class="dinput fx-about"
+                rows={2}
+                maxLength={MAX_ABOUT}
+                value={about()}
+                disabled={removed()}
+                aria-label="Description"
+                placeholder={`What it shows, and how to read it. Needed to share it: ${SHARED_ABOUT} characters at least.`}
+                onInput={(e) => setAbout(e.currentTarget.value)}
+              />
+            </Show>
+            <Show when={canWrite() && shared()}>
+              <div class="fx-share">
+                <Show
+                  when={username()}
+                  fallback={
+                    <div class="fx-claim">
+                      <span>
+                        Shared scripts go under your <b>username</b>, in place of your Telegram name. Choose it once: it can never be changed, and stays with this Telegram account.
+                      </span>
+                      <UsernameClaim button="dbtn" />
+                    </div>
+                  }
+                >
+                  {(u) => (
+                    <Show when={short() === 0} fallback={<span class="warn">Describe it to share it: {short()} more characters. Say what it shows, and how to read it.</span>}>
+                      <span>
+                        {saved()?.shared ? 'Shared in the Community as' : 'Saved, it is shared in the Community as'} <b>@{u()}</b>, on every chart it is added to, and on the{' '}
+                        <a href="/community.html" target="_blank" rel="noopener">
+                          showcase ↗
+                        </a>
+                      </span>
+                    </Show>
+                  )}
+                </Show>
+              </div>
+            </Show>
             <div class="fx-code">
               <div class="fx-gutter" ref={gutter} aria-hidden="true">
                 <For each={Array.from({ length: lines() }, (_, i) => i + 1)}>{(n) => <span classList={{ bad: check()?.ok === false && (check() as { line: number }).line === n }}>{n}</span>}</For>

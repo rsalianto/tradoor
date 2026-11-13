@@ -30,6 +30,7 @@ mod liquidations;
 mod open_interest;
 mod presence;
 mod scripts;
+mod username;
 mod relay;
 mod research;
 mod session;

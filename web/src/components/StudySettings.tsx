@@ -110,7 +110,9 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
     if (!text) return;
     props.onClose();
     const f = formula ? formulaOf(kind) : undefined;
-    setEditing(f ? { id: f.id, panelId: props.panel.id } : { seed: { name: `My ${SOURCES[kind]?.name ?? 'script'}`, source: text }, panelId: props.panel.id });
+    // Someone else's public script opens as a copy of one's own, as a built-in's source does.
+    if (f && !f.by) setEditing({ id: f.id, panelId: props.panel.id });
+    else setEditing({ seed: { name: f ? `My ${f.name}`.slice(0, 40) : `My ${SOURCES[kind]?.name ?? 'script'}`, source: text }, panelId: props.panel.id });
   };
 
   // ---------------------------------------------------------------- where it stands
@@ -335,10 +337,16 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
         </nav>
         <div class="dbody">
           <Show when={showing() === 'source'}>
-            <p class="dnote">{formula ? 'Your script, as it is written.' : 'How tradoor works it out, written in Frost Script with its usual settings. Open a copy to make a script of your own.'}</p>
+            <p class="dnote">
+              {(() => {
+                const by = formula ? formulaOf(kind)?.by : undefined;
+                return by ? `@${by}'s script from the Community, as it is written. Read it before you trade on it; open a copy to make one of your own.` : formula ? 'Your script, as it is written.' : 'How tradoor works it out, written in Frost Script with its usual settings. Open a copy to make a script of your own.';
+              })()}
+            </p>
+            <Show when={formula ? formulaOf(kind)?.about : undefined}>{(a) => <p class="fx-described">{a()}</p>}</Show>
             <pre class="fx-source">{source()}</pre>
             <button class="dbtn" onClick={openSource}>
-              {formula ? 'Edit the script' : 'Open a copy in Frost Script'}
+              {formula && !formulaOf(kind)?.by ? 'Edit the script' : 'Open a copy in Frost Script'}
             </button>
           </Show>
           <Show when={showing() !== 'source'}>
