@@ -337,8 +337,12 @@ impl Catalog {
 /// turnover to four figures and the change to two decimals, as shown.
 fn wire_of(updated_at: i64, venues: &[VenueStatus], by_venue: &[(Venue, Vec<Product>)]) -> serde_json::Value {
     let figures = |v: f64| {
-        let scale = 10f64.powi(3 - v.abs().log10().floor() as i32);
-        if v == 0.0 || !v.is_finite() { v } else { (v * scale).round() / scale }
+        // Zero has no first figure: its logarithm is minus infinity.
+        if v == 0.0 || !v.is_finite() {
+            return v;
+        }
+        let scale = 10f64.powi(3i32.saturating_sub(v.abs().log10().floor() as i32));
+        (v * scale).round() / scale
     };
     let markets: serde_json::Map<String, serde_json::Value> = by_venue
         .iter()

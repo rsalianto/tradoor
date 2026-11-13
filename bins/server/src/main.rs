@@ -20,6 +20,7 @@ mod favourites;
 mod flow;
 mod footprint;
 mod footprint_history;
+mod footprint_lighter;
 mod import;
 mod indices;
 mod journal;

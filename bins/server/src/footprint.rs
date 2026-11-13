@@ -36,13 +36,15 @@ use crate::trades::{self, Print};
 /// the finest a reader would ever want: a dollar on BTC is some forty levels a
 /// minute, a tenth on ETH about twenty. Coarser groupings are made by adding
 /// levels together, which cannot be undone — so the finest is what is kept.
-const MARKETS: [(&str, f64); 9] = [
+const MARKETS: [(&str, f64); 10] = [
     ("binance-spot:BTCUSDT", 1.0),
     ("binance-perp:BTCUSDT", 1.0),
     ("bybit-spot:BTCUSDT", 1.0),
     ("bybit-perp:BTCUSDT", 1.0),
     // Hyperliquid answers for its last ten trades only: what is not recorded as it trades is gone.
     ("hyperliquid-perp:BTCUSD", 1.0),
+    // Lighter pages back through its trades a hundred at a time: the day before is read once (footprint_lighter).
+    ("lighter-perp:BTCUSD", 1.0),
     ("binance-spot:ETHUSDT", 0.1),
     ("binance-perp:ETHUSDT", 0.1),
     ("bybit-spot:ETHUSDT", 0.1),
@@ -85,6 +87,17 @@ pub(crate) struct Bar {
 impl Bar {
     /// The blob a row carries: the lowest level, then each level as the gap
     /// from the one before it and the two volumes.
+    /// One trade's coins, at its level, on the side the taker took.
+    pub(crate) fn add(&mut self, level: i64, qty: f64, buy: bool) {
+        let at = self.levels.entry(level).or_insert((0.0, 0.0));
+        if buy {
+            at.0 += qty;
+        } else {
+            at.1 += qty;
+        }
+        self.trades += 1;
+    }
+
     pub(crate) fn pack(&self) -> (i64, Vec<u8>) {
         let mut bytes = Vec::with_capacity(self.levels.len() * 4);
         let base = self.levels.keys().next().copied().unwrap_or(0);
@@ -118,17 +131,27 @@ pub struct Footprint {
     catalog: Arc<Catalog>,
     /// Per market, the minutes not yet written down.
     open: Mutex<HashMap<String, BTreeMap<i64, Bar>>>,
+    /// Markets whose past is being read back, once a run (footprint_lighter).
+    filling: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Footprint {
     pub fn start(pool: deadpool_postgres::Pool, doh: Arc<Doh>, catalog: Arc<Catalog>) -> Arc<Self> {
-        let it = Arc::new(Self { pool, doh, catalog, open: Mutex::new(HashMap::new()) });
+        let it = Arc::new(Self { pool, doh, catalog, open: Mutex::new(HashMap::new()), filling: Mutex::new(std::collections::HashSet::new()) });
         for market in markets() {
             tokio::spawn(follow(market, it.clone()));
         }
         tokio::spawn(keep(it.clone()));
         tracing::info!(markets = ?markets(), "recording footprint");
         it
+    }
+
+    pub(crate) fn pool(&self) -> &deadpool_postgres::Pool {
+        &self.pool
+    }
+
+    pub(crate) fn doh(&self) -> &Arc<Doh> {
+        &self.doh
     }
 
     /// One trade, counted to the level its price falls in.
@@ -138,15 +161,12 @@ impl Footprint {
         }
         let Ok(mut open) = self.open.lock() else { return };
         let minute = at - at.rem_euclid(60_000);
-        let bar = open.entry(market.to_string()).or_default().entry(minute).or_default();
-        let level = (print.price / tick).floor() as i64;
-        let at_level = bar.levels.entry(level).or_insert((0.0, 0.0));
-        if print.buy {
-            at_level.0 += print.qty;
-        } else {
-            at_level.1 += print.qty;
-        }
-        bar.trades += 1;
+        open.entry(market.to_string()).or_default().entry(minute).or_default().add((print.price / tick).floor() as i64, print.qty, print.buy);
+    }
+
+    /// Whether this run is to read `market`'s past back: true the first time it is asked.
+    fn to_fill(&self, market: &str) -> bool {
+        self.filling.lock().is_ok_and(|mut f| f.insert(market.to_string()))
     }
 }
 
@@ -170,7 +190,7 @@ async fn follow(market: String, it: Arc<Footprint>) {
     }
 }
 
-async fn session(market: &str, venue: Venue, url: &str, it: &Footprint) -> anyhow::Result<()> {
+async fn session(market: &str, venue: Venue, url: &str, it: &Arc<Footprint>) -> anyhow::Result<()> {
     let symbol = MarketRef::parse(market).map(|m| m.symbol).unwrap_or_default();
     let tick = tick_of(market).unwrap_or(1.0);
     let theirs = if trades::renames(venue) {
@@ -180,7 +200,10 @@ async fn session(market: &str, venue: Venue, url: &str, it: &Footprint) -> anyho
     };
     let connect = it.doh.connect_ws(url);
     let mut ws = tokio::time::timeout(Duration::from_secs(15), connect).await.map_err(|_| anyhow::anyhow!("connecting timed out"))??;
-    for frame in trades::subscribe(venue, std::slice::from_ref(&theirs)) {
+    // Lighter's trades come on a channel of their own, with ids the fill starts from.
+    let lighter = venue == Venue::LighterPerp;
+    let frames = if lighter { vec![crate::footprint_lighter::subscribe(&theirs)] } else { trades::subscribe(venue, std::slice::from_ref(&theirs)) };
+    for frame in frames {
         ws.send(Message::text(frame)).await?;
     }
     tracing::info!(venue = venue.id(), symbol = %theirs, tick, "recording footprint");
@@ -197,6 +220,16 @@ async fn session(market: &str, venue: Venue, url: &str, it: &Footprint) -> anyho
                     _ => continue,
                 };
                 let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
+                if lighter {
+                    for t in crate::footprint_lighter::live(&value) {
+                        traded = Instant::now();
+                        it.record(market, tick, &Print { symbol: &theirs, price: t.price, qty: t.qty, buy: t.buy, at: t.at }, t.at);
+                        if it.to_fill(market) {
+                            tokio::spawn(crate::footprint_lighter::fill(it.clone(), market.to_string(), theirs.clone(), t));
+                        }
+                    }
+                    continue;
+                }
                 let mut prints = Vec::new();
                 trades::read_prints(venue, &value, &mut prints);
                 let now = now_ms();
@@ -341,6 +374,7 @@ mod tests {
             doh: crate::dns::Doh::new().unwrap(),
             catalog: Arc::new(crate::catalog::Catalog::new("https://api.binance.com".into(), &crate::dns::Doh::new().unwrap()).unwrap()),
             open: Mutex::new(HashMap::new()),
+            filling: Mutex::new(std::collections::HashSet::new()),
         };
         let at = 1_800_000_000_000;
         it.record("binance-perp:BTCUSDT", 1.0, &print("BTCUSDT", 84_000.7, 0.5, true), at);
@@ -367,11 +401,12 @@ mod tests {
 
     #[test]
     fn every_market_recorded_is_one_this_server_can_read() {
-        assert_eq!(markets().len(), 9);
+        assert_eq!(markets().len(), 10);
         assert!(markets().iter().all(|m| MarketRef::parse(m).is_some_and(|r| !trades::stream_urls(r.venue).is_empty())));
         assert_eq!(tick_of("binance-perp:BTCUSDT"), Some(1.0), "a dollar on BTC is some forty levels a minute");
         assert_eq!(tick_of("bybit-spot:ETHUSDT"), Some(0.1));
         assert_eq!(tick_of("hyperliquid-perp:BTCUSD"), Some(1.0));
+        assert_eq!(tick_of("lighter-perp:BTCUSD"), Some(1.0));
         assert_eq!(tick_of("okx-perp:BTCUSDT"), None, "and what is not recorded says so");
     }
 }
