@@ -30,6 +30,8 @@ pub enum StudyKind {
     SwingMap,
     OpenInterest,
     Flow,
+    /// One of the reader's own formulas (crates/formula): its lines come worked out, from the page.
+    Formula,
 }
 
 impl StudyKind {
@@ -55,6 +57,7 @@ impl StudyKind {
             Self::SwingMap => "swingmap",
             Self::OpenInterest => "oi",
             Self::Flow => "flow",
+            Self::Formula => "formula",
         }
     }
 }
@@ -69,7 +72,15 @@ pub enum Group {
     Oi,
     /// Bought less sold, in coins.
     Delta,
+    /// A formula's own pane: one each, by its place among the chart's formulas.
+    Formula(u8),
 }
+
+/// The panes formulas draw in, by name, and their lines', fills' and marks' keys.
+pub const FORMULA_PANES: [&str; 8] = ["fx0", "fx1", "fx2", "fx3", "fx4", "fx5", "fx6", "fx7"];
+pub const FORMULA_LINES: [&str; 16] = ["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11", "p12", "p13", "p14", "p15"];
+pub const FORMULA_FILLS: [&str; 8] = ["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7"];
+pub const FORMULA_MARKS: [&str; 8] = ["m0", "m1", "m2", "m3", "m4", "m5", "m6", "m7"];
 
 impl Group {
     pub fn as_str(self) -> &'static str {
@@ -80,6 +91,7 @@ impl Group {
             Self::Atr => "atr",
             Self::Oi => "oi",
             Self::Delta => "delta",
+            Self::Formula(n) => FORMULA_PANES[usize::from(n) % FORMULA_PANES.len()],
         }
     }
 }
@@ -116,6 +128,22 @@ const fn x(name: &'static str, default: f64, min: f64) -> StudyParam {
 const VWAP_ANCHORS: [&str; 5] = ["Session", "Week", "Month", "Year", "Quarter"];
 /// The last period's levels, as the chart labels them: `pMVAH` is last month's.
 const VWAP_PREVIOUS: [[&str; 3]; 5] = [["pDVAH", "pDVWAP", "pDVAL"], ["pWVAH", "pWVWAP", "pWVAL"], ["pMVAH", "pMVWAP", "pMVAL"], ["pYVAH", "pYVWAP", "pYVAL"], ["pQVAH", "pQVWAP", "pQVAL"]];
+
+/// The colours a formula names (crates/formula): its line, and the shade of a fill in it.
+pub const FORMULA_COLORS: [(&str, &str, &str); 12] = [
+    ("green", "#26a69a", "#26a69a26"),
+    ("lime", "#aafd35", "#aafd3526"),
+    ("red", "#ff4d5f", "#ff4d5f26"),
+    ("orange", "#ff9800", "#ff980026"),
+    ("yellow", "#ffeb3b", "#ffeb3b26"),
+    ("blue", "#2962ff", "#2962ff1f"),
+    ("aqua", "#00bcd4", "#00bcd426"),
+    ("teal", "#009688", "#00968826"),
+    ("purple", "#b388ff", "#b388ff26"),
+    ("pink", "#f06292", "#f0629226"),
+    ("white", "#e8e8e8", "#e8e8e81f"),
+    ("gray", "#787b86", "#787b8626"),
+];
 
 pub static STUDIES: [StudyDefinition; 20] = [
     StudyDefinition { kind: StudyKind::Ema, short: "EMA", group: Group::Price, params: &[p("length", 50, 2, 1000)] },
@@ -461,7 +489,7 @@ pub fn compute_study_with(spec: &StudySpec, candles: &[Candle], inputs: &StudyIn
         // Its marks are minutes the server measured, not anything the candles
         // hold: the chart draws them from what the page sent, and the study
         // being here is what says to draw them at all.
-        StudyKind::Flow => {}
+        StudyKind::Flow | StudyKind::Formula => {}
         StudyKind::Atr => study.lines.push(StudyLine::line("atr", label, indicators::atr(candles, param(0)))),
         StudyKind::KeyLevels => (study.lines, study.segments) = key_levels(candles, inputs.days),
         StudyKind::Avwap => study.lines = anchored_vwap(candles),

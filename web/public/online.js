@@ -76,7 +76,127 @@
     set('memory', typeof v.memoryMb === 'number' ? `${v.memoryMb} MB` : '–');
     set('load', Array.isArray(v.load) ? v.load.map((x) => x.toFixed(2)).join('  ') : '–');
     set('when', `updated ${new Date().toLocaleTimeString('en-GB')}`);
+    const fx = s.scripts ?? {};
+    set('fx-total', n(fx.total));
+    set('fx-authors', n(fx.authors));
+    set('fx-new', n(fx.newToday));
+    set('fx-removed', n(fx.removed), fx.removed ? 'warn' : '');
+    // Folded and not read yet: how many there are, from the counts.
+    if (!scriptsRead) set('fx-summary', typeof fx.total === 'number' ? `${n(fx.total)} ${fx.total === 1 ? 'script' : 'scripts'}: open to read them` : 'The scripts');
   }
+
+  // ---- Frost Script moderation: every script, the last changed first.
+  let showing = 'all';
+  let scriptsRead = 0;
+  const admin = (path, init = {}) => fetch(path, { ...init, cache: 'no-store', headers: { authorization: `Bearer ${key}`, ...(init.body ? { 'content-type': 'application/json' } : {}) } });
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const when = (ms) => new Date(ms).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  async function scripts() {
+    scriptsRead = Date.now();
+    const list = $('fx-list');
+    const q = showing === 'all' ? '' : `?removed=${showing === 'removed'}`;
+    let res;
+    try {
+      res = await admin(`/api/admin/scripts${q}`);
+    } catch {
+      res = null;
+    }
+    if (!res?.ok) {
+      list.replaceChildren(el('div', 'empty', res ? `The server answered ${res.status}.` : 'No answer from the server.'));
+      return;
+    }
+    const { scripts: rows } = await res.json();
+    const which = { all: 'scripts', live: 'live scripts', removed: 'removed scripts' }[showing];
+    // The server gives the newest 300 at most.
+    set('fx-summary', rows.length ? `${n(rows.length)} ${which}${rows.length >= 300 ? ', the newest 300' : ''}` : `No ${which}`);
+    if (!rows.length) {
+      list.replaceChildren(el('div', 'empty', showing === 'removed' ? 'None removed.' : 'No scripts yet.'));
+      return;
+    }
+    list.replaceChildren(...rows.map(row));
+    find();
+  }
+
+  /** Only the rows whose name or author holds what is typed. */
+  function find() {
+    const q = $('fx-find').value.trim().toLowerCase();
+    let shown = 0;
+    for (const box of $('fx-list').querySelectorAll('.script')) {
+      box.hidden = q !== '' && !box.dataset.find.includes(q);
+      if (!box.hidden) shown += 1;
+    }
+    const none = $('fx-list').querySelector('.none');
+    if (q && shown === 0 && !none) $('fx-list').append(el('div', 'empty none', 'Nothing matches.'));
+    else if ((!q || shown > 0) && none) none.remove();
+  }
+
+  function row(s) {
+    const box = el('div', 'script');
+    box.dataset.find = `${s.name} ${s.author} ${s.authorId}`.toLowerCase();
+    const head = el('div', 'head');
+    head.append(el('span', 'name', s.name), el('span', 'meta', `by ${s.author} · ${s.authorId} · ${when(s.updated)} · ${(s.size / 1024).toFixed(1)} kB · ${s.checks ? 'checks' : 'has a mistake'}`));
+    if (s.removed) head.append(el('span', 'gone', `removed${s.why ? `: ${s.why}` : ''}`));
+    const acts = el('span', 'acts');
+    const view = el('button', '', 'Source');
+    let pre = null;
+    view.onclick = async () => {
+      if (pre) {
+        pre.remove();
+        pre = null;
+        return;
+      }
+      const r = await admin(`/api/admin/scripts/${encodeURIComponent(s.id)}`).catch(() => null);
+      pre = el('pre', '', r?.ok ? (await r.json()).source : 'Not read.');
+      box.append(pre);
+    };
+    acts.append(view);
+    const act = async (action, why) => {
+      const r = await admin(`/api/admin/scripts/${encodeURIComponent(s.id)}`, { method: 'POST', body: JSON.stringify({ action, why }) }).catch(() => null);
+      if (!r?.ok) alert(`Not done: the server answered ${r ? r.status : 'nothing'}.`);
+      void scripts();
+      void read();
+    };
+    if (s.removed) {
+      const back = el('button', '', 'Restore');
+      back.onclick = () => act('restore');
+      acts.append(back);
+    } else {
+      const off = el('button', 'danger', 'Remove');
+      off.onclick = () => {
+        const why = prompt(`Remove "${s.name}"? It is kept, and runs for no one. Why, for its author:`, '');
+        if (why !== null) void act('remove', why);
+      };
+      acts.append(off);
+    }
+    const del = el('button', 'danger', 'Delete');
+    del.onclick = () => {
+      if (confirm(`Delete "${s.name}" for good? This cannot be undone.`)) void act('delete');
+    };
+    acts.append(del);
+    head.append(acts);
+    box.append(head);
+    return box;
+  }
+
+  for (const b of document.querySelectorAll('[data-show]')) {
+    b.addEventListener('click', () => {
+      showing = b.dataset.show;
+      for (const x of document.querySelectorAll('[data-show]')) x.classList.toggle('on', x === b);
+      void scripts();
+    });
+  }
+  $('fx-refresh').addEventListener('click', () => void scripts());
+  $('fx-find').addEventListener('input', find);
+  // Folded, the list is not read at all: opened, it is, and kept fresh while it stays open.
+  $('fx-fold').addEventListener('toggle', () => {
+    if ($('fx-fold').open && Date.now() - scriptsRead > 5_000) void scripts();
+  });
 
   async function read() {
     clearTimeout(timer);
@@ -100,6 +220,7 @@
       document.body.classList.add('stale');
       set('state', res ? `● the server answered ${res.status}` : '● no answer', 'bad');
     }
+    if (key && $('fx-fold').open && Date.now() - scriptsRead > 60_000) void scripts();
     if (document.visibilityState === 'visible') timer = setTimeout(read, EVERY_MS);
   }
 

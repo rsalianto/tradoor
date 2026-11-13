@@ -1,0 +1,13 @@
+[package]
+name = "tradoor-formula-wasm"
+description = "Frost Script for the browser: the formula crate behind a plain interface of numbers and bytes, with no imports, loaded only when a chart has a formula."
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tradoor-formula.workspace = true

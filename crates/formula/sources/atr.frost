@@ -1,0 +1,7 @@
+// Average True Range
+// How far price travels in a bar, counting a gap from the close before it,
+// averaged Wilder's way over `length` bars.
+pane own
+input length = 14 min 2 max 1000 "Length"
+range = bar == 0 ? high - low : max(high - low, abs(high - close[1]), abs(low - close[1]))
+plot(rma(range, length), "ATR", red)

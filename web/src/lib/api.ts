@@ -549,6 +549,17 @@ export interface TelegramStatus {
   chats: TelegramChat[];
 }
 
+/** A Frost Script as the server keeps it: `removed` by the moderator, saying `why`, runs for no one. */
+export interface Script {
+  id: string;
+  name: string;
+  source: string;
+  checks: boolean;
+  updated: number;
+  removed: boolean;
+  why: string | null;
+}
+
 export const api = {
   /** This tab is on screen, for the count of those here now (lib/presence). */
   here: () => send('/api/presence', { method: 'POST' }),
@@ -579,6 +590,11 @@ export const api = {
   signOut: () => send('/api/account/session', { method: 'DELETE' }),
   signOutEverywhere: () => json<{ signedOut: number }>('/api/account/sessions', { method: 'DELETE' }),
   favourites: () => json<{ kinds: string[] }>('/api/account/favourites'),
+  /** This account's Frost Scripts (bins/server scripts): signed in with Telegram only. */
+  scripts: () => json<{ scripts: Script[] }>('/api/scripts'),
+  createScript: (s: { name: string; source: string }) => json<Script>('/api/scripts', { method: 'POST', body: s }),
+  updateScript: (id: string, s: { name: string; source: string }) => json<Script>(`/api/scripts/${encodeURIComponent(id)}`, { method: 'PUT', body: s }),
+  deleteScript: (id: string) => send(`/api/scripts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   setFavourite: (kind: string, on: boolean) => send(`/api/account/favourites/${encodeURIComponent(kind)}`, { method: on ? 'PUT' : 'DELETE' }),
   telegram: () => json<TelegramStatus>('/api/telegram'),
   telegramLink: (clock: Clock) => json<{ code: string; url: string; goodForMs: number }>('/api/telegram/link', { method: 'POST', body: clock }),

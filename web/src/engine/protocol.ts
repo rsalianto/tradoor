@@ -167,8 +167,32 @@ export interface ReplayState {
   base: number;
 }
 
+/** One of the reader's formulas on a chart: its study id (`fx-abc:14`), legend label, text and settings. */
+export interface FormulaRun {
+  id: string;
+  label: string;
+  source: string;
+  inputs: number[];
+}
+
+export interface FormulaInput {
+  name: string;
+  label: string;
+  default: number;
+  min?: number;
+  max?: number;
+  step: number;
+}
+
+/** A formula checked (crates/formula): what it offers and draws, or its first mistake, by line and column. */
+export type FormulaDescription =
+  | { ok: true; ownPane: boolean; inputs: FormulaInput[]; plots: { kind: string; color: number; title: string }[]; marks: string[] }
+  | { ok: false; line: number; col: number; message: string };
+
 /** Request/response calls, answered by `reply`. */
 export interface Calls {
+  /** A formula checked by the formula module, which loads with the first. */
+  formulaDescribe: { args: { source: string }; result: FormulaDescription };
   studyCatalog: { args: Record<string, never>; result: StudyDefinition[] };
   key: { args: { id: string; key: string }; result: boolean };
   /** `profile: false` skips the session profile; `bars` caps the history read (1,500 by default). */
@@ -202,6 +226,8 @@ export type ToWorker =
   /** `bars`: how many bars of `timeframe` to open with, when not the usual screenful. */
   | { t: 'market'; id: string; market: string; timeframe: string; bars?: number }
   | { t: 'studies'; id: string; value: string }
+  /** The reader's formulas on this chart, worked out on its closed bars. */
+  | { t: 'formulas'; id: string; value: FormulaRun[] }
   | { t: 'hidden'; id: string; value: string }
   | { t: 'studyStyles'; id: string; value: string }
   | { t: 'log'; id: string; value: boolean }

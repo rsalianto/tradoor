@@ -20,12 +20,18 @@
     {
       "name": "engine worker js",
       "path": "dist/assets/worker-*.js",
-      "limit": "25 kB"
+      "limit": "26 kB"
     },
     {
       "name": "engine wasm",
-      "path": "dist/assets/*.wasm",
-      "limit": "134 kB",
+      "path": "dist/assets/tradoor_wasm_bg-*.wasm",
+      "limit": "137 kB",
+      "gzip": true
+    },
+    {
+      "name": "formula wasm",
+      "path": "dist/assets/formula-*.wasm",
+      "limit": "64 kB",
       "gzip": true
     }
   ],

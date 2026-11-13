@@ -13,13 +13,14 @@ import { concatCols, emptyCols, formingRows, intervalMs, lowerBound, openSeries,
 import type { RatioSeries } from './ratio';
 import { lacksUtcOf, marketInterval } from './intervals';
 import { nativeOf } from '../lib/native';
-import type { CallName, Calls, ChartEvent, ChartStatus, DailyBars, FromWorker, IndicatorValues, PointerKind, StudyDefinition, ToWorker } from './protocol';
+import type { CallName, Calls, ChartEvent, ChartStatus, DailyBars, FormulaRun, FromWorker, IndicatorValues, PointerKind, StudyDefinition, ToWorker } from './protocol';
 import { followLiquidations } from '../lib/liquidation-feed';
 import { serverTicker } from '../lib/liquidation-venues';
 import { coinOf, oiVenues, OpenInterestFeed } from './open-interest';
 import { StreamHub, type KlineMsg, type SocketState, type StreamListener, type StreamMsg } from './streams';
 import { onWake } from './reach';
 import { LevelFeed } from './vwap-levels';
+import { describeFormula, formulaModule, formulaReady, runFormula, type FormulaBars } from './formula';
 
 /** Closed bars a chart opens with: enough for EMA 200 to settle, with room to scroll. */
 const CHART_BARS = 1_500;
@@ -251,6 +252,9 @@ class Slot {
   private liquidationKey = '';
   /** The studies as last set, for whether open interest is shown. */
   private studies = '';
+  /** The reader's formulas on this chart, and the closed bars the engine last had, which they run over. */
+  private formulas: FormulaRun[] = [];
+  private formulaBars: FormulaBars | null = null;
   private readonly openInterest = new OpenInterestFeed((steps) => {
     this.engine.set_open_interest(steps.time, steps.open, steps.high, steps.low, steps.close);
     this.metaDirty = true;
@@ -364,6 +368,29 @@ class Slot {
     this.syncOpenInterest();
     this.reach();
     this.syncLevels();
+  }
+
+  setFormulas(list: FormulaRun[]): void {
+    this.formulas = list;
+    this.runFormulas();
+  }
+
+  /** Each formula over the closed bars the engine holds, its lines handed to it; the module loads with the first. */
+  private runFormulas(): void {
+    this.engine.keep_formulas(this.formulas.map((f) => f.id).join(','));
+    const bars = this.formulaBars;
+    if (this.formulas.length === 0 || !bars) return;
+    const x = formulaModule();
+    if (!x) {
+      void formulaReady().then(() => this.runFormulas(), () => undefined);
+      return;
+    }
+    for (const f of this.formulas) {
+      const out = runFormula(x, f.source, f.inputs, bars);
+      if ('error' in out) this.engine.set_formula(f.id, f.label, out.error, EMPTY);
+      else this.engine.set_formula(f.id, f.label, out.meta, out.values);
+    }
+    this.metaDirty = true;
   }
 
   private syncLevels(): void {
@@ -715,6 +742,8 @@ class Slot {
     if (days && this.replayAt !== null) days = sliceCols(days, 0, lowerBound(days.time, this.replayAt));
     this.engine.set_days(days?.time ?? EMPTY, days?.open ?? EMPTY, days?.high ?? EMPTY, days?.low ?? EMPTY, days?.close ?? EMPTY);
     this.levels?.push();
+    this.formulaBars = k;
+    this.runFormulas();
     this.engine.set_message(k.time.length > 0 ? '' : this.replayAt === null ? 'No closed candles for this market and timeframe yet.' : 'No bars this far back on this market and timeframe.');
     this.candlesIn = true;
     this.pushLive();
@@ -1173,6 +1202,7 @@ type Handlers = { [K in CallName]: (args: Calls[K]['args']) => Calls[K]['result'
 
 const calls: Handlers = {
   studyCatalog: () => study_catalog() as StudyDefinition[],
+  formulaDescribe: async ({ source }) => describeFormula(await formulaReady(), source),
   key: ({ id, key }) => {
     const slot = slots.get(id);
     if (!slot) return false;
@@ -1375,6 +1405,9 @@ function handle(msg: ToWorker): void {
       break;
     case 'studies':
       slot.setStudies(msg.value);
+      break;
+    case 'formulas':
+      slot.setFormulas(msg.value);
       break;
     case 'hidden':
       slot.engine.set_hidden(msg.value);

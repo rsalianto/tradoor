@@ -28,6 +28,7 @@ mod limits;
 mod liquidations;
 mod open_interest;
 mod presence;
+mod scripts;
 mod relay;
 mod research;
 mod session;

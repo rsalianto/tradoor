@@ -1,0 +1,23 @@
+// Volume Weighted Average Price, since the week began
+// The average price paid, each bar's typical price weighted by its volume,
+// with a band a standard deviation each side: about two thirds of the volume.
+// For a session, a month or a year, write day, month or year for week.
+input mult = 1 min 0.1 max 10 step 0.1 "Value area"
+fresh = changed(week)
+state volumes = 0
+state prices = 0
+state squares = 0
+if fresh {
+  volumes = 0
+  prices = 0
+  squares = 0
+}
+volumes = volumes + volume
+prices = prices + hlc3 * volume
+squares = squares + hlc3 * hlc3 * volume
+vwap = volumes > 0 ? prices / volumes : na
+spread = mult * sqrt(max(squares / volumes - vwap * vwap, 0))
+plot(vwap + spread, "Value Area High", gray)
+plot(vwap, "VWAP", blue)
+plot(vwap - spread, "Value Area Low", gray)
+fill("Value Area High", "Value Area Low", blue)

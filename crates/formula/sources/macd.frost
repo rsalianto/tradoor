@@ -1,0 +1,12 @@
+// MACD
+// The gap between a fast and a slow exponential average, its own average as
+// the signal line, and the gap between those two as a histogram.
+pane own
+input fast = 12 min 1 max 1000 "Fast length"
+input slow = 26 min 2 max 1000 "Slow length"
+input signal = 9 min 1 max 1000 "Signal length"
+gap = ema(close, fast) - ema(close, slow)
+average = ema(gap, signal)
+histogram(gap - average, "Histogram")
+plot(gap, "MACD", blue)
+plot(average, "Signal", orange)

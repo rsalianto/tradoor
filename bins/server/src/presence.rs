@@ -133,26 +133,37 @@ pub async fn ping(State(state): State<AppState>, headers: HeaderMap) -> ApiResul
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `GET /api/admin/status`: the counts and the server's state, for the key's holder.
-pub async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// The answer for a request without the admin key; none for one with it.
+/// No key set is no page at all; a wrong one is refused, and past a few a minute not even read.
+pub fn refused(state: &AppState, headers: &HeaderMap) -> Option<Response> {
     let presence = &state.presence;
     if presence.key.is_none() {
-        return StatusCode::NOT_FOUND.into_response();
+        return Some(StatusCode::NOT_FOUND.into_response());
     }
-    if !presence.admits(&headers) {
-        let ip = limits::client(&headers);
-        let allowed = ip.as_deref().is_none_or(|ip| state.limits.take(WRONG_KEY, ip)) && state.limits.take(WRONG_KEYS, "all");
-        if !allowed {
-            return limits::too_many("wrong keys");
-        }
-        tracing::warn!(from = ip.as_deref().unwrap_or("?"), "a wrong admin key");
-        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "wrong key" }))).into_response();
+    if presence.admits(headers) {
+        return None;
     }
+    let ip = limits::client(headers);
+    let allowed = ip.as_deref().is_none_or(|ip| state.limits.take(WRONG_KEY, ip)) && state.limits.take(WRONG_KEYS, "all");
+    if !allowed {
+        return Some(limits::too_many("wrong keys"));
+    }
+    tracing::warn!(from = ip.as_deref().unwrap_or("?"), "a wrong admin key");
+    Some((StatusCode::UNAUTHORIZED, Json(json!({ "error": "wrong key" }))).into_response())
+}
+
+/// `GET /api/admin/status`: the counts and the server's state, for the key's holder.
+pub async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(answer) = refused(&state, &headers) {
+        return answer;
+    }
+    let presence = &state.presence;
     let now = now_ms();
     let counts = presence.counts(now);
     let signed_in = counts.online_ids.iter().filter(|id| state.sessions.is_account(id)).count();
     let peak = presence.peak.lock().map(|p| if p.0 == now.div_euclid(DAY_MS) { (p.1.max(counts.online), p.2) } else { (counts.online, now) }).unwrap_or((counts.online, now));
     let (db_ok, db_ms, telegram) = telegram_counts(&state, now).await;
+    let scripts = crate::scripts::counts(&state, now).await;
     let pool = |p: &deadpool_postgres::Pool| {
         let s = p.status();
         json!({ "max": s.max_size, "open": s.size, "inUse": s.size.saturating_sub(s.available), "waiting": s.waiting })
@@ -161,6 +172,7 @@ pub async fn status(State(state): State<AppState>, headers: HeaderMap) -> Respon
         "now": now,
         "users": { "online": counts.online, "signedIn": signed_in, "last15m": counts.recent, "today": counts.today, "peakToday": peak.0, "peakAt": peak.1 },
         "telegram": telegram,
+        "scripts": scripts,
         "server": {
             "version": env!("CARGO_PKG_VERSION"),
             "startedAt": presence.started,

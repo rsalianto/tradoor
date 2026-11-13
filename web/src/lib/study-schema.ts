@@ -7,7 +7,7 @@
 import { OI_VENUES } from '../engine/open-interest';
 import type { StudyDefinition, StudyLine, StudyParam } from '../engine/protocol';
 
-export const CATEGORIES = ['Trend and averages', 'VWAP', 'Momentum', 'Volatility', 'Levels and structure', 'Flow and positioning', 'Time and cycles', 'Built in'] as const;
+export const CATEGORIES = ['Frost Script', 'Trend and averages', 'VWAP', 'Momentum', 'Volatility', 'Levels and structure', 'Flow and positioning', 'Time and cycles', 'Built in'] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 interface Described {

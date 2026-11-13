@@ -1,0 +1,26 @@
+// SuperTrend
+// A stop that trails price by `mult` average true ranges and turns to the
+// other side when a close crosses it, with a mark where the trend turns.
+input length = 10 min 1 max 1000 "ATR length"
+input mult = 3 min 0.1 max 10 step 0.1 "Multiplier"
+band = mult * atr(length)
+state trend = 1
+state stop = na
+if trend == 1 {
+  stop = isna(stop) ? hl2 - band : max(hl2 - band, stop)
+  if close < stop {
+    trend = -1
+    stop = hl2 + band
+  }
+} else {
+  stop = isna(stop) ? hl2 + band : min(hl2 + band, stop)
+  if close > stop {
+    trend = 1
+    stop = hl2 - band
+  }
+}
+turned = changed(trend)
+plot(trend == 1 ? stop : na, "Long stop", green)
+plot(trend == -1 ? stop : na, "Short stop", red)
+mark(turned and trend == 1, "Buy", below, green)
+mark(turned and trend == -1, "Sell", above, red)

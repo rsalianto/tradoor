@@ -136,6 +136,16 @@ impl ChartEngine {
         self.chart.set_days(candles(time, open, high, low, close, &volume));
     }
 
+    /// A formula's lines, fills and marks from the formula module, a bar each of the chart's closed bars.
+    pub fn set_formula(&mut self, id: &str, label: &str, meta: &str, values: &[f64]) {
+        self.chart.set_formula(id, label, meta, values);
+    }
+
+    /// The formulas still on the chart, comma-separated ids: the rest are let go.
+    pub fn keep_formulas(&mut self, ids: &str) {
+        self.chart.keep_formulas(ids);
+    }
+
     /// VWAP levels' hourly bars, or with `daily` their daily ones.
     #[allow(clippy::too_many_arguments)]
     pub fn set_level_bars(&mut self, daily: bool, time: &[f64], open: &[f64], high: &[f64], low: &[f64], close: &[f64], volume: &[f64]) {

@@ -21,6 +21,7 @@ import { toast } from '../lib/toasts';
 import { takeNotice } from '../lib/owner';
 import { insertMarket, isSection, visible } from '../lib/watchlist';
 import { referralCard, startReferral } from '../lib/referral';
+import { editing, loadFormulas, setEditing } from '../lib/formulas';
 import { tellPresence } from '../lib/presence';
 import { Layout, panelTitle } from '../workspace/Layout';
 import { ChartPanel } from '../panels/ChartPanel';
@@ -52,6 +53,7 @@ const SymbolSearch = lazy(() => import('../components/SymbolSearch').then((m) =>
 const Help = lazy(() => import('../components/Help').then((m) => ({ default: m.Help })));
 const CommandPalette = lazy(() => import('../components/CommandPalette').then((m) => ({ default: m.CommandPalette })));
 const IndicatorPicker = lazy(() => import('../components/IndicatorPicker').then((m) => ({ default: m.IndicatorPicker })));
+const FormulaEditor = lazy(() => import('../components/FormulaEditor').then((m) => ({ default: m.FormulaEditor })));
 const Settings = lazy(() => import('../components/Settings').then((m) => ({ default: m.Settings })));
 const LayoutPicker = lazy(() => import('../components/LayoutPicker').then((m) => ({ default: m.LayoutPicker })));
 const LayoutsMenu = lazy(() => import('../components/LayoutsMenu').then((m) => ({ default: m.LayoutsMenu })));
@@ -113,6 +115,7 @@ function commands(): Command[] {
   }
   list.push(
     { group: 'App', label: 'Settings and colours…', run: () => setOverlay({ kind: 'settings' }) },
+    { group: 'App', label: 'Frost Script — write an indicator of your own', run: () => setEditing({ panelId: targetChart()?.id }) },
     { group: 'App', label: 'Keyboard shortcuts', hint: '?', run: () => setOverlay({ kind: 'help' }) },
     { group: 'App', label: 'Partners — Lighter, Nado, Bybit and Binance', run: () => setOverlay({ kind: 'referrals' }) },
     {
@@ -470,6 +473,7 @@ export function App() {
     if (notice) toast({ tone: 'info', title: 'Signed out', body: notice, action: () => setOverlay({ kind: 'settings' }) }, 30_000);
     if (!IS_CRAWLER) {
       tellPresence();
+      void loadFormulas();
       startReferral();
       setTimeout(() => void import('../lib/signal-alerts').then((m) => m.watchSignals()), 4_000);
     }
@@ -564,6 +568,10 @@ export function App() {
       </main>
       <StatusBar />
       <Overlays />
+      {/* Keyed: opened again on another formula, it starts over on that one. */}
+      <Show when={editing()} keyed>
+        {(e) => <FormulaEditor id={e.id} seed={e.seed} panelId={e.panelId} />}
+      </Show>
       {/* Offered once, and never over a dialog, the phone's menu or the journal. */}
       <Show when={referralCard() && !overlay() && !mobileMenu() && !journalOpen() && !trainingOpen()}>
         <ReferralCard />

@@ -1,0 +1,4 @@
+// Simple Moving Average
+// The closes of the last `length` bars, added up and divided by how many.
+input length = 50 min 2 max 1000 "Length"
+plot(sum(close, length) / length, "SMA", blue)

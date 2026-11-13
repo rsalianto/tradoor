@@ -1,0 +1,8 @@
+// Exponential Moving Average
+// It starts at the simple average of the first `length` closes. From then on,
+// each close pulls it part of the way: 2 / (length + 1) of the way there.
+input length = 50 min 2 max 1000 "Length"
+weight = 2 / (length + 1)
+start = sma(close, length)
+average = isna(average[1]) ? start : weight * close + (1 - weight) * average[1]
+plot(average, "EMA", blue)

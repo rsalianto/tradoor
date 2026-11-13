@@ -1,0 +1,12 @@
+// Relative Strength Index
+// How the average gain of the last `length` bars compares with the average
+// loss, on a scale of 0 to 100. The averages are Wilder's (rma).
+pane own
+input length = 14 min 2 max 1000 "Length"
+move = change(close)
+gain = rma(max(move, 0), length)
+loss = rma(max(-move, 0), length)
+strength = loss == 0 ? 100 : gain == 0 ? 0 : 100 - 100 / (1 + gain / loss)
+plot(strength, "RSI", purple)
+hline(80, "Upper", gray)
+hline(20, "Lower", gray)

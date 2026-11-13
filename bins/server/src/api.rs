@@ -79,6 +79,13 @@ impl From<tokio_postgres::Error> for ApiError {
     }
 }
 
+impl From<anyhow::Error> for ApiError {
+    fn from(e: anyhow::Error) -> Self {
+        tracing::error!(error = %e, "request");
+        Self(StatusCode::SERVICE_UNAVAILABLE, "the server could not do that just now".into())
+    }
+}
+
 impl From<deadpool_postgres::PoolError> for ApiError {
     fn from(e: deadpool_postgres::PoolError) -> Self {
         tracing::error!(error = %e, "pool");
@@ -118,6 +125,10 @@ pub fn router(state: AppState, data_dir: PathBuf, web_dir: Option<PathBuf>) -> R
         .route("/health", get(health))
         .route("/presence", axum::routing::post(crate::presence::ping))
         .route("/admin/status", get(crate::presence::status))
+        .route("/admin/scripts", get(crate::scripts::moderate_list))
+        .route("/admin/scripts/{id}", get(crate::scripts::moderate_read).post(crate::scripts::moderate))
+        .route("/scripts", get(crate::scripts::list).post(crate::scripts::create))
+        .route("/scripts/{id}", axum::routing::put(crate::scripts::update).delete(crate::scripts::delete))
         .route("/markets", get(markets))
         .route("/catalog", get(catalog_wire))
         .route("/history", get(history))

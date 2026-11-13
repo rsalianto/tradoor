@@ -14,6 +14,8 @@ import { dropOwner, numberOf, plotStyle, replaceStudy, splitList, withNumber, wi
 import { CHART_THEME } from '../lib/theme';
 import type { ChartPanelState } from '../workspace/model';
 import { doc, patchPanel } from '../workspace/store';
+import { formulaDefinition, formulaLabels, formulaOf, isFormulaKind, setEditing } from '../lib/formulas';
+import { SOURCES } from '../lib/formula-sources';
 import { ColorField } from './ColorField';
 import { NumField } from './NumField';
 
@@ -31,7 +33,12 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
   const originalStyles = untrack(() => props.panel.studyStyles ?? {});
   const kind = props.target.split(':')[0]!;
   const layer = LAYER_DEFS.find((l) => l.id === kind);
-  const [defs] = createResource(() => (layer ? Promise.resolve([]) : studyCatalog()));
+  const formula = isFormulaKind(kind);
+  // A formula's settings are the ones it writes, read by the formula module.
+  const [defs] = createResource(() => (layer ? Promise.resolve([]) : formula ? formulaDefinition(kind).then((d) => (d ? [d] : [])) : studyCatalog()));
+  const [labels] = createResource(() => (formula ? formulaLabels(kind) : Promise.resolve({} as Record<string, string>)));
+  /** How it is worked out, as a formula: a built-in's own, or the formula itself. */
+  const source = () => (formula ? formulaOf(kind)?.source : SOURCES[kind]?.source);
   const def = () => defs()?.find((d) => d.kind === kind);
   const about = createMemo(() => (layer ?? entries(defs() ?? []).find((e) => e.id === kind)));
 
@@ -96,8 +103,15 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
   const plots = createMemo((): readonly StylePlot[] => layer?.plots ?? studyPlots(current(), props.meta(current())?.lines ?? []));
   /** Keyed by plot, not by the row built from each new reading: a row made anew would shut the colour palette open on it. */
   const plotKeys = createMemo(() => plots().map((p) => p.key), undefined, { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) });
-  const [tab, setTab] = createSignal<'inputs' | 'style'>('inputs');
-  const showing = () => (tab() === 'inputs' && (hasInputs() || defs.loading) ? 'inputs' : 'style');
+  const [tab, setTab] = createSignal<'inputs' | 'style' | 'source'>('inputs');
+  const showing = () => (tab() === 'source' && source() ? 'source' : tab() === 'inputs' && (hasInputs() || defs.loading) ? 'inputs' : 'style');
+  const openSource = () => {
+    const text = source();
+    if (!text) return;
+    props.onClose();
+    const f = formula ? formulaOf(kind) : undefined;
+    setEditing(f ? { id: f.id, panelId: props.panel.id } : { seed: { name: `My ${SOURCES[kind]?.name ?? 'script'}`, source: text }, panelId: props.panel.id });
+  };
 
   // ---------------------------------------------------------------- where it stands
 
@@ -146,7 +160,8 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
   // ---------------------------------------------------------------- controls
 
   const Param = (p: { param: StudyParam; index: number }) => {
-    const ui = paramUi(kind, p.param);
+    const label = labels()?.[p.param.name];
+    const ui = label ? { ...paramUi(kind, p.param), label } : paramUi(kind, p.param);
     const value = () => values()[p.index] ?? p.param.default;
     const set = (v: number) => setValue(p.index, p.param, ui, v);
     if (ui.bits) {
@@ -312,8 +327,21 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
           <button classList={{ on: showing() === 'style' }} onClick={() => setTab('style')}>
             Style
           </button>
+          <Show when={source()}>
+            <button classList={{ on: showing() === 'source' }} onClick={() => setTab('source')}>
+              Source
+            </button>
+          </Show>
         </nav>
         <div class="dbody">
+          <Show when={showing() === 'source'}>
+            <p class="dnote">{formula ? 'Your script, as it is written.' : 'How tradoor works it out, written in Frost Script with its usual settings. Open a copy to make a script of your own.'}</p>
+            <pre class="fx-source">{source()}</pre>
+            <button class="dbtn" onClick={openSource}>
+              {formula ? 'Edit the script' : 'Open a copy in Frost Script'}
+            </button>
+          </Show>
+          <Show when={showing() !== 'source'}>
           <Show
             when={showing() === 'inputs'}
             fallback={
@@ -327,6 +355,7 @@ export function StudySettings(props: { panel: ChartPanelState; target: string; m
             <Index each={def()?.params ?? []}>{(param, i) => <Param param={param()} index={i} />}</Index>
             <For each={numbers()}>{(input) => <Num input={input} />}</For>
             <p class="dnote">{NOTES[kind] ?? about()?.about}</p>
+          </Show>
           </Show>
           <Show when={problem()}>
             <p class="dnote warn">▲ {problem()}</p>

@@ -527,6 +527,8 @@ pub struct Chart {
     /// Summed open interest from the server, as `(time, [o, h, l, c])` steps.
     open_interest: Vec<(i64, [f64; 4])>,
     studies: Vec<ComputedStudy>,
+    /// The reader's formulas, worked out by the page's formula module and drawn as studies are.
+    formulas: Vec<ComputedStudy>,
     hidden: Hidden,
     log_scale: bool,
     time: TimeScale,
@@ -624,6 +626,7 @@ impl Chart {
             level_bars: [Vec::new(), Vec::new()],
             open_interest: Vec::new(),
             studies: Vec::new(),
+            formulas: Vec::new(),
             hidden: Hidden::default(),
             log_scale: false,
             time: TimeScale::new(),
@@ -908,6 +911,79 @@ impl Chart {
     pub fn clear_liquidations(&mut self) {
         self.liquidations.clear();
         self.feed_dirty = true;
+    }
+
+    /// A formula's lines, fills and marks, as the formula module gave them (crates/formula-wasm):
+    /// a line a part, tab-separated, and the values every line and mark has a bar each.
+    /// Values for other bars than these — the window moved since — are let go.
+    pub fn set_formula(&mut self, id: &str, label: &str, meta: &str, values: &[f64]) {
+        use tradoor_core::studies::{StudyLine, StudyMarker, FORMULA_COLORS, FORMULA_FILLS, FORMULA_LINES, FORMULA_MARKS};
+        let n = self.candles.len();
+        let place = self.formulas.iter().position(|s| s.id == id).unwrap_or(self.formulas.len());
+        let mut study = ComputedStudy { id: id.to_string(), kind: StudyKind::Formula, label: label.to_string(), group: Group::Price, params: Vec::new(), lines: Vec::new(), fills: Vec::new(), boxes: Vec::new(), segments: Vec::new(), markers: Vec::new(), stats: Vec::new(), candles: Vec::new() };
+        let colour = |i: &str| i.parse::<usize>().ok().and_then(|i| FORMULA_COLORS.get(i));
+        let mut at = 0usize;
+        let mut take = |count: usize| -> Option<&[f64]> {
+            let part = values.get(at..at + count);
+            at += count;
+            part
+        };
+        for row in meta.lines() {
+            let f: Vec<&str> = row.split('\t').collect();
+            match f.as_slice() {
+                ["pane", own] => study.group = if *own == "1" { Group::Formula((place % 8) as u8) } else { Group::Price },
+                ["plot", kind, color, width, title] => {
+                    let Some(series) = take(n) else { return };
+                    let key = FORMULA_LINES[study.lines.len() % FORMULA_LINES.len()];
+                    let line = StudyLine {
+                        key,
+                        label: (*title).to_string(),
+                        kind: if *kind == "histogram" { LineType::Histogram } else { LineType::Line },
+                        values: series.iter().map(|v| (!v.is_nan()).then_some(*v)).collect(),
+                        style: LineStyle::Solid,
+                        pattern: if *kind == "level" { Pattern::Dashed } else { Pattern::Solid },
+                        color: colour(color).map(|c| c.1),
+                        // Tenths: a whole number, as no float is read in the engine.
+                        width: width.parse::<u32>().map_or(1.5, |w| w as f32 / 10.0),
+                        badge: *kind == "line",
+                    };
+                    study.lines.push(line);
+                }
+                ["fill", upper, lower, color] => {
+                    let (Ok(a), Ok(b)) = (upper.parse::<usize>(), lower.parse::<usize>()) else { continue };
+                    let (Some(a), Some(b)) = (FORMULA_LINES.get(a), FORMULA_LINES.get(b)) else { continue };
+                    let key = FORMULA_FILLS[study.fills.len() % FORMULA_FILLS.len()];
+                    study.fills.push(StudyFill { upper: a, lower: b, key, color: colour(color).map_or("#2962ff1f", |c| c.2), crossed_key: key, crossed_color: colour(color).map_or("#2962ff1f", |c| c.2) });
+                }
+                ["mark", above, color, text] => {
+                    let Some(hits) = take(n) else { return };
+                    let plot = FORMULA_MARKS[study.markers.len().min(FORMULA_MARKS.len() - 1)];
+                    let tone = colour(color).map_or(Tone::Neutral, |c| Tone::Ink(c.1));
+                    for (i, hit) in hits.iter().enumerate() {
+                        if *hit != 0.0 {
+                            study.markers.push(StudyMarker { time: self.candles[i].open_time, above: *above == "1", text: (*text).to_string(), tone, plot, hollow: false });
+                        }
+                    }
+                }
+                ["error", line, _, message] => study.stats.push(("Error", if *line == "0" { (*message).to_string() } else { format!("line {line}: {message}") })),
+                _ => {}
+            }
+        }
+        if place < self.formulas.len() {
+            self.formulas[place] = study;
+        } else if self.formulas.len() < 8 {
+            self.formulas.push(study);
+        }
+        self.touch();
+    }
+
+    /// The formulas still on the chart, by id: the rest are let go.
+    pub fn keep_formulas(&mut self, ids: &str) {
+        let before = self.formulas.len();
+        self.formulas.retain(|s| ids.split(',').any(|id| id == s.id));
+        if self.formulas.len() != before {
+            self.touch();
+        }
     }
 
     /// `ema:50,rsi:14`.
@@ -1273,7 +1349,10 @@ impl Chart {
                 "atr" => Group::Atr,
                 "delta" => Group::Delta,
                 "oi" => Group::Oi,
-                _ => continue,
+                fx => match tradoor_core::studies::FORMULA_PANES.iter().position(|p| *p == fx) {
+                    Some(n) => Group::Formula(n as u8),
+                    None => continue,
+                },
             };
             if let Some(w) = tradoor_core::format::parse_number(weight.trim()) {
                 self.pane_state.entry(group).weight = w.within(0.1, 50.0);
@@ -1481,7 +1560,7 @@ impl Chart {
     // ------------------------------------------------------------------ layout
 
     fn visible_studies(&self) -> impl Iterator<Item = (usize, &ComputedStudy)> {
-        self.studies.iter().filter(|s| !self.hidden.contains(&s.id)).enumerate()
+        self.studies.iter().chain(&self.formulas).filter(|s| !self.hidden.contains(&s.id)).enumerate()
     }
 
     fn total_bars(&self) -> usize {
@@ -2016,7 +2095,11 @@ impl Chart {
                 let own = self.styles.of(&study.id, line.key);
                 match (line.kind, line.style) {
                     _ if own.off => {}
-                    (LineType::Histogram, _) => self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body, &study.id),
+                    (LineType::Histogram, _) => {
+                        // A formula's histogram in the colour it names; else above zero and below in the theme's.
+                        let own = (study.kind == StudyKind::Formula).then(|| own.color.or_else(|| line.color.and_then(Color::parse))).flatten();
+                        self.paint_histogram(f, &pane.scale, &line.values, i0, i1, body, &study.id, own);
+                    }
                     (LineType::Line, LineStyle::None) => {}
                     (LineType::Line, LineStyle::Tag) => tags.extend(line.values.iter().rev().flatten().next().map(|v| (pane.scale.y(*v) as f32, line.label.clone(), self.line_color(&study.id, line, index, li)))),
                     (LineType::Line, style) => self.paint_series(f, &pane.scale, &line.values, i0, far, self.line_color(&study.id, line, index, li), own.width.unwrap_or(line.width), style, own.pattern.unwrap_or(line.pattern)),
@@ -2576,10 +2659,14 @@ impl Chart {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn paint_histogram(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, body: f32, owner: &str) {
+    #[allow(clippy::too_many_arguments)]
+    fn paint_histogram(&self, f: &mut Frame, scale: &PriceScale, values: &[Option<f64>], i0: usize, i1: usize, body: f32, owner: &str, color: Option<Color>) {
         let zero = scale.y(0.0) as f32;
         let w = (body * 0.7).max(1.0 / f.dpr);
-        let (above, below) = (self.styles.color(owner, "histogram", self.theme.bull.with_alpha(0x80)), self.styles.color(owner, "histogramDown", self.theme.bear.with_alpha(0x80)));
+        let (above, below) = match color {
+            Some(c) => (c.with_alpha(0x99), c.with_alpha(0x99)),
+            None => (self.styles.color(owner, "histogram", self.theme.bull.with_alpha(0x80)), self.styles.color(owner, "histogramDown", self.theme.bear.with_alpha(0x80))),
+        };
         for (i, v) in values.iter().enumerate().take(i1.saturating_add(1)).skip(i0) {
             let Some(v) = *v else { continue };
             let y = scale.y(v) as f32;
@@ -2709,13 +2796,19 @@ impl Chart {
         match group {
             Group::Price => format_price(v, Some(self.precision())),
             Group::Oi | Group::Delta => format_compact(v),
+            // A formula's own pane holds whatever it works out: decimals by its size, read with no logarithm.
+            Group::Formula(_) => {
+                let a = v.abs();
+                format_price(v, Some(if a >= 100.0 { 2 } else if a >= 1.0 { 3 } else if a >= 0.01 { 4 } else { 6 }))
+            }
             _ => format_price(v, Some(2)),
         }
     }
 
     pub fn studies_meta(&self) -> Vec<StudyMeta> {
         let mut visible = 0usize;
-        self.studies
+        let mut metas: Vec<StudyMeta> = self
+            .studies
             .iter()
             .zip(&self.study_specs)
             .map(|(s, spec)| {
@@ -2740,7 +2833,24 @@ impl Chart {
                     stats: s.stats.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
                 }
             })
-            .collect()
+            .collect();
+        // The formulas after the studies, as the chart draws them.
+        for s in &self.formulas {
+            let hidden = self.hidden.contains(&s.id);
+            let index = visible;
+            if !hidden {
+                visible += 1;
+            }
+            metas.push(StudyMeta {
+                id: s.id.clone(),
+                label: s.label.clone(),
+                group: s.group.as_str(),
+                hidden,
+                lines: s.lines.iter().enumerate().map(|(li, l)| (format!("{}:{}", s.id, l.key), l.label.clone(), self.line_color(&s.id, l, index, li), self.styles.of(&s.id, l.key).width.unwrap_or(l.width))).collect(),
+                stats: s.stats.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+            });
+        }
+        metas
     }
 
     // ------------------------------------------------------------------ interaction
@@ -4322,6 +4432,35 @@ mod tests {
         let label = ticks::crosshair_label(projected, Some(HOUR), false);
         assert!(c.render(1_800_000_000_000).texts.iter().any(|t| t.text == label), "the time label shows the projected slot");
         assert_eq!(c.legend().index, Some(newest), "the legend keeps the newest bar");
+    }
+
+    #[test]
+    fn a_formula_draws_as_a_study_in_a_pane_of_its_own() {
+        let mut c = chart();
+        let n = c.candles().len();
+        let mut values: Vec<f64> = (0..n).map(|i| i as f64).collect();
+        values.extend(vec![f64::NAN; n]);
+        let mut hits = vec![0.0; n];
+        hits[n - 5] = 1.0;
+        values.extend(hits);
+        let meta = "pane\t1\nplot\tline\t5\t15\tA\nplot\thistogram\t255\t15\tB\nfill\t0\t1\t5\nmark\t1\t2\tSell\n";
+        c.set_formula("fx-abc:14", "Mine 14", meta, &values);
+        let study = c.formulas.iter().find(|s| s.id == "fx-abc:14").expect("kept");
+        assert_eq!((study.group, study.lines.len(), study.fills.len(), study.markers.len()), (Group::Formula(0), 2, 1, 1));
+        assert_eq!(study.lines[0].color, Some("#2962ff"));
+        assert_eq!(study.lines[1].color, None, "a histogram with no colour named takes the theme's, by sign");
+        assert_eq!(study.lines[0].values[3], Some(3.0));
+        assert!(study.markers[0].above && study.markers[0].text == "Sell");
+        assert!(c.studies_meta().iter().any(|m| m.id == "fx-abc:14" && m.group == "fx0" && m.lines.len() == 2));
+        c.render(1_800_000_000_000);
+        assert!(c.panes.iter().any(|p| p.group == Group::Formula(0)), "drawn below the chart");
+        // Values for other bars than the chart's are let go; an error is said in the legend.
+        c.set_formula("fx-abc:14", "Mine 14", meta, &values[..10]);
+        assert_eq!(c.formulas[0].lines.len(), 2, "the last good lines stand");
+        c.set_formula("fx-bad", "Bad", "error\t3\t5\tema(value, length)\n", &[]);
+        assert_eq!(c.formulas[1].stats, vec![("Error", "line 3: ema(value, length)".to_string())]);
+        c.keep_formulas("fx-bad");
+        assert!(c.formulas.iter().all(|s| s.id != "fx-abc:14"));
     }
 
     #[test]

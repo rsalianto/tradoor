@@ -1,0 +1,18 @@
+// Stochastic RSI
+// Where the RSI stands between its highest and lowest of the last
+// `stochLength` bars, from 0 to 100, smoothed into %K and again into %D.
+pane own
+input rsiLength = 14 min 2 max 1000 "RSI length"
+input stochLength = 14 min 2 max 1000 "Stochastic length"
+input kSmoothing = 3 min 1 max 100 "%K smoothing"
+input dSmoothing = 3 min 1 max 100 "%D smoothing"
+strength = rsi(close, rsiLength)
+top = highest(strength, stochLength)
+bottom = lowest(strength, stochLength)
+raw = top != bottom ? 100 * (strength - bottom) / (top - bottom) : na
+k = clamp(sma(raw, kSmoothing), 0, 100)
+d = clamp(sma(k, dSmoothing), 0, 100)
+plot(k, "%K", blue)
+plot(d, "%D", orange)
+hline(80, "Upper", gray)
+hline(20, "Lower", gray)

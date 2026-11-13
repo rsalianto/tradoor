@@ -37,6 +37,29 @@
   input:focus { outline: none; border-color: var(--bull); }
   .note { color: var(--muted); margin: 10px 0 0; }
   .note.bad { color: var(--bear); }
+  .two + .card { margin-top: 12px; }
+  .bar { flex-wrap: wrap; }
+  .ice { color: #8fd3ff; letter-spacing: 0; }
+  .bar { display: flex; gap: 6px; align-items: center; margin: 14px 0 8px; }
+  .bar #fx-find { flex: 1 1 160px; min-width: 0; padding: 5px 10px; }
+  .fold { margin-top: 14px; }
+  .fold > summary { cursor: pointer; color: var(--muted); list-style: none; padding: 6px 0; border-top: 1px solid var(--border); }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold > summary::before { content: '▸ '; color: var(--dim); }
+  .fold[open] > summary::before { content: '▾ '; }
+  .fold > summary:hover { color: var(--text); }
+  .list .script[hidden] { display: none; }
+  .bar button.on { border-color: var(--bull); color: var(--bull); }
+  .list .script { border-top: 1px solid var(--border); padding: 8px 0; }
+  .list .head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .list .name { font-weight: 700; }
+  .list .meta { color: var(--dim); font-size: 11px; }
+  .list .gone { color: var(--bear); font-size: 11px; }
+  .list .acts { display: flex; gap: 6px; margin-left: auto; }
+  .list .acts button { padding: 3px 9px; font-size: 11px; }
+  .list .acts .danger { color: var(--bear); }
+  .list pre { margin: 8px 0 0; padding: 8px 10px; max-height: 360px; overflow: auto; background: var(--bg); border: 1px solid var(--border); font: 11.5px/1.55 var(--font); white-space: pre; }
+  .list .empty { color: var(--dim); padding: 8px 0; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -90,6 +113,26 @@
           <div><span>host load</span><b id="load">–</b></div>
         </div>
       </div>
+    </div>
+    <div class="card scripts">
+      <h2><span class="ice" aria-hidden="true">❄</span> Frost Script</h2>
+      <div class="rows">
+        <div><span>scripts</span><b id="fx-total">–</b></div>
+        <div><span>authors</span><b id="fx-authors">–</b></div>
+        <div><span>new today</span><b id="fx-new">–</b></div>
+        <div><span>removed</span><b id="fx-removed">–</b></div>
+      </div>
+      <details id="fx-fold" class="fold">
+        <summary><span id="fx-summary">The scripts</span></summary>
+        <div class="bar">
+          <button type="button" data-show="all" class="on">All</button>
+          <button type="button" data-show="live">Live</button>
+          <button type="button" data-show="removed">Removed</button>
+          <input id="fx-find" type="search" placeholder="Find by name or author" spellcheck="false" autocomplete="off" aria-label="Find a script">
+          <button type="button" id="fx-refresh">Refresh</button>
+        </div>
+        <div id="fx-list" class="list"></div>
+      </details>
     </div>
   </section>
 </main>

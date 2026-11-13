@@ -9,6 +9,7 @@ import { setOverlay, setStudyEditing } from '../app/ui';
 import { studyCatalog } from '../engine/client';
 import { errorText } from '../lib/api';
 import { favourites, loadFavourites, toggleFavourite } from '../lib/favourites';
+import { formulas, isFormulaKind, kindOf, setEditing } from '../lib/formulas';
 import { Icon } from '../lib/icons';
 import { session } from '../lib/owner';
 import { anotherId, CATEGORIES, defaultId, entries, instanceLabel, searchEntries, type Entry } from '../lib/study-schema';
@@ -35,7 +36,20 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
   const hidden = () => splitList(props.panel.hidden);
   const removed = () => splitList(props.panel.removed);
   const on = (kind: string) => active().filter((id) => id.split(':')[0] === kind);
-  const all = createMemo(() => (defs.state === 'ready' ? entries(defs()!) : []).filter((e) => !(props.panel.tpo && e.layer?.candles)));
+  /** The reader's own scripts, first: added as any indicator is, with the settings they write. */
+  const mine = createMemo(() =>
+    formulas().map((f): Entry => {
+      const kind = kindOf(f);
+      // One the moderator removed is listed, to open and delete, and not added.
+      const about = f.removed ? `Removed by the moderator${f.why ? `: ${f.why}` : ''}.` : 'Your Frost Script: its settings and lines are the ones it writes. Edit opens it.';
+      return { id: kind, name: f.name, short: 'Frost Script', category: 'Frost Script', keywords: 'frost script custom own formula code', about, where: f.removed ? 'removed' : 'script', def: f.removed ? undefined : { kind, short: f.name, group: 'price', params: [] } };
+    }),
+  );
+  const all = createMemo(() => [...mine(), ...(defs.state === 'ready' ? entries(defs()!) : [])].filter((e) => !(props.panel.tpo && e.layer?.candles)));
+  const write = (id?: string) => {
+    props.onClose();
+    setEditing({ id, panelId: props.panel.id });
+  };
 
   // Each its own memo, so a star redraws its own section and the list stays where it is scrolled to.
   const filed = createMemo(() => CATEGORIES.map((title): { title: string; items: Entry[] } => ({ title, items: all().filter((e) => e.category === title) })).filter((s) => s.items.length > 0));
@@ -91,7 +105,8 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
       <div class="ind" classList={{ cur: cur() === p.index, on: shown() }} role="option" aria-selected={cur() === p.index} onPointerMove={() => setCur(p.index)} onPointerDown={() => setCur(p.index)} onClick={() => pick(e)}>
         <button
           class="star"
-          classList={{ on: starred() }}
+          classList={{ on: starred(), none: isFormulaKind(e.id) }}
+          disabled={isFormulaKind(e.id)}
           aria-pressed={starred()}
           aria-label={starred() ? `Take ${e.name} out of your favourites` : `Add ${e.name} to your favourites`}
           data-tip={starred() ? 'In your favourites' : 'Add to your favourites'}
@@ -104,11 +119,24 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
           <Icon name="star" size={13} fill={starred()} />
         </button>
         <span class="iname">{e.name}</span>
+        <Show when={isFormulaKind(e.id)}>
+          <button
+            class="inst"
+            data-tip="Open it in the editor"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              write(e.id.slice(3));
+            }}
+          >
+            Edit
+          </button>
+        </Show>
         <Show when={e.short !== e.name}>
           <span class="ishort">{e.short}</span>
         </Show>
         <span class="spacer" />
-        <Show when={!shown()}>
+        {/* A script the moderator removed says so, on the chart or not. */}
+        <Show when={!shown() || e.where === 'removed'}>
           <span class="where">{e.layer && !removed().includes(e.id) ? 'hidden' : e.where}</span>
         </Show>
         <Show
@@ -225,6 +253,9 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
         </div>
         <footer class="ind-about">
           <span>{current()?.about ?? (defs.loading ? 'Loading…' : '')}</span>
+          <button class="dbtn fx-write" data-tip="An indicator of your own, in a few lines of Frost Script" onClick={() => write()}>
+            <Icon name="ice" size={12} /> New Frost Script
+          </button>
         </footer>
       </div>
     </div>

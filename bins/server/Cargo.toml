@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 tradoor-core.workspace = true
+tradoor-formula.workspace = true
 getrandom = "0.3.4"
 tradoor-codec = { workspace = true, features = ["gzip", "manifest"] }
 tradoor-venues.workspace = true

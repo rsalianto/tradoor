@@ -14,7 +14,8 @@ interface Partner {
   name: string;
   Logo: Component<{ size?: number }>;
   url: string;
-  offer: string;
+  /** What it is, under its name; the exchanges known by name alone have none. */
+  offer?: string;
   /** A second line, for the partner the card leads with. */
   more?: string;
   /** Led with, on its own row above the rest. */
@@ -58,8 +59,8 @@ const PARTNERS: readonly Partner[] = [
     offer: 'Backed by the team behind Kraken',
     more: 'Self-custody perps and spot on Ink · up to 20× · orders matched in 5–15 ms',
   },
-  { name: 'Bybit', Logo: exchangeLogo('bybit'), url: 'https://www.bybitglobal.com/invite?ref=P5RO8W&medium=referral&utm_campaign=evergreen&share_to=post', offer: 'Perpetuals · spot · copy trading' },
-  { name: 'Binance', Logo: exchangeLogo('binance'), url: 'https://www.bmwweb.biz/referral/earn-together/refer2earn-usdc/claim?hl=en&ref=GRO_28502_YJYU6&utm_source=referral_entrance', offer: 'Spot · futures · the deepest books' },
+  { name: 'Bybit', Logo: exchangeLogo('bybit'), url: 'https://www.bybitglobal.com/invite?ref=P5RO8W&medium=referral&utm_campaign=evergreen&share_to=post' },
+  { name: 'Binance', Logo: exchangeLogo('binance'), url: 'https://www.bmwweb.biz/referral/earn-together/refer2earn-usdc/claim?hl=en&ref=GRO_28502_YJYU6&utm_source=referral_entrance' },
 ];
 
 export function ReferralDialog(props: { onClose(): void }) {
@@ -97,7 +98,7 @@ export function ReferralDialog(props: { onClose(): void }) {
                     {p.name}
                     {p.badge && <i class="new">{p.badge}</i>}
                   </b>
-                  <span>{p.offer}</span>
+                  {p.offer && <span>{p.offer}</span>}
                   {p.more && <span>{p.more}</span>}
                 </span>
                 <span class="go">

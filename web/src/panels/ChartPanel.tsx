@@ -17,6 +17,7 @@ import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
 import { fetchFootprint, flatten, foldMinutes, fromHours, recordedMarkets, SeenBars, type Levels, type Minute } from '../lib/footprint';
+import { formulaRuns } from '../lib/formulas';
 import { MinuteBook, toMinute } from '../lib/fp-minutes';
 import { replayFootprint, REPLAY_SPEEDS, REPLAY_STEPS } from '../lib/replay';
 import { listenPrints } from '../lib/orderflow';
@@ -785,6 +786,8 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     );
   });
   createEffect(() => send({ t: 'studies', id: sid, value: props.panel.studies }));
+  // The reader's formulas on it, with their text: again when one is edited.
+  createEffect(() => send({ t: 'formulas', id: sid, value: formulaRuns(props.panel.studies) }));
   createEffect(() => send({ t: 'hidden', id: sid, value: props.panel.hidden }));
   createEffect(() => send({ t: 'studyStyles', id: sid, value: serializeStyles(props.panel.studyStyles) }));
   createEffect(() => send({ t: 'log', id: sid, value: props.panel.log }));
