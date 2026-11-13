@@ -110,6 +110,30 @@ enum Command {
     },
 }
 
+/// Connections for the requests readers make, and how long one of their queries may run.
+const REQUEST_CONNECTIONS: usize = 24;
+const REQUEST_STATEMENT_MS: u64 = 20_000;
+/// Connections for the recorders and watchers working in the background.
+const WORK_CONNECTIONS: usize = 12;
+
+/// A pool of `size` connections to Postgres. Whoever asks for one waits ten
+/// seconds at most and then fails, as a statement does past `statement_ms`: the
+/// defaults were two connections a core and no limit on either, and with three
+/// hundred readers at once every request waited behind the one before it until
+/// none was answered at all.
+fn pool(url: &str, size: usize, statement_ms: Option<u64>) -> anyhow::Result<deadpool_postgres::Pool> {
+    let secs = |s| Some(std::time::Duration::from_secs(s));
+    deadpool_postgres::Config {
+        url: Some(url.to_string()),
+        // A transaction left open cannot hold its connection either.
+        options: statement_ms.map(|ms| format!("-c statement_timeout={ms} -c idle_in_transaction_session_timeout={}", 3 * ms)),
+        pool: Some(deadpool_postgres::PoolConfig { max_size: size, timeouts: deadpool_postgres::Timeouts { wait: secs(10), create: secs(10), recycle: secs(5) }, ..Default::default() }),
+        ..Default::default()
+    }
+    .create_pool(Some(deadpool_postgres::Runtime::Tokio1), tokio_postgres::NoTls)
+    .context("creating the connection pool")
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_target(false).init();
@@ -124,9 +148,7 @@ async fn main() -> anyhow::Result<()> {
     let mut db = Db::connect(&database_url).await.context("connecting to Postgres")?;
     db.migrate().await?;
 
-    let pool = deadpool_postgres::Config { url: Some(database_url), ..Default::default() }
-        .create_pool(Some(deadpool_postgres::Runtime::Tokio1), tokio_postgres::NoTls)
-        .context("creating the connection pool")?;
+    let pool = pool(&database_url, REQUEST_CONNECTIONS, Some(REQUEST_STATEMENT_MS))?;
 
     match cli.command.unwrap_or(Command::Serve) {
         Command::ImportDrawings { file, owner } => {
@@ -157,7 +179,10 @@ async fn main() -> anyhow::Result<()> {
             if let Some(bad) = coins.iter().find(|c| open_interest::Coin::parse(c).is_none()) {
                 anyhow::bail!("TRADOOR_OPEN_INTEREST: {bad:?} is not a coin — write them like BTC,ETH,1000PEPE");
             }
-            let open_interest = if coins.is_empty() { None } else { Some(open_interest::Recorder::start(pool.clone(), coins, &doh).await?) };
+            // Background work has connections of its own, so a burst of readers and a
+            // recorder's writes never wait on each other; its queries may run long.
+            let work = self::pool(&database_url, WORK_CONNECTIONS, None)?;
+            let open_interest = if coins.is_empty() { None } else { Some(open_interest::Recorder::start(work.clone(), coins, &doh).await?) };
             let token = cli.telegram_token.trim().to_string();
             let sessions = session::Sessions::load(pool.clone()).await?;
             let telegram = if token.is_empty() { None } else { Some(telegram::Telegram::start(pool.clone(), token, &doh, sessions.clone())?) };
@@ -166,22 +191,22 @@ async fn main() -> anyhow::Result<()> {
             catalog.list_indices(indices.clone());
             catalog.keep_fresh();
             let econ = econ::Calendar::start(&doh)?;
-            alert_watch::start(pool.clone(), doh.clone(), catalog.clone(), telegram.clone());
-            let flow = Some(flow::Flow::start(pool.clone(), doh.clone(), catalog.clone(), telegram.clone()));
-            footprint::Footprint::start(pool.clone(), doh.clone(), catalog.clone());
+            alert_watch::start(work.clone(), doh.clone(), catalog.clone(), telegram.clone());
+            let flow = Some(flow::Flow::start(work.clone(), doh.clone(), catalog.clone(), telegram.clone()));
+            footprint::Footprint::start(work.clone(), doh.clone(), catalog.clone());
             let history: Vec<String> = cli.footprint_history.iter().map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect();
-            footprint_history::start(pool.clone(), &doh, cli.data_dir.join("footprint-archive"), history)?;
-            journal::start(pool.clone(), &doh, catalog.clone());
+            footprint_history::start(work.clone(), &doh, cli.data_dir.join("footprint-archive"), history)?;
+            journal::start(work.clone(), &doh, catalog.clone());
             let site = Some(cli.site_url.trim().to_string()).filter(|s| !s.is_empty());
-            signals::start(pool.clone(), &doh, catalog.clone(), telegram.clone(), site);
+            signals::start(work.clone(), &doh, catalog.clone(), telegram.clone(), site);
             let training = training::Live::new();
-            training::start(pool.clone(), doh.clone(), training.clone());
+            training::start(work.clone(), doh.clone(), training.clone());
             let state = api::AppState {
                 econ,
                 open_interest,
                 flow,
                 telegram,
-                liquidations: (!tickers.is_empty()).then(|| liquidations::Collector::start(pool.clone(), tickers, doh.clone())),
+                liquidations: (!tickers.is_empty()).then(|| liquidations::Collector::start(work.clone(), tickers, doh.clone())),
                 pool,
                 data: DataDir::new(&cli.data_dir),
                 catalog,
