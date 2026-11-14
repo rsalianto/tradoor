@@ -108,10 +108,13 @@ kbd { border: 1px solid var(--border); background: var(--surface-2); padding: 0 
 .msgr-emoji button { padding: 3px 0; font-size: 17px; line-height: 1.2; border-radius: 4px; }
 .msgr-emoji button:hover { background: var(--surface-2); }
 .msgr-error { margin: 0; padding: 4px 10px; color: var(--warn); font-size: 11px; }
-.msgr > footer { display: flex; align-items: flex-end; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
-.msgr > footer textarea { flex: 1; min-width: 0; min-height: 30px; max-height: 96px; padding: 6px 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; resize: none; field-sizing: content; }
+.msgr > footer { display: flex; align-items: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
+/* One height for the box and its buttons: its line and padding make exactly the buttons' 32 px. */
+.msgr > footer textarea { box-sizing: border-box; flex: 1; min-width: 0; height: 32px; min-height: 32px; max-height: 96px; margin: 0; padding: 7px 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; line-height: 16px; resize: none; field-sizing: content; }
+.msgr > footer textarea:disabled { opacity: 0.6; }
 .msgr > footer textarea:focus { border-color: var(--primary); outline: 0; }
-.msgr-tool, .msgr-send { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--border); color: var(--muted); }
+.msgr-tool, .msgr-send { box-sizing: border-box; display: flex; flex: 0 0 32px; align-items: center; justify-content: center; width: 32px; height: 32px; margin: 0; padding: 0; border: 1px solid var(--border); color: var(--muted); }
+.msgr-tool:disabled { opacity: 0.5; }
 .msgr-tool:hover, .msgr-tool.on { color: var(--primary); border-color: var(--primary); }
 .msgr-send { background: var(--primary); border-color: var(--primary); color: var(--bg); }
 .msgr-send:disabled { background: transparent; border-color: var(--border); color: var(--dim); }
@@ -120,7 +123,9 @@ kbd { border: 1px solid var(--border); background: var(--surface-2); padding: 0 
   .statusbar .msgr-btn .lbl { display: none; }
   /* On a phone, a sheet over the lower part of the screen, text at a size iOS does not zoom into. */
   .msgr { left: 0; right: 0; bottom: 22px; width: auto; height: min(70dvh, calc(100dvh - 60px)); border-radius: 12px 12px 0 0; }
-  .msgr > footer textarea { font-size: 16px; }
+  /* 16 px, so iOS does not zoom in; the buttons grow with the box. */
+  .msgr > footer textarea { height: 38px; min-height: 38px; padding: 8px 10px; font-size: 16px; line-height: 20px; }
+  .msgr-tool, .msgr-send { flex-basis: 38px; width: 38px; height: 38px; }
 }
 /* Text in the bars of fixed height sits on its cap height, not on the font's
    whole line box: digits and capitals carry no descender, so a line box leaves

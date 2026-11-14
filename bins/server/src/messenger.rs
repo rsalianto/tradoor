@@ -15,15 +15,22 @@
 //! - **Plain text.** Control characters, characters that turn text around and
 //!   ones that cannot be seen are taken out (emoji keep their joiners), marks
 //!   stacked on a letter are kept to two, and a message is a few lines at most.
-//! - **Limits.** A few messages a minute from a browser and from an address, the
-//!   same text not twice in a row, and a cap on the whole room.
+//! - **Limits.** A request is 4 KB at most, read no further. A few messages a
+//!   minute from a browser (fewer for a guest) and from an address, the same text
+//!   not twice in a row, and a cap on all guests together, so a flood of them
+//!   cannot silence the accounts.
+//! - **A brake.** The moderator can let only signed-in accounts with a username
+//!   write, kept across restarts, while guests flood.
 //! - **A name that is the sender's.** A signed-in account with a username writes
 //!   as `@username`; anyone else as a guest name worked out from the browser's id.
 //! - **A moderator.** On the status page, with the admin key: a message taken
 //!   down, its sender's taken down too, and the sender muted for so many hours,
 //!   by browser id and, while the server runs, by address. No address is ever
 //!   written to disk.
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::extract::{Path, Query, State};
@@ -46,10 +53,13 @@ pub const MAX_CHARS: usize = 300;
 const MAX_LINES: usize = 4;
 /// Marks stacked on one letter.
 const MAX_MARKS: usize = 2;
-/// From one browser, from one address, and from everyone together.
-const SENDER: Rate = Rate { name: "messenger", per_min: 12.0, burst: 4.0 };
-const ADDRESS: Rate = Rate { name: "messenger-address", per_min: 24.0, burst: 8.0 };
-const EVERYONE: Rate = Rate { name: "messenger-all", per_min: 300.0, burst: 60.0 };
+/// A request's body, read no further: a message is far less.
+pub const MAX_BODY: usize = 4 * 1024;
+/// From an account, from a guest's browser, from one address, and from every guest together.
+const ACCOUNT: Rate = Rate { name: "messenger", per_min: 12.0, burst: 4.0 };
+const GUEST: Rate = Rate { name: "messenger-guest", per_min: 6.0, burst: 3.0 };
+const ADDRESS: Rate = Rate { name: "messenger-address", per_min: 20.0, burst: 6.0 };
+const GUESTS: Rate = Rate { name: "messenger-guests", per_min: 240.0, burst: 40.0 };
 /// The same text again from one sender within this long is refused.
 const SAME_TEXT_MS: i64 = 60_000;
 const HOUR_MS: i64 = 3_600_000;
@@ -84,13 +94,22 @@ struct Room {
     addresses: HashMap<i64, String>,
     /// Addresses muted, until when: in memory alone, gone on a restart.
     muted: HashMap<String, i64>,
-    /// Each sender's last text and when, so the same is not sent twice running.
-    last: HashMap<String, (String, i64)>,
+    /// A fingerprint of each sender's last text and when, so the same is not sent twice running.
+    last: HashMap<String, (u64, i64)>,
+}
+
+/// A text's fingerprint: enough to tell a repeat, and a few bytes however long the text.
+fn print(text: &str) -> u64 {
+    let mut h = DefaultHasher::new();
+    text.hash(&mut h);
+    h.finish()
 }
 
 pub struct Messenger {
     pool: deadpool_postgres::Pool,
     room: Mutex<Room>,
+    /// Only signed-in accounts with a username may write: the moderator's brake.
+    accounts_only: AtomicBool,
 }
 
 impl Messenger {
@@ -98,7 +117,8 @@ impl Messenger {
     pub async fn load(pool: deadpool_postgres::Pool) -> anyhow::Result<Arc<Self>> {
         let rows = pool.get().await?.query("SELECT id, owner, name, signed, text, at FROM messenger_message ORDER BY id DESC LIMIT $1", &[&(KEEP as i64)]).await?;
         let recent = rows.iter().rev().map(|r| Message { id: r.get(0), owner: r.get(1), name: r.get(2), signed: r.get(3), text: r.get(4), at: r.get(5) }).collect();
-        Ok(Arc::new(Self { pool, room: Mutex::new(Room { recent, ..Room::default() }) }))
+        let braked = pool.get().await?.query_opt("SELECT value FROM messenger_setting WHERE key = 'accounts_only'", &[]).await?.is_some_and(|r| r.get::<_, String>(0) == "true");
+        Ok(Arc::new(Self { pool, room: Mutex::new(Room { recent, ..Room::default() }), accounts_only: AtomicBool::new(braked) }))
     }
 
     fn room(&self) -> MutexGuard<'_, Room> {
@@ -144,6 +164,10 @@ fn mark(c: char) -> bool {
 
 /// A message as it is kept, or why it is not one.
 pub fn cleaned(raw: &str) -> Result<String, &'static str> {
+    // Far past what any message of MAX_CHARS could be, even in four-byte characters with marks: not worked through.
+    if raw.len() > MAX_CHARS * 12 {
+        return Err("a message is 300 characters at most");
+    }
     let mut text = String::with_capacity(raw.len());
     let mut marks = 0;
     for c in raw.replace("\r\n", "\n").chars().filter(|c| !unwanted(*c)) {
@@ -229,7 +253,7 @@ fn skeleton(text: &str) -> String {
 /// Whether the text holds an address in any spelling of one.
 pub fn has_link(text: &str) -> bool {
     let s = skeleton(text);
-    if ["http", "hxxp", "www.", "www ", "://", "ftp.", ".onion", "t.me", "wa.me"].iter().any(|w| s.contains(w)) {
+    if ["http", "hxxp", "www.", "www ", "://", "ftp.", ".onion", "t.me", "wa.me", "xn--"].iter().any(|w| s.contains(w)) {
         return true;
     }
     let chars: Vec<char> = s.chars().collect();
@@ -309,7 +333,8 @@ pub async fn read(State(state): State<AppState>, Query(q): Query<After>) -> Resp
         let room = state.messenger.room();
         (room.recent.iter().filter(|m| m.id > after).map(Message::public).collect::<Vec<_>>(), room.gone.iter().copied().collect::<Vec<_>>())
     };
-    ([(header::CACHE_CONTROL, "no-store")], Json(json!({ "messages": messages, "gone": gone, "online": state.presence.online().max(1) }))).into_response()
+    let accounts_only = state.messenger.accounts_only.load(Ordering::Relaxed);
+    ([(header::CACHE_CONTROL, "no-store")], Json(json!({ "messages": messages, "gone": gone, "online": state.presence.online().max(1), "accountsOnly": accounts_only }))).into_response()
 }
 
 #[derive(Deserialize)]
@@ -323,23 +348,33 @@ pub async fn send(State(state): State<AppState>, headers: HeaderMap, Json(draft)
     let address = limits::client(&headers).unwrap_or_default();
     let text = cleaned(&draft.text).map_err(ApiError::bad_request)?;
     let now = now_ms();
+    let fingerprint = print(&text);
     {
         let room = state.messenger.room();
         if room.muted.get(&address).is_some_and(|until| *until > now) {
             return Err(ApiError::forbidden("you can't send messages for now"));
         }
-        if room.last.get(&owner).is_some_and(|(last, at)| *last == text && now - at < SAME_TEXT_MS) {
+        if room.last.get(&owner).is_some_and(|(last, at)| *last == fingerprint && now - at < SAME_TEXT_MS) {
             return Err(ApiError::bad_request("that was just sent"));
         }
     }
-    if !state.limits.take(SENDER, &owner) || (!address.is_empty() && !state.limits.take(ADDRESS, &address)) || !state.limits.take(EVERYONE, "all") {
+    let account = state.sessions.is_account(&owner);
+    if state.messenger.accounts_only.load(Ordering::Relaxed) && !account {
+        return Err(ApiError::forbidden("only signed-in accounts with a username can write for now"));
+    }
+    // A guest is held to less, and all guests together to a cap the accounts are not under.
+    let allowed = if account { state.limits.take(ACCOUNT, &owner) } else { state.limits.take(GUEST, &owner) && state.limits.take(GUESTS, "all") };
+    if !allowed || (!address.is_empty() && !state.limits.take(ADDRESS, &address)) {
         return Ok(limits::too_many("messages"));
     }
     let client = state.pool.get().await?;
     if client.query_opt("SELECT 1 FROM messenger_mute WHERE owner = $1 AND until > $2", &[&owner, &now]).await?.is_some() {
         return Err(ApiError::forbidden("you can't send messages for now"));
     }
-    let username = if state.sessions.is_account(&owner) { crate::username::of(&client, &owner).await? } else { None };
+    let username = if account { crate::username::of(&client, &owner).await? } else { None };
+    if username.is_none() && state.messenger.accounts_only.load(Ordering::Relaxed) {
+        return Err(ApiError::forbidden("only signed-in accounts with a username can write for now"));
+    }
     let (name, signed) = match username {
         Some(n) => (format!("@{n}"), true),
         None => (guest(&owner), false),
@@ -369,7 +404,7 @@ pub async fn send(State(state): State<AppState>, headers: HeaderMap, Json(draft)
             room.last.retain(|_, (_, at)| now - *at < SAME_TEXT_MS);
         }
         if room.last.len() < MAX_HELD {
-            room.last.insert(owner, (text, now));
+            room.last.insert(owner, (fingerprint, now));
         }
     }
     Ok((StatusCode::CREATED, Json(public)).into_response())
@@ -388,7 +423,35 @@ pub async fn moderate_list(State(state): State<AppState>, headers: HeaderMap) ->
         .rev()
         .map(|m| json!({ "id": m.id, "name": m.name, "signed": m.signed, "text": m.text, "at": m.at, "sender": short_owner(&m.owner) }))
         .collect();
-    ([(header::CACHE_CONTROL, "no-store")], Json(json!({ "messages": list }))).into_response()
+    ([(header::CACHE_CONTROL, "no-store")], Json(json!({ "messages": list, "accountsOnly": state.messenger.accounts_only.load(Ordering::Relaxed) }))).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct Mode {
+    #[serde(rename = "accountsOnly")]
+    accounts_only: bool,
+}
+
+/// `POST /api/admin/messenger-mode`: the brake on or off — only accounts with a username write — kept across restarts.
+pub async fn moderate_mode(State(state): State<AppState>, headers: HeaderMap, Json(m): Json<Mode>) -> Response {
+    if let Some(answer) = refused(&state, &headers) {
+        return answer;
+    }
+    let value = if m.accounts_only { "true" } else { "false" };
+    let kept = async {
+        state.pool.get().await?.execute("INSERT INTO messenger_setting (key, value) VALUES ('accounts_only', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", &[&value]).await?;
+        anyhow::Ok(())
+    };
+    match kept.await {
+        Ok(()) => {
+            state.messenger.accounts_only.store(m.accounts_only, Ordering::Relaxed);
+            Json(json!({ "accountsOnly": m.accounts_only })).into_response()
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "messenger: the brake");
+            ApiError(StatusCode::SERVICE_UNAVAILABLE, "the database did not answer".into()).into_response()
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -474,6 +537,8 @@ mod tests {
             "Visit MySite.Finance",
             "wa.me/123",
             "scam  .  com",
+            "xn--80ak6aa92e.com",
+            "visit xn--e1afmkfd",
         ] {
             assert!(has_link(link), "{link}");
             assert!(cleaned(link).is_err(), "{link}");
@@ -512,6 +577,9 @@ mod tests {
         assert!(cleaned("1\n2\n3\n4\n5").is_err());
         assert!(cleaned(&"x".repeat(MAX_CHARS + 1)).is_err());
         assert!(cleaned(&"x".repeat(MAX_CHARS)).is_ok());
+        assert!(cleaned(&"x".repeat(2_000_000)).is_err(), "a huge text is turned away before it is worked through");
+        assert_eq!(print("same"), print("same"));
+        assert_ne!(print("same"), print("other"));
     }
 
     #[test]

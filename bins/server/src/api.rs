@@ -128,9 +128,11 @@ pub fn router(state: AppState, data_dir: PathBuf, web_dir: Option<PathBuf>) -> R
     let api = Router::new()
         .route("/health", get(health))
         .route("/presence", axum::routing::post(crate::presence::ping))
-        .route("/messenger", get(crate::messenger::read).post(crate::messenger::send))
+        // A message is far less than 4 KB: a body past that is refused before it is read.
+        .route("/messenger", get(crate::messenger::read).post(crate::messenger::send).layer(axum::extract::DefaultBodyLimit::max(crate::messenger::MAX_BODY)))
         .route("/admin/messenger", get(crate::messenger::moderate_list))
-        .route("/admin/messenger/{id}", axum::routing::post(crate::messenger::moderate))
+        .route("/admin/messenger/{id}", axum::routing::post(crate::messenger::moderate).layer(axum::extract::DefaultBodyLimit::max(crate::messenger::MAX_BODY)))
+        .route("/admin/messenger-mode", axum::routing::post(crate::messenger::moderate_mode))
         .route("/admin/status", get(crate::presence::status))
         .route("/announcement", get(crate::announce::current))
         .route("/admin/announcement", get(crate::announce::read).put(crate::announce::publish).delete(crate::announce::take_down))

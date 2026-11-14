@@ -204,7 +204,8 @@
       list.replaceChildren(el('div', 'empty', res ? `The server answered ${res.status}.` : 'No answer from the server.'));
       return;
     }
-    const { messages: rows } = await res.json();
+    const { messages: rows, accountsOnly } = await res.json();
+    brake(accountsOnly === true);
     set('ms-summary', rows.length ? `${n(rows.length)} ${rows.length === 1 ? 'message' : 'messages'}` : 'No messages');
     if (!rows.length) {
       list.replaceChildren(el('div', 'empty', 'No messages yet.'));
@@ -235,6 +236,20 @@
       }),
     );
   }
+  /** The brake: only signed-in accounts with a username write while it is on. */
+  function brake(on) {
+    const b = $('ms-brake');
+    b.textContent = on ? 'Accounts only: on' : 'Accounts only: off';
+    b.setAttribute('aria-pressed', String(on));
+    b.classList.toggle('on', on);
+  }
+  $('ms-brake').addEventListener('click', async () => {
+    const on = $('ms-brake').getAttribute('aria-pressed') !== 'true';
+    if (on && !confirm('Let only signed-in accounts with a username write? Guests can still read.')) return;
+    const r = await admin('/api/admin/messenger-mode', { method: 'POST', body: JSON.stringify({ accountsOnly: on }) }).catch(() => null);
+    if (!r?.ok) alert(`Not done: the server answered ${r ? r.status : 'nothing'}.`);
+    else brake((await r.json()).accountsOnly === true);
+  });
   $('ms-refresh').addEventListener('click', () => void messages());
   $('ms-fold').addEventListener('toggle', () => {
     if ($('ms-fold').open && Date.now() - messagesRead > 5_000) void messages();

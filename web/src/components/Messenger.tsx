@@ -29,6 +29,8 @@ export function Messenger(props: { onClose(): void }) {
   const [error, setError] = createSignal<string | null>(null);
   const [sending, setSending] = createSignal(false);
   const [emoji, setEmoji] = createSignal(false);
+  /** The moderator's brake: only accounts with a username write while it is on. */
+  const [accountsOnly, setAccountsOnly] = createSignal(false);
   let list!: HTMLDivElement;
   let input!: HTMLTextAreaElement;
   let last = 0;
@@ -57,6 +59,7 @@ export function Messenger(props: { onClose(): void }) {
       const r = await api.messenger(last);
       take(r.messages, r.gone);
       noteOnline(r.online);
+      setAccountsOnly(r.accountsOnly === true);
       setLoaded(true);
     } catch {
       // Asked again on the next turn.
@@ -114,6 +117,8 @@ export function Messenger(props: { onClose(): void }) {
   });
 
   const as = () => (session() && username() ? `@${username()}` : null);
+  /** A guest, while only accounts may write. */
+  const held = () => accountsOnly() && !as();
 
   return (
     <section class="msgr" role="dialog" aria-label="tradoor messenger" onPointerDown={(e) => e.stopPropagation()}>
@@ -160,14 +165,15 @@ export function Messenger(props: { onClose(): void }) {
       </Show>
       <Show when={error()}>{(e) => <p class="msgr-error">{e()}</p>}</Show>
       <footer>
-        <button class="msgr-tool" classList={{ on: emoji() }} aria-label="Emoji" data-tip="Emoji" onClick={() => setEmoji((v) => !v)}>
+        <button class="msgr-tool" classList={{ on: emoji() }} aria-label="Emoji" data-tip="Emoji" disabled={held()} onClick={() => setEmoji((v) => !v)}>
           <Icon name="smile" size={16} />
         </button>
         <textarea
           ref={input}
           rows={1}
           maxlength={MAX_CHARS * 2}
-          placeholder={as() ? `Write as ${as()} · no links` : 'Write as a guest · no links'}
+          disabled={held()}
+          placeholder={held() ? 'Only accounts with a username can write for now' : as() ? `Write as ${as()} · no links` : 'Write as a guest · no links'}
           value={text()}
           onInput={(e) => {
             setText(e.currentTarget.value);
@@ -180,7 +186,7 @@ export function Messenger(props: { onClose(): void }) {
             }
           }}
         />
-        <button class="msgr-send" aria-label="Send" data-tip="Send · Enter" disabled={sending() || !text().trim()} onClick={() => void post()}>
+        <button class="msgr-send" aria-label="Send" data-tip="Send · Enter" disabled={held() || sending() || !text().trim()} onClick={() => void post()}>
           <Icon name="send" size={15} />
         </button>
       </footer>

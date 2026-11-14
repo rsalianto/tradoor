@@ -618,7 +618,7 @@ export const api = {
   /** This tab is on screen, for the count of those here now (lib/presence); answered with that count. */
   here: () => json<{ online: number }>('/api/presence', { method: 'POST' }),
   /** tradoor messenger: the messages newer than `after`, those taken down lately, and how many are here. */
-  messenger: (after: number) => json<{ messages: MessengerMessage[]; gone: number[]; online: number }>(`/api/messenger?after=${after}`),
+  messenger: (after: number) => json<{ messages: MessengerMessage[]; gone: number[]; online: number; accountsOnly?: boolean }>(`/api/messenger?after=${after}`),
   sendMessage: (text: string) => json<MessengerMessage>('/api/messenger', { method: 'POST', body: { text } }),
   async health(): Promise<{ ok: boolean; db: boolean }> {
     // Asked once: this is the one read whose job is to tell of a bad moment.
