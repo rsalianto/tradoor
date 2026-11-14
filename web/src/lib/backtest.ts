@@ -59,7 +59,7 @@ export function settingsOf(s: BacktestSettings, market: string, lastTime: number
   const [taker, maker] = s.autoFees ? venueFees(market) : [s.taker, s.maker];
   const size = s.sizeKind === 'fixed' ? [1, s.size] : s.sizeKind === 'risk' ? [2, s.size / 100] : [0, s.size / 100];
   const exit = (e: { kind: string; v: number }) => (e.kind === 'pct' ? [1, e.v / 100] : e.kind === 'atr' ? [2, e.v] : e.kind === 'r' ? [3, e.v] : [0, 0]);
-  const from = s.days > 0 && Number.isFinite(lastTime) ? lastTime - s.days * DAY : Number.NaN;
+  const from = s.since > 0 ? s.since : s.days > 0 && Number.isFinite(lastTime) ? lastTime - s.days * DAY : Number.NaN;
   return [
     s.capital,
     size[0]!,

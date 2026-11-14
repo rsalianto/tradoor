@@ -66,8 +66,10 @@ export interface BacktestSettings {
   maxBars: number;
   funding: boolean;
   magnify: boolean;
-  /** Days tested back from the last bar; 0, every bar the chart holds. */
+  /** Days tested back from the last bar; 0, every bar the chart holds; -1, the market's whole history. */
   days: number;
+  /** Tested from this moment, in place of `days`; 0, not set. */
+  since: number;
   /** Percent of the bars the optimizer tunes on; the rest are kept back to test its pick. 0, none. */
   split: number;
 }
@@ -122,6 +124,7 @@ export const DEFAULT_SETTINGS = (): BacktestSettings => ({
   funding: true,
   magnify: true,
   days: 0,
+  since: 0,
   split: 0,
 });
 
@@ -200,7 +203,8 @@ export function readBacktest(raw: unknown): BacktestState | null {
       maxBars: Math.round(num(s.maxBars, 0, 0, 100_000)),
       funding: s.funding !== false,
       magnify: s.magnify !== false,
-      days: Math.round(num(s.days, 0, 0, 36_500)),
+      days: Math.round(num(s.days, 0, -1, 36_500)),
+      since: Math.round(num(s.since, 0, 0, 8.64e15)),
       split: Math.round(num(s.split, 0, 0, 95)),
     },
     draw: raw.draw !== false,

@@ -33,7 +33,11 @@ const RANGES = [
   { days: 730, label: 'The last 2 years' },
   { days: 1095, label: 'The last 3 years' },
   { days: 1825, label: 'The last 5 years' },
+  { days: -1, label: 'The market’s whole history' },
 ];
+
+/** `2017-08-17`, UTC, for a date field. */
+const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** A number field that keeps what is typed and gives a number back once it is one. */
 function Num(props: { value: number; min?: number; max?: number; step?: number; label: string; wide?: boolean; onChange(v: number): void }) {
@@ -153,12 +157,36 @@ export function BacktestSetup(props: TesterProps) {
         </label>
         <label class="bt-row">
           <span>Tested over</span>
-          <select value={String(st().settings.days)} aria-label="The stretch tested" onChange={(e) => set({ days: Number(e.currentTarget.value) })}>
+          <select
+            value={st().settings.since > 0 ? 'since' : String(st().settings.days)}
+            aria-label="The stretch tested"
+            onChange={(e) => {
+              const v = e.currentTarget.value;
+              // From a date: a year back to start with, changed in the field beside it.
+              if (v === 'since') set({ since: Date.UTC(new Date().getUTCFullYear() - 1, 0, 1), days: 0 });
+              else set({ days: Number(v), since: 0 });
+            }}
+          >
             <For each={RANGES}>{(r) => <option value={String(r.days)}>{r.label}</option>}</For>
+            <option value="since">From a date…</option>
           </select>
+          <Show when={st().settings.since > 0}>
+            <input
+              class="box num bt-date"
+              type="date"
+              aria-label="Tested from this date, UTC"
+              value={dayOf(st().settings.since)}
+              min="2009-01-03"
+              max={dayOf(Date.now())}
+              onChange={(e) => {
+                const t = Date.parse(`${e.currentTarget.value}T00:00:00Z`);
+                if (Number.isFinite(t)) set({ since: t });
+              }}
+            />
+          </Show>
         </label>
         <p class="bt-hint dim">
-          {props.bars.toLocaleString('en-US')} bars held{props.loading ? ', loading more…' : props.exhausted ? ', the exchange’s whole history' : ''}. A longer stretch loads older bars behind them.
+          {props.bars.toLocaleString('en-US')} bars held{props.loading ? ', loading more…' : props.exhausted ? ', the exchange’s whole history' : ''}. A longer stretch loads older bars behind them, 100,000 at most: for a coin’s whole history, a daily or 4-hour chart holds it all.
         </p>
         <label class="bt-row">
           <span>Funding</span>

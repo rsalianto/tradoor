@@ -981,8 +981,11 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   createEffect(() => {
     const t = tester();
     const st = status();
-    if (!t || !(t.open || t.alerts) || t.settings.days <= 0 || st.loading || st.exhausted) return;
-    const need = Math.min(100_000, Math.ceil((t.settings.days * 86_400_000) / tfMs(timeframe())) + 300);
+    const { days, since } = t?.settings ?? { days: 0, since: 0 };
+    if (!t || !(t.open || t.alerts) || (days === 0 && since === 0) || st.loading || st.exhausted) return;
+    // The whole history: as much as there is, to a run's most.
+    const span = since > 0 ? Date.now() - since : days * 86_400_000;
+    const need = days < 0 && since === 0 ? 100_000 : Math.min(100_000, Math.ceil(span / tfMs(timeframe())) + 300);
     const key = `${market()}|${timeframe()}|${need}`;
     if (st.bars >= need || key === depthAsked) return;
     depthAsked = key;

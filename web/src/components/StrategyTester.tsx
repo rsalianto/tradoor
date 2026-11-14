@@ -321,7 +321,8 @@ function Summary(props: TesterProps & { result: Ok; rows: TradeRow[]; stats: Sta
       <ul class="bt-notes dim">
         <li>
           {r().time.length.toLocaleString('en-US')} bars of {props.timeframe}, {when(first())} to {when(last())}
-          {props.state.settings.days > 0 ? ` · trades from the last ${props.state.settings.days} days` : ''}
+          {props.state.settings.since > 0 ? ` · trades from ${when(props.state.settings.since)}` : props.state.settings.days > 0 ? ` · trades from the last ${props.state.settings.days} days` : props.state.settings.days < 0 ? (props.exhausted ? ' · the market’s whole history' : props.loading ? ' · reading back to the market’s first bar…' : ` · as far back as tradoor reads on ${props.timeframe}: a 4-hour or daily chart reaches further`) : ''}
+          {r().time.length >= 100_000 ? ' · 100,000 bars a test at most: the newest' : ''}
           {props.loading ? ' · loading more…' : ''}
         </li>
         <li>
@@ -358,7 +359,7 @@ function Summary(props: TesterProps & { result: Ok; rows: TradeRow[]; stats: Sta
 
 // ---------------------------------------------------------------- the trades
 
-const MOST_ROWS = 500;
+const MOST_ROWS = 2_000;
 
 function Trades(props: { rows: TradeRow[]; result: Ok; precision: number; market: string; onShow(from: number, to: number): void }) {
   const [asc, setAsc] = createSignal(false);

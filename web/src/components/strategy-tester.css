@@ -61,6 +61,7 @@
 .bt-check { display: inline-flex; align-items: center; gap: 5px; color: var(--text); }
 .bt input.bt-num { flex: none; width: 64px; height: 20px; padding: 0 4px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); font: inherit; }
 .bt input.bt-num.wide { width: 96px; }
+.bt input.bt-date { width: auto; height: 20px; padding: 0 4px; color-scheme: dark; }
 .bt select { height: 20px; }
 .bt-rules { margin-bottom: 8px; padding: 6px; border: 1px solid var(--border); }
 .bt-rules-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }

@@ -38,7 +38,9 @@ export function lowerOf(barMs: number): [string, number] | null {
 const ROUND = 20;
 const MOST_LOOKED = 400;
 /** Trades drawn on the chart: the newest. */
-const DRAWN = 300;
+const DRAWN = 1_000;
+/** Bars a run takes at most (crates/frost-script MAX_BARS): the newest, past these. */
+export const MOST_BARS = 100_000;
 
 const GREEN = 0x26a69aff;
 const RED = 0xff4d5fff;
@@ -143,8 +145,10 @@ export class LiveBacktest {
     this.go();
   }
 
-  /** The chart's closed bars, as the worker hands them over. */
-  setBars(bars: ChartBars): void {
+  /** The chart's closed bars, as the worker hands them over: the newest MOST_BARS of them. */
+  setBars(all: ChartBars): void {
+    const cut = all.time.length - MOST_BARS;
+    const bars = cut > 0 ? { ...all, time: all.time.slice(cut), open: all.open.slice(cut), high: all.high.slice(cut), low: all.low.slice(cut), close: all.close.slice(cut), volume: all.volume.slice(cut) } : all;
     const key = `${bars.market}|${bars.timeframe}`;
     if (key !== this.key) {
       this.key = key;
