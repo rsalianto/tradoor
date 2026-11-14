@@ -277,6 +277,19 @@ fn skeleton(text: &str) -> String {
         })
         .flat_map(char::to_lowercase)
         .collect::<String>()
+        // A dot, a slash or a colon written as code: `&#46;`, `%2e`, `\x2e`.
+        .replace("&#46;", ".")
+        .replace("&#x2e;", ".")
+        .replace("&period;", ".")
+        .replace("&dot;", ".")
+        .replace("%2e", ".")
+        .replace("\\x2e", ".")
+        .replace("\\u002e", ".")
+        .replace("\\u{2e}", ".")
+        .replace("&#47;", "/")
+        .replace("%2f", "/")
+        .replace("&#58;", ":")
+        .replace("%3a", ":")
         .replace("(.)", ".")
         .replace("[.]", ".")
         .replace("{.}", ".")
@@ -327,6 +340,10 @@ pub fn has_link(text: &str) -> bool {
         if ending.len() >= 2 && ends_there && (!(spaced_left || spaced_right) || ENDINGS.contains(&ending.as_str())) {
             return true;
         }
+        // `name.c0m`: an ending with digits for letters, read against the endings alone.
+        if ENDINGS.contains(&leet(&chars[right..]).as_str()) {
+            return true;
+        }
     }
     // `name dot com`, `name (dot) com`.
     for dot in [" dot ", " d0t ", "(dot)", "[dot]", "{dot}"] {
@@ -351,12 +368,58 @@ pub fn has_link(text: &str) -> bool {
 
 /// Endings read past a separator of spaces alone, or a dash: none a word anyone writes.
 const BARE: &[&str] = &["com", "xyz", "biz"];
-/// Endings read past punctuation with spaces round it: plainly a site's, and not a word.
-const STRONG: &[&str] = &["com", "org", "io", "xyz", "gg", "ly", "ru", "cn", "biz", "info"];
+/// Endings read past punctuation with spaces round it: plainly a site's, and not
+/// a word one writes after a full stop ("lol, gg" and "thanks! info soon" are talk).
+const STRONG: &[&str] = &["com", "org", "io", "xyz", "ly", "ru", "cn", "biz"];
+/// Endings read when spelt out a letter at a time: `c o m`, `c*o*m`, `c.o.m`.
+const SPREAD: &[&str] = &["com", "org", "net", "xyz"];
+/// How long a run between a name and its ending is read: past this it is two thoughts, not an address.
+const MAX_GAP: usize = 24;
 
-/// Punctuation and symbols that can stand for a dot between a name and its ending.
+/// What can stand for a dot between a name and its ending: anything but a plain
+/// Latin letter or digit, a space, and what words are made with (`don't`,
+/// `long-term`, `snake_case`, `long/short`). Symbols, punctuation, emoji and
+/// letters of other scripts all count, at any length up to `MAX_GAP`.
 fn separator(c: char) -> bool {
-    (c.is_ascii_punctuation() && !"/-_@!?&%$'.".contains(c)) || ('\u{2000}'..='\u{2BFF}').contains(&c) || ('\u{1F000}'..='\u{1FAFF}').contains(&c)
+    !c.is_ascii_alphanumeric() && !c.is_whitespace() && !"'-_/".contains(c)
+}
+
+/// The letters and digits from the start of `chars`, digits that stand for
+/// letters read as them: `c0m` is `com`, `n3t` is `net`. Compared with the endings
+/// alone, never read as a word, so `1.5x` and `v2.0` stay what they are.
+fn leet(chars: &[char]) -> String {
+    let run: String = chars.iter().take_while(|c| c.is_ascii_alphanumeric()).collect();
+    if !run.chars().any(|c| c.is_ascii_alphabetic()) {
+        return String::new();
+    }
+    run.chars().map(|c| match c {
+        '0' => 'o',
+        '1' => 'l',
+        '3' => 'e',
+        '4' => 'a',
+        '5' => 's',
+        '7' => 't',
+        _ => c,
+    }).collect()
+}
+
+/// An ending spelt a letter at a time from `at`: single letters, each apart by
+/// one space or mark, read back together; none where the letters run on.
+fn spread(chars: &[char], at: usize) -> String {
+    let mut out = String::new();
+    let mut i = at;
+    while i < chars.len() && chars[i].is_ascii_alphabetic() {
+        // A letter followed by another letter is a word, not a spelt-out ending.
+        if chars.get(i + 1).is_some_and(|c| c.is_ascii_alphanumeric()) {
+            return String::new();
+        }
+        out.push(chars[i]);
+        match chars.get(i + 1) {
+            Some(c) if (separator(*c) || *c == ' ') && chars.get(i + 2).is_some_and(|c| c.is_ascii_alphabetic()) => i += 2,
+            _ => break,
+        }
+    }
+    out
 }
 
 /// Whether a name and an ending stand apart by something other than a dot: what
@@ -373,7 +436,7 @@ fn separated(chars: &[char]) -> bool {
         // chars[i] ends a word: what follows, up to the next letter, is the gap.
         let name_len = chars[..=i].iter().rev().take_while(|c| word(**c)).count();
         let mut j = i + 1;
-        while j < chars.len() && !chars[j].is_ascii_alphanumeric() && j - i <= 6 {
+        while j < chars.len() && !chars[j].is_ascii_alphanumeric() && j - i <= MAX_GAP {
             j += 1;
         }
         if j >= chars.len() || j == i + 1 || !chars[j].is_ascii_alphabetic() {
@@ -383,6 +446,15 @@ fn separated(chars: &[char]) -> bool {
         let gap = &chars[i + 1..j];
         let ending: String = chars[j..].iter().take_while(|c| c.is_ascii_alphabetic()).collect();
         let ends_there = chars.get(j + ending.len()).is_none_or(|c| !c.is_ascii_alphabetic());
+        // `name.c o m`, `name c*o*m`: the ending spelt out after any gap.
+        let spelt = spread(chars, j);
+        if spelt.len() >= 3 && SPREAD.contains(&spelt.as_str()) && (name_len >= 3 || gap.iter().any(|c| separator(*c))) {
+            return true;
+        }
+        // `name*c0m`: digits for letters, where punctuation alone stands between.
+        if !gap.iter().any(|c| c.is_whitespace()) && gap.iter().all(|c| separator(*c)) && ENDINGS.contains(&leet(&chars[j..]).as_str()) {
+            return true;
+        }
         if ends_there {
             let spaces = gap.iter().any(|c| c.is_whitespace());
             let marks = gap.iter().filter(|c| separator(**c)).count();
@@ -677,6 +749,29 @@ mod tests {
             "tradoorterminal/com",
             "scam<>gg",
             "tradoorterminal🔥com",
+            "tradoorterminal*^%$#@#$^&@com",
+            "tradoor*^%$#@#$^&@terminal*^%$#@#$^&@com",
+            "tradoorterminal@com",
+            "tradoorterminal$com",
+            "tradoorterminal%&com",
+            "tradoorterminal!?com",
+            "tradoorterminal.*com",
+            "tradoorterminal中com",
+            "t^r^a^d^o^o^r^.com",
+            "tradoorterminal.c o m",
+            "tradoorterminal c*o*m",
+            "tradoorterminal . c.o.m",
+            "t r a d o o r . c o m",
+            "tradoorterminal(d)(o)(t)com",
+            "tradoor terminal ! ! com",
+            "tradoorterminal.c0m",
+            "tradoorterminal[.]c0m",
+            "tradoorterminal*n3t",
+            "tradoorterminal&#46;com",
+            "tradoorterminal%2ecom",
+            "tradoorterminal\\x2ecom",
+            "tradoorterminal&period;com",
+            "https&#58;&#47;&#47;tradoorterminal",
         ] {
             assert!(has_link(link), "{link}");
             assert!(cleaned(link).is_err(), "{link}");
@@ -708,6 +803,17 @@ mod tests {
             "TP1 (67k), TP2 [68k]",
             "Don't get liquidated folks. enjoy your weekend",
             "BTC🚀ETH🚀SOL",
+            "lol, gg",
+            "thanks! info soon",
+            "50%off fees, Q&A later, R&D, AT&T",
+            "it's 10:30am, don't fomo",
+            "I like c o m p o u n d interest",
+            "welcome to the telecom outcome",
+            "BTC/USDT and TP1/TP2",
+            "#BTC #ETH trending",
+            "price $67k, +5% today!!!",
+            "1.5x leverage and v2.0, 2.5k",
+            "0.8.3 is out, 3.7 RR",
         ] {
             assert!(!has_link(talk), "{talk}");
             assert!(cleaned(talk).is_ok(), "{talk}");
