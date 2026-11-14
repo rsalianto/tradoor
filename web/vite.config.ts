@@ -17,7 +17,7 @@ export default defineConfig({
     // ws: the exchange stream relay for networks that block the exchanges.
     proxy: { '/api': { target: server, ws: true }, '/data': server },
     // The built-in indicators' formulas live with the formula crate, and its tests read them too.
-    fs: { allow: ['.', '../crates/formula/sources'] },
+    fs: { allow: ['.', '../crates/frost-script/sources'] },
   },
   worker: {
     format: 'es',

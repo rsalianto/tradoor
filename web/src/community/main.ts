@@ -42,7 +42,7 @@ interface Full extends Listed {
  * shows, read here under a query of the page's own, so the app's chunks stay
  * the app's. Each one's name and description are its first comment lines.
  */
-const OWN_SOURCES = import.meta.glob<string>('../../../crates/formula/sources/*.frost', { query: '?raw&showcase', import: 'default', eager: true });
+const OWN_SOURCES = import.meta.glob<string>('../../../crates/frost-script/sources/*.frost', { query: '?raw&showcase', import: 'default', eager: true });
 /** An example in the editor rather than one of the built-ins. */
 const NOT_BUILT_IN = new Set(['supertrend']);
 /** The timeframe each is best seen on; the rest on the hour. */

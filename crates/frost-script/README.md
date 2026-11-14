@@ -44,14 +44,14 @@ src/tests.rs     every built-in source against tradoor's own indicators, mistake
 sources/*.frost  tradoor's 18 built-in indicators written in Frost Script, and a SuperTrend example
 ```
 
-`crates/formula-wasm` is the browser's module: a C ABI of bytes and numbers, no imports, loaded by the chart's worker only when a chart has a script. The server (`bins/server/src/scripts.rs`) checks saved scripts with the same crate.
+`crates/frost-script-wasm` is the browser's module: a C ABI of bytes and numbers, no imports, loaded by the chart's worker only when a chart has a script. The server (`bins/server/src/scripts.rs`) checks saved scripts with the same crate.
 
 Each built-in's file gives exactly the numbers of the indicator it is named after, and shows in that indicator's Source tab. They are the best place to start.
 
 ## Tests
 
 ```sh
-cargo test -p tradoor-formula
+cargo test -p tradoor-frost-script
 ```
 
 ## License

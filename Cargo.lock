@@ -2489,18 +2489,18 @@ name = "tradoor-core"
 version = "0.8.3"
 
 [[package]]
-name = "tradoor-formula"
+name = "tradoor-frost-script"
 version = "0.8.3"
 dependencies = [
  "tradoor-core",
 ]
 
 [[package]]
-name = "tradoor-formula-wasm"
+name = "tradoor-frost-script-wasm"
 version = "0.8.3"
 dependencies = [
  "tradoor-core",
- "tradoor-formula",
+ "tradoor-frost-script",
 ]
 
 [[package]]
@@ -2566,7 +2566,7 @@ dependencies = [
  "tracing-subscriber",
  "tradoor-codec",
  "tradoor-core",
- "tradoor-formula",
+ "tradoor-frost-script",
  "tradoor-store",
  "tradoor-venues",
  "zip",

@@ -1,11 +1,11 @@
 /**
  * The reader's formulas, run in this worker by the formula module
- * (crates/formula-wasm): loaded only when a chart first has one, given bytes
+ * (crates/frost-script-wasm): loaded only when a chart first has one, given bytes
  * and numbers, giving back text and numbers. It imports nothing, so a formula
  * has no way out of it; one that faults it is answered with an error, and the
  * module is loaded afresh for the next.
  */
-import formulaUrl from '../wasm/formula/formula.wasm?url';
+import formulaUrl from '../wasm/frost-script/frost-script.wasm?url';
 import type { FormulaDescription, FormulaInput } from './protocol';
 
 interface Exports {

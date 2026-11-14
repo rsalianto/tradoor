@@ -1,6 +1,6 @@
 /**
  * Frost Script: the reader's own indicators, written in tradoor's small language
- * (crates/formula). Only an account writes them — signed in with Telegram — and
+ * (crates/frost-script). Only an account writes them — signed in with Telegram — and
  * they are kept on the server (bins/server scripts), so they follow it to every
  * device; this browser holds a copy of its account's to draw charts with at once.
  *

@@ -29,8 +29,8 @@
       "gzip": true
     },
     {
-      "name": "formula wasm",
-      "path": "dist/assets/formula-*.wasm",
+      "name": "frost script wasm",
+      "path": "dist/assets/frost-script-*.wasm",
       "limit": "90 kB",
       "gzip": true
     }

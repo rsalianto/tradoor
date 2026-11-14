@@ -3,7 +3,7 @@
 //! not signed in with Telegram reads the examples and nothing more.
 //!
 //! A script is kept as its text and checked here by the formula crate itself
-//! (crates/formula), the one the browser runs it with: whether it checks is kept
+//! (crates/frost-script), the one the browser runs it with: whether it checks is kept
 //! beside it. Nothing of it runs on the server. The moderator, holding the admin
 //! key, lists every script and can remove one — kept, with why, but run for no
 //! one — restore it, or delete it.
@@ -76,7 +76,7 @@ fn previewed(p: &Preview) -> Option<(String, String, String)> {
         && !symbol.is_empty()
         && symbol.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/".contains(&b));
     let tf_ok = (2..=4).contains(&p.timeframe.len()) && p.timeframe.bytes().all(|b| b.is_ascii_alphanumeric());
-    let inputs_ok = p.inputs.len() <= tradoor_formula::MAX_INPUTS && p.inputs.iter().all(|v| v.is_finite());
+    let inputs_ok = p.inputs.len() <= tradoor_frost_script::MAX_INPUTS && p.inputs.iter().all(|v| v.is_finite());
     (market_ok && tf_ok && inputs_ok).then(|| (p.market.clone(), p.timeframe.clone(), p.inputs.iter().map(f64::to_string).collect::<Vec<_>>().join(":")))
 }
 
@@ -93,13 +93,13 @@ fn preview_json(market: Option<String>, timeframe: Option<String>, inputs: Optio
 
 /// Whether a script checks, worked out off the threads that answer requests, on one
 /// of its own with room to spare: how deep a script may go is bounded
-/// (`tradoor_formula::MAX_LEVEL`), and this is the margin over it. Four at a time.
+/// (`tradoor_frost_script::MAX_LEVEL`), and this is the margin over it. Four at a time.
 async fn checks(source: &str) -> bool {
     static AT_ONCE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
     let Ok(_turn) = AT_ONCE.acquire().await else { return false };
     let source = source.to_string();
     tokio::task::spawn_blocking(move || {
-        std::thread::Builder::new().name("frost-check".into()).stack_size(64 << 20).spawn(move || tradoor_formula::describe(&source).is_ok()).ok().and_then(|t| t.join().ok()).unwrap_or(false)
+        std::thread::Builder::new().name("frost-check".into()).stack_size(64 << 20).spawn(move || tradoor_frost_script::describe(&source).is_ok()).ok().and_then(|t| t.join().ok()).unwrap_or(false)
     })
     .await
     .unwrap_or(false)
@@ -111,8 +111,8 @@ fn checked(body: &Body) -> ApiResult<(String, Option<String>)> {
     if name.is_empty() || name.chars().count() > MAX_NAME {
         return Err(ApiError::bad_request(format!("a name is 1 to {MAX_NAME} characters")));
     }
-    if body.source.len() > tradoor_formula::MAX_SOURCE {
-        return Err(ApiError::bad_request(format!("a script is {} characters at most", tradoor_formula::MAX_SOURCE)));
+    if body.source.len() > tradoor_frost_script::MAX_SOURCE {
+        return Err(ApiError::bad_request(format!("a script is {} characters at most", tradoor_frost_script::MAX_SOURCE)));
     }
     let about = body.about.as_deref().map(described);
     if about.as_ref().is_some_and(|a| a.chars().count() > MAX_ABOUT) {
@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(ok("  My RSI ", "plot(close, \"C\")").unwrap(), ("My RSI".to_string(), None));
         assert!(ok("", "plot(close)").is_err());
         assert!(ok(&"n".repeat(41), "plot(close)").is_err());
-        assert!(ok("Big", &"x".repeat(tradoor_formula::MAX_SOURCE + 1)).is_err());
+        assert!(ok("Big", &"x".repeat(tradoor_frost_script::MAX_SOURCE + 1)).is_err());
         assert_eq!(ok("a\u{7}b", "").unwrap().0, "ab", "no control characters in a name");
     }
 
@@ -488,7 +488,7 @@ mod tests {
         for (market, tf) in [("BTCUSDT", "1h"), ("Binance:BTC", "1h"), ("binance-perp:BTC<b>", "1h"), ("binance-perp:BTCUSDT", "1 hour"), ("binance-perp:BTCUSDT", "")] {
             assert!(p(market, tf, vec![]).is_none(), "{market} {tf}");
         }
-        assert!(p("binance-perp:BTCUSDT", "1h", vec![f64::NAN]).is_none() && p("binance-perp:BTCUSDT", "1h", vec![1.0; tradoor_formula::MAX_INPUTS + 1]).is_none());
+        assert!(p("binance-perp:BTCUSDT", "1h", vec![f64::NAN]).is_none() && p("binance-perp:BTCUSDT", "1h", vec![1.0; tradoor_frost_script::MAX_INPUTS + 1]).is_none());
     }
 
     #[test]

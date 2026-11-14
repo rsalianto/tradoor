@@ -154,7 +154,7 @@ tradoor's own language for indicators.
 - **Community:** share a script under a username chosen once, with a description. Every public one is drawn live on the [showcase](https://tradoorterminal.com/community.html).
 - **Docs:** the [reference](https://tradoorterminal.com/doc.html) has the whole language.
 
-A script can only draw on its chart. It runs in a WebAssembly module that imports nothing, has no way to reach the network, the page or an account, and is held to limits on depth, memory and work. The worst a script can do is draw a wrong line. How it is built: [crates/formula](crates/formula/README.md).
+A script can only draw on its chart. It runs in a WebAssembly module that imports nothing, has no way to reach the network, the page or an account, and is held to limits on depth, memory and work. The worst a script can do is draw a wrong line. How it is built: [crates/frost-script](crates/frost-script/README.md).
 
 ## Run it
 
@@ -185,25 +185,25 @@ Keys: `a–z` symbol · `← →` timeframe · `/` or `Ctrl K` commands · `?` h
 - **Engine:** Rust to WebAssembly (about 142 kB gzip) in a Web Worker, WebGL2 on an OffscreenCanvas.
 - **History:** columnar partition files, about 16 bytes a minute: five years of BTCUSDT minutes in 42 MB, cached by the browser for a year.
 - **Live:** exchange WebSockets straight to the browser; the server relays only when a browser can't reach an exchange.
-- **Frost Script:** `crates/formula`, its own WebAssembly module; the server checks every saved script with the same crate.
+- **Frost Script:** `crates/frost-script`, its own WebAssembly module; the server checks every saved script with the same crate.
 - **Server:** Rust (Axum, Tokio) and PostgreSQL 18 for metadata only. Candles never enter the database.
 - **UI:** SolidJS, about 59 kB brotli.
 
 ```text
-crates/core      candles, timeframes, indicators and studies
-crates/codec     the partition format (docs/format.md)
-crates/venues    the exchanges
-crates/store     the data directory and PostgreSQL metadata
-crates/ingest    archive and REST sync
-crates/render    the chart as a pure model
-crates/wasm      the browser engine
-crates/formula   Frost Script
-bins/server      API, /data and the web app
-bins/backfill    download history
-bins/recorder    keep tracked markets current
-web/             the SolidJS app (Vite, Deno)
-migrations/      PostgreSQL schema
-deploy/          compose, systemd and nginx
+crates/core          candles, timeframes, indicators and studies
+crates/codec         the partition format (docs/format.md)
+crates/venues        the exchanges
+crates/store         the data directory and PostgreSQL metadata
+crates/ingest        archive and REST sync
+crates/render        the chart as a pure model
+crates/wasm          the browser engine
+crates/frost-script  Frost Script
+bins/server          API, /data and the web app
+bins/backfill        download history
+bins/recorder        keep tracked markets current
+web/                 the SolidJS app (Vite, Deno)
+migrations/          PostgreSQL schema
+deploy/              compose, systemd and nginx
 ```
 
 More in [docs/architecture.md](docs/architecture.md).

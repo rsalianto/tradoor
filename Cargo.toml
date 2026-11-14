@@ -13,7 +13,7 @@ tradoor-core = { path = "crates/core" }
 tradoor-codec = { path = "crates/codec" }
 tradoor-venues = { path = "crates/venues" }
 tradoor-render = { path = "crates/render" }
-tradoor-formula = { path = "crates/formula" }
+tradoor-frost-script = { path = "crates/frost-script" }
 
 [profile.release]
 lto = true

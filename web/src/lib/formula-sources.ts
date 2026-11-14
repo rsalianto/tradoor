@@ -1,27 +1,27 @@
 /**
- * The built-in indicators written as formulas (crates/formula/sources, which
+ * The built-in indicators written as formulas (crates/frost-script/sources, which
  * the formula crate's tests hold to the indicators' own numbers), and the new
  * formula's first text. Loaded with the editor and the settings dialog alone.
  */
-import atr from '../../../crates/formula/sources/atr.frost?raw';
-import avwap from '../../../crates/formula/sources/avwap.frost?raw';
-import bb from '../../../crates/formula/sources/bb.frost?raw';
-import ema from '../../../crates/formula/sources/ema.frost?raw';
-import ema200 from '../../../crates/formula/sources/ema200.frost?raw';
-import ichimoku from '../../../crates/formula/sources/ichimoku.frost?raw';
-import keltner from '../../../crates/formula/sources/keltner.frost?raw';
-import keylevels from '../../../crates/formula/sources/keylevels.frost?raw';
-import macd from '../../../crates/formula/sources/macd.frost?raw';
-import moon from '../../../crates/formula/sources/moon.frost?raw';
-import ribbon from '../../../crates/formula/sources/ribbon.frost?raw';
-import rsi from '../../../crates/formula/sources/rsi.frost?raw';
-import sessions from '../../../crates/formula/sources/sessions.frost?raw';
-import sma from '../../../crates/formula/sources/sma.frost?raw';
-import stochrsi from '../../../crates/formula/sources/stochrsi.frost?raw';
-import supertrend from '../../../crates/formula/sources/supertrend.frost?raw';
-import swingmap from '../../../crates/formula/sources/swingmap.frost?raw';
-import volume from '../../../crates/formula/sources/volume.frost?raw';
-import vwap from '../../../crates/formula/sources/vwap.frost?raw';
+import atr from '../../../crates/frost-script/sources/atr.frost?raw';
+import avwap from '../../../crates/frost-script/sources/avwap.frost?raw';
+import bb from '../../../crates/frost-script/sources/bb.frost?raw';
+import ema from '../../../crates/frost-script/sources/ema.frost?raw';
+import ema200 from '../../../crates/frost-script/sources/ema200.frost?raw';
+import ichimoku from '../../../crates/frost-script/sources/ichimoku.frost?raw';
+import keltner from '../../../crates/frost-script/sources/keltner.frost?raw';
+import keylevels from '../../../crates/frost-script/sources/keylevels.frost?raw';
+import macd from '../../../crates/frost-script/sources/macd.frost?raw';
+import moon from '../../../crates/frost-script/sources/moon.frost?raw';
+import ribbon from '../../../crates/frost-script/sources/ribbon.frost?raw';
+import rsi from '../../../crates/frost-script/sources/rsi.frost?raw';
+import sessions from '../../../crates/frost-script/sources/sessions.frost?raw';
+import sma from '../../../crates/frost-script/sources/sma.frost?raw';
+import stochrsi from '../../../crates/frost-script/sources/stochrsi.frost?raw';
+import supertrend from '../../../crates/frost-script/sources/supertrend.frost?raw';
+import swingmap from '../../../crates/frost-script/sources/swingmap.frost?raw';
+import volume from '../../../crates/frost-script/sources/volume.frost?raw';
+import vwap from '../../../crates/frost-script/sources/vwap.frost?raw';
 
 /** The built-in indicators' workings, by study kind or layer, as scripts: what their Source tab shows. */
 export const SOURCES: Record<string, { name: string; source: string }> = {

@@ -1,5 +1,5 @@
 [package]
-name = "tradoor-formula"
+name = "tradoor-frost-script"
 description = "Frost Script: tradoor's small language for indicators of one's own. Parsed and run here alone: it reads candles and gives back lines, with nothing in it that reaches a page, a network, storage or an account."
 version.workspace = true
 license.workspace = true

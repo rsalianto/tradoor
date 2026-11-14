@@ -194,7 +194,7 @@ export interface FormulaInput {
   options: string[];
 }
 
-/** A formula checked (crates/formula): what it offers and draws, or its first mistake, by line and column. */
+/** A formula checked (crates/frost-script): what it offers and draws, or its first mistake, by line and column. */
 export type FormulaDescription =
   | { ok: true; ownPane: boolean; inputs: FormulaInput[]; plots: { kind: string; color: number | null; title: string }[]; marks: string[]; draws: boolean }
   | { ok: false; line: number; col: number; message: string };

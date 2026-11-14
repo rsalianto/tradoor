@@ -27,7 +27,7 @@
 //! A text's line breaks are written as ␟ (0x1F), and its tabs as spaces.
 use std::cell::RefCell;
 
-use tradoor_formula::{describe, run, Bars, Error, InputKind, PlotKind, PlotStyle};
+use tradoor_frost_script::{describe, run, Bars, Error, InputKind, PlotKind, PlotStyle};
 
 #[derive(Default)]
 struct Out {

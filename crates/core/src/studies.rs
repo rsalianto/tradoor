@@ -30,7 +30,7 @@ pub enum StudyKind {
     SwingMap,
     OpenInterest,
     Flow,
-    /// One of the reader's own formulas (crates/formula): its lines come worked out, from the page.
+    /// One of the reader's own formulas (crates/frost-script): its lines come worked out, from the page.
     Formula,
 }
 
@@ -132,7 +132,7 @@ const VWAP_ANCHORS: [&str; 5] = ["Session", "Week", "Month", "Year", "Quarter"];
 /// The last period's levels, as the chart labels them: `pMVAH` is last month's.
 const VWAP_PREVIOUS: [[&str; 3]; 5] = [["pDVAH", "pDVWAP", "pDVAL"], ["pWVAH", "pWVWAP", "pWVAL"], ["pMVAH", "pMVWAP", "pMVAL"], ["pYVAH", "pYVWAP", "pYVAL"], ["pQVAH", "pQVWAP", "pQVAL"]];
 
-/// The colours a formula names (crates/formula): its line, and the shade of a fill in it.
+/// The colours a formula names (crates/frost-script): its line, and the shade of a fill in it.
 pub const FORMULA_COLORS: [(&str, &str, &str); 12] = [
     ("green", "#26a69a", "#26a69a26"),
     ("lime", "#aafd35", "#aafd3526"),

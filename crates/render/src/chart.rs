@@ -920,7 +920,7 @@ impl Chart {
     }
 
     /// A script's lines, fills, marks, shapes and table, as the formula module gave them
-    /// (crates/formula-wasm): a part a line, tab-separated, whole numbers only, and the
+    /// (crates/frost-script-wasm): a part a line, tab-separated, whole numbers only, and the
     /// values each part has after it, in the same order. Values for other bars than
     /// these — the window moved since — are let go.
     pub fn set_formula(&mut self, id: &str, label: &str, meta: &str, values: &[f64]) {
