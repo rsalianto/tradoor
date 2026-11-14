@@ -37,7 +37,7 @@
 <p align="center">
   <picture>
     <source type="image/avif" srcset="https://raw.githubusercontent.com/tradoor-terminal/tradoor/main/docs/screenshots/demo.avif">
-    <img src="docs/screenshots/demo.webp" alt="A tour of the live site: a BTCUSDT chart panned and zoomed, the same chart as TPO profiles by day and as a footprint, six charts on one screen, and the DOM and tape" width="100%">
+    <img src="docs/screenshots/demo.webp" alt="A tour of the live site: a BTCUSDT chart panned and zoomed, a footprint up close in delta and bid × ask, TPO profiles by day, a Frost Script swing map, six charts on one screen, the DOM and tape, and the Community showcase" width="100%">
   </picture>
 </p>
 
@@ -154,7 +154,7 @@ tradoor's own language for indicators.
 - **Community:** share a script under a username chosen once, with a description. Every public one is drawn live on the [showcase](https://tradoorterminal.com/community.html).
 - **Docs:** the [reference](https://tradoorterminal.com/doc.html) has the whole language.
 
-A script can only draw on its chart. It runs in a WebAssembly module that imports nothing, has no way to reach the network, the page or an account, and is held to limits on depth, memory and work. The worst a script can do is draw a wrong line.
+A script can only draw on its chart. It runs in a WebAssembly module that imports nothing, has no way to reach the network, the page or an account, and is held to limits on depth, memory and work. The worst a script can do is draw a wrong line. How it is built: [crates/formula](crates/formula/README.md).
 
 ## Run it
 
