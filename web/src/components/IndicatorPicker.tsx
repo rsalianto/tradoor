@@ -308,6 +308,10 @@ export function IndicatorPicker(props: { panel: ChartPanelState; onClose(): void
             >
               <Show when={!communityError()} fallback={<p class="warn">▲ The Community did not load: {communityError()}</p>}>
                 <p>{community() ? 'No public scripts yet. Make one of yours public in the editor, and it is listed here under your username.' : 'Loading the Community…'}</p>
+                {/* The showcase is never empty: tradoor's own scripts are there, drawn live. */}
+                <a class="ind-hint" href="/community.html" target="_blank" rel="noopener">
+                  The showcase, with tradoor's own scripts ↗
+                </a>
               </Show>
             </Show>
           }
