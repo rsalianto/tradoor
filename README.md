@@ -7,7 +7,7 @@
 <h1 align="center">tradoor terminal</h1>
 
 <p align="center">
-  <b>A fast trading terminal in the browser.</b><br>
+  <b>A trading terminal in the browser, built for speed.</b><br>
   Charts, market profile, footprints, a DOM and your own indicators, drawn by a Rust engine in WebAssembly, live from fourteen exchanges.
 </p>
 
@@ -41,11 +41,17 @@
   </picture>
 </p>
 
-- **Fast.** The chart engine is Rust in a Web Worker, drawing with WebGL2. The page thread never touches a candle.
-- **Order flow.** DOM, tape, footprints, TPO profiles, liquidations and net taker flow.
-- **Live.** Fourteen exchanges streamed straight to the browser.
-- **Your own indicators.** Frost Script, a small safe language, with a Community to share them.
-- **Free and open.** AGPL-3.0, one Docker image to host it yourself.
+**⚡ Light and fast.** The chart engine is Rust in a Web Worker, drawing with WebGL2 on an OffscreenCanvas, so the page thread never touches a candle. A minute chart with months behind it costs what one opened today does.
+
+**📊 Order flow and market profile.** A DOM and a tape on fourteen exchanges, TPO profiles by session, footprints with bid and ask at every price, liquidations and net taker flow.
+
+**🔥 Live from the source.** Fourteen exchanges streamed straight to the browser: trades fold into the forming bar and order books fill the DOM.
+
+**❄️ Your own indicators.** Frost Script, a small language that can only draw on its chart, with a Community to share scripts in.
+
+**📓 Journal and training.** Every position you draw becomes a trade that price settles, and a paper account trades Binance's perpetuals at live prices.
+
+**🔓 Free and open.** AGPL-3.0, and one Docker image to host it yourself.
 
 ## Features
 
