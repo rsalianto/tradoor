@@ -17,7 +17,7 @@
   <img alt="SolidJS" src="https://img.shields.io/badge/UI-SolidJS-2c4f7c?style=flat-square&logo=solid&logoColor=white">
   <img alt="PostgreSQL 18" src="https://img.shields.io/badge/PostgreSQL-18-336791?style=flat-square&logo=postgresql&logoColor=white">
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-3a3a3a?style=flat-square">
-  <a href="https://github.com/rsalianto/tradoor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rsalianto/tradoor?style=flat-square&color=aafd35&labelColor=3a3a3a"></a>
+  <a href="https://github.com/tradoor-terminal/tradoor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tradoor-terminal/tradoor?style=flat-square&color=aafd35&labelColor=3a3a3a"></a>
 </p>
 
 <p align="center">
@@ -31,12 +31,12 @@
   <a href="#self-hosting">Self-hosting</a> ·
   <a href="#security">Security</a> ·
   <a href="docs/architecture.md">Architecture</a> ·
-  <a href="https://github.com/rsalianto/tradoor/discussions">Discussions</a>
+  <a href="https://github.com/tradoor-terminal/tradoor/discussions">Discussions</a>
 </p>
 
 <p align="center">
   <picture>
-    <source type="image/avif" srcset="https://raw.githubusercontent.com/rsalianto/tradoor/main/docs/screenshots/demo.avif">
+    <source type="image/avif" srcset="https://raw.githubusercontent.com/tradoor-terminal/tradoor/main/docs/screenshots/demo.avif">
     <img src="docs/screenshots/demo.webp" alt="A tour of the live site: a BTCUSDT chart panned and zoomed, the same chart as TPO profiles by day and as a footprint, six charts on one screen, and the DOM and tape" width="100%">
   </picture>
 </p>

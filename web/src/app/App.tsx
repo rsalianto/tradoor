@@ -378,7 +378,7 @@ function StatusBar() {
       </For>
       <span class="spacer" />
       <span classList={{ warn: saveState() === 'local' || saveState() === 'conflict' }}>{SAVE_TEXT[saveState()]}</span>
-      <a class="gh" href="https://github.com/rsalianto/tradoor" target="_blank" rel="noopener" data-tip="tradoor on GitHub — open source, AGPL-3.0" aria-label="tradoor on GitHub">
+      <a class="gh" href="https://github.com/tradoor-terminal/tradoor" target="_blank" rel="noopener" data-tip="tradoor on GitHub — open source, AGPL-3.0" aria-label="tradoor on GitHub">
         <Icon name="github" size={13} fill stroke={0} />
       </a>
     </footer>
