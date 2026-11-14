@@ -699,12 +699,18 @@ export function distribution(rows: TradeRow[]): { unit: 'R' | '%'; bins: { from:
   const inR = closed.filter((t) => Number.isFinite(t.r)).length >= closed.length * 0.8 && closed.length > 0;
   const xs = closed.map((t) => (inR ? t.r : t.ret * 100)).filter(Number.isFinite);
   if (xs.length === 0) return { unit: inR ? 'R' : '%', bins: [] };
-  const lo = Math.min(...xs);
-  const hi = Math.max(...xs);
-  const count = Math.min(24, Math.max(6, Math.ceil(Math.sqrt(xs.length))));
-  const width = hi > lo ? (hi - lo) / count : 1;
-  const bins = Array.from({ length: count }, (_, i) => ({ from: lo + i * width, to: lo + (i + 1) * width, count: 0 }));
-  for (const x of xs) bins[Math.min(count - 1, Math.floor((x - lo) / width))]!.count += 1;
+  // The 2nd to the 98th percentile across, the rest in the end bins: one far winner leaves the others their room.
+  const sorted = xs.slice().sort((a, b) => a - b);
+  const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
+  const lo = Math.min(0, at(0.02));
+  const hi = Math.max(0, at(0.98));
+  const want = Math.min(24, Math.max(6, Math.ceil(Math.sqrt(xs.length))));
+  const width = hi > lo ? (hi - lo) / want : 1;
+  // Edges on zero: each bin wholly a loss or wholly a win.
+  const first = Math.floor(lo / width);
+  const count = Math.max(1, Math.ceil(hi / width) - first);
+  const bins = Array.from({ length: count }, (_, i) => ({ from: (first + i) * width, to: (first + i + 1) * width, count: 0 }));
+  for (const x of xs) bins[Math.max(0, Math.min(count - 1, Math.floor(x / width) - first))]!.count += 1;
   return { unit: inR ? 'R' : '%', bins };
 }
 

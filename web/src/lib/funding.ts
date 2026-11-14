@@ -50,7 +50,9 @@ export async function fundingRates(market: string, from: number, to: number): Pr
   if (!ref || !fundingKnown(market)) return null;
   const rows: [number, number][] = [];
   const add = (t: unknown, r: unknown) => {
-    const time = num(t);
+    // To the second: an exchange stamps a settlement a few milliseconds past the hour it is
+    // taken at, and a position filled at that hour's open came after it.
+    const time = Math.round(num(t) / 1000) * 1000;
     const rate = num(r);
     if (Number.isFinite(time) && Number.isFinite(rate) && time >= from && time <= to) rows.push([time, rate]);
   };

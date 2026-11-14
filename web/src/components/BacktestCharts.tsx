@@ -188,8 +188,14 @@ function Spread(props: { rows: TradeRow[] }) {
 
 function Excursion(props: { rows: TradeRow[] }) {
   const pts = createMemo(() => props.rows.filter((t) => !t.open).slice(-800));
-  const most = () => Math.max(0.001, ...pts().map((t) => t.mae));
-  const range = () => Math.max(0.001, ...pts().map((t) => Math.abs(t.ret)));
+  // Scaled to the 95th percentile, a far one held at the edge: one outlier would flatten the rest.
+  const p95 = (xs: number[]) => {
+    const s = xs.slice().sort((a, b) => a - b);
+    return Math.max(0.001, s[Math.min(s.length - 1, Math.floor(s.length * 0.95))] ?? 0);
+  };
+  const most = createMemo(() => p95(pts().map((t) => t.mae)));
+  const range = createMemo(() => p95(pts().map((t) => Math.abs(t.ret))));
+  const clip = (v: number) => Math.max(-1, Math.min(1, v));
   return (
     <figure class="bt-chart half">
       <figcaption>
@@ -198,11 +204,11 @@ function Excursion(props: { rows: TradeRow[] }) {
       <Show when={pts().length > 0} fallback={<p class="dim">No closed trades.</p>}>
         <svg viewBox="0 0 400 120" class="bt-svg" role="img" aria-label="Each trade's adverse excursion against its result">
           <line x1={0} x2={400} y1={60} y2={60} class="zero" />
-          <For each={pts()}>{(t) => <circle cx={(t.mae / most()) * 392 + 4} cy={60 - (t.ret / range()) * 54} r={2.2} class={t.pnl > 0 ? 'pos' : 'neg'} />}</For>
+          <For each={pts()}>{(t) => <circle cx={Math.min(1, t.mae / most()) * 392 + 4} cy={60 - clip(t.ret / range()) * 54} r={2.2} class={t.pnl > 0 ? 'pos' : 'neg'} />}</For>
         </svg>
         <div class="bt-axis row num dim">
           <span>0%</span>
-          <span>{pct(-most())} against</span>
+          <span>{pct(-most())} against, and past</span>
         </div>
       </Show>
     </figure>

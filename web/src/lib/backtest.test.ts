@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 import { assert, assertAlmostEquals, assertEquals } from 'jsr:@std/assert@1';
 import { TRADE_SIZE, type BacktestResult } from '../engine/protocol.ts';
-import { monteCarlo, monthly, orderNotice, rulesScript, rulesSource, settingsOf, sharedOf, shareOf, statsOf, tradesOf, withSettings } from './backtest.ts';
+import { monteCarlo, monthly, orderNotice, rulesScript, rulesSource, settingsOf, sharedOf, shareOf, statsOf, tradesCsv, tradesOf, withSettings } from './backtest.ts';
 import { DEFAULT_RULES, DEFAULT_SETTINGS, defaultBacktest, readBacktest } from './backtest-state.ts';
 
 const HOUR = 3_600_000;
@@ -147,4 +147,14 @@ Deno.test('a notice for an order only once a new bar has closed', () => {
   assertEquals(orderNotice({ ...later, next: 1 }, first.seen).what, 'Long at the next open');
   assertEquals(orderNotice({ ...later, next: 2 }, first.seen).what, 'Exit at the next open');
   assertEquals(orderNotice({ ...later, next: 0 }, first.seen).what, '');
+});
+
+Deno.test('the trades as a spreadsheet', () => {
+  const r = report([10_000, 10_500, 10_200], [[1, 0, 1, 500, 10_000, 250], [0, 1, 2, -300, 10_500, Number.NaN]]);
+  const lines = tradesCsv(tradesOf(r.trades), 'binance-perp:BTCUSDT').split('\n');
+  assertEquals(lines.length, 3);
+  assertEquals(lines[0]!.split(',').length, 18);
+  const first = lines[1]!.split(',');
+  assertEquals([first[0], first[1], first[2], first[9], first[11], first[14]], ['1', 'binance-perp:BTCUSDT', 'Long', '500.00', '2.00', 'Signal']);
+  assertEquals(lines[2]!.split(',')[11], '', 'no R without a stop');
 });
