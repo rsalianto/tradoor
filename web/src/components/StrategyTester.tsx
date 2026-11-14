@@ -123,7 +123,7 @@ export function StrategyTester(props: TesterProps) {
                 <span class={tone(s().net)}>{pct(s().netPct)}</span>
                 <span data-tip="The deepest fall of the equity from a high">DD {pct(-s().maxDdPct)}</span>
                 <span data-tip="What the winners made over what the losers lost">PF {ratio(s().profitFactor)}</span>
-                <span>{s().trades} trades</span>
+                <span>{s().closed === 0 && s().trades > 0 ? '1 open trade' : `${s().closed} ${s().closed === 1 ? 'trade' : 'trades'}${s().trades > s().closed ? ' · 1 open' : ''}`}</span>
                 <span class="bt-wide">Win {pct(s().winRate, false)}</span>
               </>
             )}
@@ -318,6 +318,7 @@ function Summary(props: TesterProps & { result: Ok; rows: TradeRow[]; stats: Sta
           )}
         </Show>
       </div>
+      <For each={warnings(props)}>{(w) => <p class="bt-warn">▲ {w}</p>}</For>
       <ul class="bt-notes dim">
         <li>
           {r().time.length.toLocaleString('en-US')} bars of {props.timeframe}, {when(first())} to {when(last())}
@@ -355,6 +356,34 @@ function Summary(props: TesterProps & { result: Ok; rows: TradeRow[]; stats: Sta
       </ul>
     </div>
   );
+}
+
+/**
+ * What in the result is the strategy's doing rather than the market's, said so it is not
+ * read as the tester's: a position nothing closes, and a side whose rules never came true.
+ */
+function warnings(props: TesterProps & { result: Ok; rows: TradeRow[]; stats: Stats | null }): string[] {
+  const out: string[] = [];
+  const st = props.state;
+  const s = st.settings;
+  const rows = props.rows;
+  const open = rows.find((t) => t.open);
+  const guarded = s.stop.kind !== 'none' || s.target.kind !== 'none' || s.trail.kind !== 'none' || s.maxBars > 0;
+  if (open && rows.length === 1 && !guarded) {
+    const side = open.long ? 'long' : 'short';
+    const exits = st.source === 'rules' ? (open.long ? st.rules.exitLong : st.rules.exitShort).list.length : 1;
+    out.push(`Its one trade, a ${side} since ${when(open.entryTime)}, is still open, so there is no win rate or profit factor yet: ${exits === 0 ? `no rule exits a ${side}, ` : ''}no stop or target is set, and the other side's entry never came to reverse it. Add an exit rule, or a stop or take profit under Account and orders.`);
+  }
+  if (st.source === 'rules') {
+    const sides: ['long' | 'short', boolean][] = [['long', true], ['short', false]];
+    for (const [side, long] of sides) {
+      const set = long ? st.rules.long : st.rules.short;
+      const wanted = (long && s.side !== 'short') || (!long && s.side !== 'long');
+      if (!wanted || set.list.length === 0 || rows.some((t) => t.long === long)) continue;
+      out.push(`No ${side} was entered: its ${set.list.length > 1 && set.all ? `${set.list.length} conditions were never all true on the same bar` : 'condition never came true'} on these ${props.result.time.length.toLocaleString('en-US')} bars.${set.list.length > 1 && set.all ? ' A cross and a level rarely meet on one bar: try “any of these”, or a level on its own.' : ''}`);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- the trades
