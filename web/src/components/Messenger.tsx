@@ -8,9 +8,13 @@
  * Loaded the first time it is opened; while open and on screen it asks for
  * what is new every few seconds, and nothing while it is shut.
  */
-import { createSignal, For, onCleanup, onMount, Show } from 'solid-js';
-import { api, errorText, type MessengerMessage } from '../lib/api';
+import { createResource, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { createStore } from 'solid-js/store';
+import { api, catalog, errorText, type MessengerMessage, type Product } from '../lib/api';
+import { dayOf, watchDay } from '../lib/day-feed';
+import { formatPct, formatPrice } from '../lib/format';
 import { Icon } from '../lib/icons';
+import { setPanelMarket, targetChart } from '../workspace/store';
 import { session } from '../lib/owner';
 import { noteOnline, online } from '../lib/presence';
 import { username } from '../lib/username';
@@ -22,6 +26,93 @@ const EMOJI = ['👍', '👎', '😂', '🤣', '😅', '😊', '😎', '🤔', '
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+// ---------------------------------------------------------------- $BTC, priced
+
+/** `$BTC`, `$1000PEPE`: a tag, a letter first. */
+const CASHTAG = /(\$[A-Za-z][A-Za-z0-9]{1,14})(?![A-Za-z0-9])/g;
+/** Markets streamed at once for the chips; past this a chip shows the catalogue's price. */
+const MOST_STREAMS = 12;
+
+const [products] = createResource(() => catalog().catch(() => null));
+
+/** The market a tag stands for: Binance's perpetual first, then its spot, another exchange's, or tradoor's own index. */
+function marketOfTag(tag: string): Product | null {
+  const c = products();
+  if (!c) return null;
+  const t = tag.toUpperCase();
+  for (const m of [`binance-perp:${t}USDT`, `binance-spot:${t}USDT`, `bybit-perp:${t}USDT`, `okx-perp:${t}USDT`, `hyperliquid-perp:${t}`, `index:${t}`]) {
+    const p = c.byMarket.get(m);
+    if (p) return p;
+  }
+  return null;
+}
+
+/** The last price and the day's open of each market a chip shows, one stream each however many chips. */
+const [quotes, setQuotes] = createStore<Record<string, { last: number; open: number }>>({});
+const streams = new Map<string, { n: number; off: () => void }>();
+function hold(market: string): void {
+  const s = streams.get(market);
+  if (s) {
+    s.n += 1;
+    return;
+  }
+  if (streams.size >= MOST_STREAMS) return;
+  const known = dayOf(market);
+  if (known) setQuotes(market, { last: known.close, open: known.open });
+  streams.set(market, { n: 1, off: watchDay(market, (d) => setQuotes(market, { last: d.close, open: d.open })) });
+}
+function release(market: string): void {
+  const s = streams.get(market);
+  if (!s) return;
+  s.n -= 1;
+  if (s.n <= 0) {
+    s.off();
+    streams.delete(market);
+  }
+}
+
+/** A `$TAG` that names a market: its price and the day's change, a click opens it on the chart. */
+function Cashtag(props: { tag: string }) {
+  const product = () => marketOfTag(props.tag.slice(1));
+  return (
+    <Show when={product()} fallback={<>{props.tag}</>} keyed>
+      {(p) => {
+        hold(p.market);
+        onCleanup(() => release(p.market));
+        const q = () => quotes[p.market];
+        const last = () => q()?.last ?? p.lastPrice;
+        const change = () => {
+          const v = q();
+          return v && v.open ? ((v.last - v.open) / v.open) * 100 : p.changePct;
+        };
+        return (
+          <button
+            class="cashtag"
+            classList={{ bull: (change() ?? 0) > 0, bear: (change() ?? 0) < 0 }}
+            data-tip={`${p.symbol} · open it on the chart`}
+            onClick={() => {
+              const chart = targetChart();
+              if (chart) setPanelMarket(chart.id, p.market);
+            }}
+          >
+            {props.tag.toUpperCase()}
+            <span class="px">{formatPrice(last(), p.priceDecimals ?? undefined)}</span>
+            <span class="pc">{formatPct(change())}</span>
+          </button>
+        );
+      }}
+    </Show>
+  );
+}
+
+/** A message's text, its `$TAG`s priced and everything else as it was written. */
+function Text(props: { text: string }) {
+  const parts = () => props.text.split(CASHTAG);
+  return (
+    <For each={parts()}>{(part, i) => (i() % 2 === 1 ? <Cashtag tag={part} /> : <>{part}</>)}</For>
+  );
+}
+
 export function Messenger(props: { onClose(): void }) {
   const [messages, setMessages] = createSignal<MessengerMessage[]>([]);
   const [loaded, setLoaded] = createSignal(false);
@@ -31,6 +122,16 @@ export function Messenger(props: { onClose(): void }) {
   const [emoji, setEmoji] = createSignal(false);
   /** The moderator's brake: only accounts with a username write while it is on. */
   const [accountsOnly, setAccountsOnly] = createSignal(false);
+  /** Messages this tab reported, so each says so. */
+  const [reported, setReported] = createSignal<ReadonlySet<number>>(new Set());
+  const report = async (id: number) => {
+    try {
+      await api.reportMessage(id);
+      setReported((r) => new Set([...r, id]));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
   let list!: HTMLDivElement;
   let input!: HTMLTextAreaElement;
   let last = 0;
@@ -133,6 +234,8 @@ export function Messenger(props: { onClose(): void }) {
           ✕
         </button>
       </header>
+      {/* Said always: the bait a link cannot carry is talk, and talk is answered here. */}
+      <p class="msgr-safe">tradoor never asks for your keys, seed phrase or login. No one here is tradoor staff.</p>
       <div class="msgr-list" ref={list}>
         <Show when={loaded()} fallback={<p class="msgr-note">Loading…</p>}>
           <Show when={messages().length > 0} fallback={<p class="msgr-note">No messages yet. Say hello.</p>}>
@@ -144,8 +247,20 @@ export function Messenger(props: { onClose(): void }) {
                       {m.name}
                     </span>
                     <span class="at">{clock(m.at)}</span>
+                    <button
+                      class="msgr-report"
+                      classList={{ done: reported().has(m.id) }}
+                      disabled={reported().has(m.id)}
+                      aria-label={reported().has(m.id) ? 'Reported' : `Report this message from ${m.name}`}
+                      data-tip={reported().has(m.id) ? 'Reported to the moderator' : 'Report to the moderator: spam, a scam or abuse'}
+                      onClick={() => void report(m.id)}
+                    >
+                      {reported().has(m.id) ? 'reported' : 'report'}
+                    </button>
                   </div>
-                  <div class="msgr-text">{m.text}</div>
+                  <div class="msgr-text">
+                    <Text text={m.text} />
+                  </div>
                 </div>
               )}
             </For>
@@ -173,7 +288,7 @@ export function Messenger(props: { onClose(): void }) {
           rows={1}
           maxlength={MAX_CHARS * 2}
           disabled={held()}
-          placeholder={held() ? 'Only accounts with a username can write for now' : as() ? `Write as ${as()} · no links` : 'Write as a guest · no links'}
+          placeholder={held() ? 'Only accounts with a username can write for now' : `Write as ${as() ?? 'a guest'}`}
           value={text()}
           onInput={(e) => {
             setText(e.currentTarget.value);
@@ -190,9 +305,10 @@ export function Messenger(props: { onClose(): void }) {
           <Icon name="send" size={15} />
         </button>
       </footer>
-      <Show when={!as()}>
-        <p class="msgr-hint">{session() ? 'Choose a username in Settings to write as @name.' : 'Sign in with Telegram and choose a username to write as @name.'}</p>
-      </Show>
+      <p class="msgr-hint">
+        $BTC shows its live price · no links
+        <Show when={!as()}>{session() ? ' · choose a username in Settings to write as @name' : ' · sign in with Telegram and choose a username to write as @name'}</Show>
+      </p>
     </section>
   );
 }

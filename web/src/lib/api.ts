@@ -620,6 +620,7 @@ export const api = {
   /** tradoor messenger: the messages newer than `after`, those taken down lately, and how many are here. */
   messenger: (after: number) => json<{ messages: MessengerMessage[]; gone: number[]; online: number; accountsOnly?: boolean }>(`/api/messenger?after=${after}`),
   sendMessage: (text: string) => json<MessengerMessage>('/api/messenger', { method: 'POST', body: { text } }),
+  reportMessage: (id: number) => send(`/api/messenger/${id}/report`, { method: 'POST' }),
   async health(): Promise<{ ok: boolean; db: boolean }> {
     // Asked once: this is the one read whose job is to tell of a bad moment.
     const { body } = await request<{ ok: boolean; db: boolean }>('/api/health', { once: true });

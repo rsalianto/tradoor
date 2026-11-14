@@ -21,6 +21,10 @@
 //!   cannot silence the accounts.
 //! - **A brake.** The moderator can let only signed-in accounts with a username
 //!   write, kept across restarts, while guests flood.
+//! - **No bait.** What phishing is made of when no link can be sent — asking
+//!   for a seed phrase or a key, "verify your wallet", an airdrop to claim, a
+//!   giveaway, "DM me" or a WhatsApp number, someone posing as support — is refused.
+//! - **Reports.** A reader can report a message; the moderator sees how many did.
 //! - **A name that is the sender's.** A signed-in account with a username writes
 //!   as `@username`; anyone else as a guest name worked out from the browser's id.
 //! - **A moderator.** On the status page, with the admin key: a message taken
@@ -28,7 +32,7 @@
 //!   by browser id and, while the server runs, by address. No address is ever
 //!   written to disk.
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -96,6 +100,8 @@ struct Room {
     muted: HashMap<String, i64>,
     /// A fingerprint of each sender's last text and when, so the same is not sent twice running.
     last: HashMap<String, (u64, i64)>,
+    /// Who reported each recent message, by browser id: each counted once.
+    reports: HashMap<i64, HashSet<String>>,
 }
 
 /// A text's fingerprint: enough to tell a repeat, and a few bytes however long the text.
@@ -205,7 +211,34 @@ pub fn cleaned(raw: &str) -> Result<String, &'static str> {
     if has_link(&text) {
         return Err("links can't be sent in tradoor messenger");
     }
+    if bait(&text) {
+        return Err("that reads like a scam, so it can't be sent: tradoor never asks anyone for keys, seed phrases or logins");
+    }
     Ok(text)
+}
+
+/// What a scam asks for, when it cannot send a link: keys and phrases, a wallet
+/// to "verify", something free to claim, a talk taken elsewhere, someone posing
+/// as support. Read in the text's plain form, spaces made single.
+const BAIT: &[&str] = &[
+    "seed phrase", "seedphrase", "recovery phrase", "secret phrase", "secret recovery", "mnemonic", "private key", "privatekey", "12 words", "24 words", "12-word", "24-word",
+    "verify your wallet", "validate your wallet", "sync your wallet", "connect your wallet", "wallet connect", "walletconnect", "rectify your wallet", "unlock your wallet",
+    "claim your airdrop", "claim airdrop", "airdrop claim", "free airdrop", "claim your reward", "claim reward", "giveaway", "give away", "double your", "send 1 get 2", "send and receive",
+    "guaranteed profit", "guaranteed return", "100% profit", "risk free profit", "recover your funds", "funds recovery", "recover lost", "investment plan",
+    "dm me", "d m me", "pm me", "inbox me", "message me on", "text me on", "whatsapp", "whats app", "telegram me", "add me on", "contact me on",
+    "contact support", "contact admin", "support team", "customer support", "customer service", "help desk", "account manager", "official support", "tradoor support", "tradoor team", "tradoor admin",
+    "frasa pemulihan", "kunci pribadi", "kunci privat", "hubungi admin", "chat admin", "hubungi saya", "japri", "klaim airdrop", "verifikasi dompet",
+];
+
+/// Whether the text asks for what a scam does: a phrase of `BAIT` standing as words of its own.
+pub fn bait(text: &str) -> bool {
+    let plain = skeleton(text).split_whitespace().collect::<Vec<_>>().join(" ");
+    let bounded = |at: usize, len: usize| {
+        let before = plain[..at].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+        let after = plain[at + len..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+        before && after
+    };
+    BAIT.iter().any(|b| plain.match_indices(b).any(|(at, _)| bounded(at, b.len())))
 }
 
 /// Endings read as an address even with spaces round the dot, or `dot` spelled
@@ -487,9 +520,33 @@ pub async fn moderate_list(State(state): State<AppState>, headers: HeaderMap) ->
         .recent
         .iter()
         .rev()
-        .map(|m| json!({ "id": m.id, "name": m.name, "signed": m.signed, "text": m.text, "at": m.at, "sender": short_owner(&m.owner) }))
+        .map(|m| json!({ "id": m.id, "name": m.name, "signed": m.signed, "text": m.text, "at": m.at, "sender": short_owner(&m.owner), "reports": room.reports.get(&m.id).map_or(0, HashSet::len) }))
         .collect();
     ([(header::CACHE_CONTROL, "no-store")], Json(json!({ "messages": list, "accountsOnly": state.messenger.accounts_only.load(Ordering::Relaxed) }))).into_response()
+}
+
+/// Reports from one browser: a few a minute.
+const REPORTER: Rate = Rate { name: "messenger-report", per_min: 10.0, burst: 5.0 };
+
+/// `POST /api/messenger/{id}/report`: this browser reports a message to the moderator, once.
+pub async fn report(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<i64>) -> ApiResult<StatusCode> {
+    let owner = owner(&headers)?;
+    if !state.limits.take(REPORTER, &owner) {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "too many reports: wait a minute".into()));
+    }
+    let mut room = state.messenger.room();
+    if !room.recent.iter().any(|m| m.id == id) {
+        return Err(ApiError::not_found("no such message: taken down already"));
+    }
+    if room.reports.len() >= KEEP * 2 {
+        let live: HashSet<i64> = room.recent.iter().map(|m| m.id).collect();
+        room.reports.retain(|id, _| live.contains(id));
+    }
+    let who = room.reports.entry(id).or_default();
+    if who.len() < 1_000 {
+        who.insert(owner);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
@@ -654,6 +711,29 @@ mod tests {
         ] {
             assert!(!has_link(talk), "{talk}");
             assert!(cleaned(talk).is_ok(), "{talk}");
+        }
+    }
+
+    #[test]
+    fn phishing_bait_is_refused_and_talk_is_not() {
+        for scam in [
+            "send me your seed phrase to unlock",
+            "Verify your wallet to claim",
+            "Claim your AIRDROP now",
+            "huge giveaway today",
+            "DM me for signals",
+            "D M  me",
+            "contact support on whatsapp",
+            "I am from tradoor support",
+            "double your BTC",
+            "kirim frasa pemulihan kamu",
+            "japri aja",
+        ] {
+            assert!(bait(scam), "{scam}");
+            assert!(cleaned(scam).is_err(), "{scam}");
+        }
+        for talk in ["send me your best setup", "wallet is safe on a hardware device", "the support level at 66k held", "airdrop season soon?", "double top on the 4h", "Ottawa meetup this week", "admin meme lol", "giveaways? no"] {
+            assert!(!bait(talk), "{talk}");
         }
     }
 

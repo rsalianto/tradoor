@@ -216,6 +216,7 @@
         const box = el('div', 'script');
         const head = el('div', 'head');
         head.append(el('span', m.signed ? 'pub' : 'name', m.name), el('span', 'meta', `${m.sender} · ${when(m.at)}`));
+        if (m.reports) head.append(el('span', 'gone', `⚑ ${n(m.reports)} ${m.reports === 1 ? 'report' : 'reports'}`));
         const acts = el('span', 'acts');
         const act = async (body, ask) => {
           if (ask && !confirm(ask)) return;
