@@ -11,6 +11,7 @@
 //! right; and wrong ones are refused past a few a minute from one address, and
 //! from everyone together.
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -44,6 +45,8 @@ pub struct Presence {
     key: Option<String>,
     started: i64,
     up: Instant,
+    /// How many are here now, as last worked out: what every page is told.
+    online: AtomicUsize,
 }
 
 /// How many are here, worked out at `now`.
@@ -66,7 +69,7 @@ impl Presence {
             }
             _ => Some(key.to_string()),
         };
-        let presence = Arc::new(Self { seen: Mutex::new(HashMap::new()), peak: Mutex::new((0, 0, 0)), key, started: now_ms(), up: Instant::now() });
+        let presence = Arc::new(Self { seen: Mutex::new(HashMap::new()), peak: Mutex::new((0, 0, 0)), key, started: now_ms(), up: Instant::now(), online: AtomicUsize::new(0) });
         let ticking = presence.clone();
         tokio::spawn(async move {
             let mut every = tokio::time::interval(TICK);
@@ -92,9 +95,15 @@ impl Presence {
         Counts { online: online_ids.len(), recent: seen.values().filter(|at| now - **at < RECENT_MS).count(), today: seen.values().filter(|at| **at >= day).count(), online_ids }
     }
 
+    /// How many have tradoor on screen now, worked out at the last tick: a number, never who.
+    pub fn online(&self) -> usize {
+        self.online.load(Ordering::Relaxed)
+    }
+
     /// The peak so far today, and the browsers not seen for a day let go.
     fn tick(&self, now: i64) {
         let online = self.counts(now).online;
+        self.online.store(online, Ordering::Relaxed);
         if let Ok(mut peak) = self.peak.lock() {
             let day = now.div_euclid(DAY_MS);
             if peak.0 != day {
@@ -126,11 +135,12 @@ fn now_ms() -> i64 {
     crate::liquidations::now_ms()
 }
 
-/// `POST /api/presence`: this browser has tradoor on screen.
-pub async fn ping(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<StatusCode> {
+/// `POST /api/presence`: this browser has tradoor on screen. Answered with how
+/// many have it on screen now, for the count beside the messenger.
+pub async fn ping(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let id = owner(&headers)?;
     state.presence.here(&id, now_ms());
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(json!({ "online": state.presence.online().max(1) })))
 }
 
 /// The answer for a request without the admin key; none for one with it.
@@ -234,7 +244,7 @@ mod tests {
     use super::*;
 
     fn presence(key: Option<&str>) -> Presence {
-        Presence { seen: Mutex::new(HashMap::new()), peak: Mutex::new((0, 0, 0)), key: key.map(str::to_string), started: 0, up: Instant::now() }
+        Presence { seen: Mutex::new(HashMap::new()), peak: Mutex::new((0, 0, 0)), key: key.map(str::to_string), started: 0, up: Instant::now(), online: AtomicUsize::new(0) }
     }
 
     #[test]

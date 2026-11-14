@@ -25,7 +25,7 @@ import { referralCard, startReferral } from '../lib/referral';
 import { editing, loadFormulas, setEditing } from '../lib/formulas';
 import { watchAnnouncements } from '../lib/announcement';
 import { AnnouncementBar } from '../components/AnnouncementBar';
-import { tellPresence } from '../lib/presence';
+import { online, tellPresence } from '../lib/presence';
 import { Layout, panelTitle } from '../workspace/Layout';
 import { ChartPanel } from '../panels/ChartPanel';
 import { addPanel, LINK_COLORS, newPanel, PANEL_TITLE, PANEL_TYPES, removePanel, tabsOf, TPO_SPLITS, type ChartPanelState, type DropZone, type LayoutNode, type Panel, type PanelType, type WatchlistPanelState } from '../workspace/model';
@@ -57,6 +57,7 @@ const Help = lazy(() => import('../components/Help').then((m) => ({ default: m.H
 const CommandPalette = lazy(() => import('../components/CommandPalette').then((m) => ({ default: m.CommandPalette })));
 const IndicatorPicker = lazy(() => import('../components/IndicatorPicker').then((m) => ({ default: m.IndicatorPicker })));
 const FormulaEditor = lazy(() => import('../components/FormulaEditor').then((m) => ({ default: m.FormulaEditor })));
+const Messenger = lazy(() => import('../components/Messenger').then((m) => ({ default: m.Messenger })));
 const Settings = lazy(() => import('../components/Settings').then((m) => ({ default: m.Settings })));
 const LayoutPicker = lazy(() => import('../components/LayoutPicker').then((m) => ({ default: m.LayoutPicker })));
 const LayoutsMenu = lazy(() => import('../components/LayoutsMenu').then((m) => ({ default: m.LayoutsMenu })));
@@ -357,6 +358,9 @@ const SAVE_TEXT = {
   conflict: 'another tab changed this layout',
 } as const;
 
+/** tradoor messenger, open or not: its panel is loaded the first time it is opened. */
+const [messengerOpen, setMessengerOpen] = createSignal(false);
+
 function StatusBar() {
   return (
     <footer class="statusbar">
@@ -378,9 +382,25 @@ function StatusBar() {
       </For>
       <span class="spacer" />
       <span classList={{ warn: saveState() === 'local' || saveState() === 'conflict' }}>{SAVE_TEXT[saveState()]}</span>
+      <button
+        class="msgr-btn"
+        classList={{ on: messengerOpen() }}
+        data-tip="tradoor messenger — talk with everyone here"
+        aria-label={`tradoor messenger, ${online()} online`}
+        aria-expanded={messengerOpen()}
+        onClick={() => setMessengerOpen((v) => !v)}
+      >
+        <Icon name="chat" size={13} />
+        <span class="dot" aria-hidden="true" />
+        <span class="num">{online() || '·'}</span>
+        <span class="lbl">online</span>
+      </button>
       <a class="gh" href="https://github.com/tradoor-terminal/tradoor" target="_blank" rel="noopener" data-tip="tradoor on GitHub — open source, AGPL-3.0" aria-label="tradoor on GitHub">
         <Icon name="github" size={13} fill stroke={0} />
       </a>
+      <Show when={messengerOpen()}>
+        <Messenger onClose={() => setMessengerOpen(false)} />
+      </Show>
     </footer>
   );
 }

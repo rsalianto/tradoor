@@ -83,6 +83,45 @@ kbd { border: 1px solid var(--border); background: var(--surface-2); padding: 0 
 .statusbar .hint-key { display: flex; align-items: center; gap: 4px; }
 .statusbar .gh { display: flex; color: var(--dim); }
 .statusbar .gh:hover { color: var(--text); }
+
+/* tradoor messenger: its button beside the GitHub mark, with how many are here, and its room above it. */
+.statusbar .msgr-btn { display: flex; align-items: center; gap: 5px; padding: 0 6px; height: 18px; border: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.statusbar .msgr-btn:hover, .statusbar .msgr-btn.on { color: var(--text); border-color: var(--primary); }
+.msgr-btn .dot, .msgr .live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 6px color-mix(in oklab, var(--primary) 70%, transparent); }
+.msgr-btn .num { color: var(--text); font-variant-numeric: tabular-nums; }
+.msgr { position: fixed; right: 8px; bottom: 30px; z-index: 70; display: flex; flex-direction: column; width: 340px; height: min(480px, calc(100dvh - 90px)); border: 1px solid var(--border); background: var(--surface); box-shadow: 0 16px 48px #000c; font-size: 12px; white-space: normal; color: var(--text); }
+.msgr > header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--primary); }
+.msgr > header .title { color: var(--text); font-weight: 700; }
+.msgr > header .live { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; }
+.msgr > header .x { margin-left: auto; padding: 2px 6px; color: var(--dim); }
+.msgr > header .x:hover { color: var(--primary); }
+.msgr-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; }
+.msgr-note { margin: auto; color: var(--dim); }
+.msgr-row { display: flex; flex-direction: column; gap: 2px; }
+.msgr-head { display: flex; align-items: baseline; gap: 8px; }
+.msgr-head .who { color: var(--muted); font-weight: 600; }
+.msgr-head .who.signed { color: var(--primary); }
+.msgr-head .at { color: var(--dim); font-size: 10px; }
+/* As written: line breaks kept, a long word wrapped, nothing in it a link. */
+.msgr-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; user-select: text; }
+.msgr-emoji { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; padding: 6px 8px; border-top: 1px solid var(--border); }
+.msgr-emoji button { padding: 3px 0; font-size: 17px; line-height: 1.2; border-radius: 4px; }
+.msgr-emoji button:hover { background: var(--surface-2); }
+.msgr-error { margin: 0; padding: 4px 10px; color: var(--warn); font-size: 11px; }
+.msgr > footer { display: flex; align-items: flex-end; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
+.msgr > footer textarea { flex: 1; min-width: 0; min-height: 30px; max-height: 96px; padding: 6px 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; resize: none; field-sizing: content; }
+.msgr > footer textarea:focus { border-color: var(--primary); outline: 0; }
+.msgr-tool, .msgr-send { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--border); color: var(--muted); }
+.msgr-tool:hover, .msgr-tool.on { color: var(--primary); border-color: var(--primary); }
+.msgr-send { background: var(--primary); border-color: var(--primary); color: var(--bg); }
+.msgr-send:disabled { background: transparent; border-color: var(--border); color: var(--dim); }
+.msgr-hint { margin: 0; padding: 0 10px 8px; color: var(--dim); font-size: 10px; }
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .statusbar .msgr-btn .lbl { display: none; }
+  /* On a phone, a sheet over the lower part of the screen, text at a size iOS does not zoom into. */
+  .msgr { left: 0; right: 0; bottom: 22px; width: auto; height: min(70dvh, calc(100dvh - 60px)); border-radius: 12px 12px 0 0; }
+  .msgr > footer textarea { font-size: 16px; }
+}
 /* Text in the bars of fixed height sits on its cap height, not on the font's
    whole line box: digits and capitals carry no descender, so a line box leaves
    the space under them empty and the text reads a pixel or two high — plain to

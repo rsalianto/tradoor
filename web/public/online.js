@@ -194,6 +194,52 @@
     return box;
   }
 
+  // ---- tradoor messenger: the newest messages, each taken down, or all its sender's with a mute.
+  let messagesRead = 0;
+  async function messages() {
+    messagesRead = Date.now();
+    const list = $('ms-list');
+    const res = await admin('/api/admin/messenger').catch(() => null);
+    if (!res?.ok) {
+      list.replaceChildren(el('div', 'empty', res ? `The server answered ${res.status}.` : 'No answer from the server.'));
+      return;
+    }
+    const { messages: rows } = await res.json();
+    set('ms-summary', rows.length ? `${n(rows.length)} ${rows.length === 1 ? 'message' : 'messages'}` : 'No messages');
+    if (!rows.length) {
+      list.replaceChildren(el('div', 'empty', 'No messages yet.'));
+      return;
+    }
+    list.replaceChildren(
+      ...rows.map((m) => {
+        const box = el('div', 'script');
+        const head = el('div', 'head');
+        head.append(el('span', m.signed ? 'pub' : 'name', m.name), el('span', 'meta', `${m.sender} · ${when(m.at)}`));
+        const acts = el('span', 'acts');
+        const act = async (body, ask) => {
+          if (ask && !confirm(ask)) return;
+          const r = await admin(`/api/admin/messenger/${m.id}`, { method: 'POST', body: JSON.stringify(body) }).catch(() => null);
+          if (!r?.ok) alert(`Not done: the server answered ${r ? r.status : 'nothing'}.`);
+          void messages();
+        };
+        const down = el('button', 'danger', 'Take down');
+        down.onclick = () => act({});
+        const day = el('button', 'danger', 'All + mute a day');
+        day.onclick = () => act({ all: true, hours: 24 }, `Take down every message of ${m.name} and mute them for a day?`);
+        const week = el('button', 'danger', 'All + mute a week');
+        week.onclick = () => act({ all: true, hours: 168 }, `Take down every message of ${m.name} and mute them for a week?`);
+        acts.append(down, day, week);
+        head.append(acts);
+        box.append(head, el('p', 'about', m.text));
+        return box;
+      }),
+    );
+  }
+  $('ms-refresh').addEventListener('click', () => void messages());
+  $('ms-fold').addEventListener('toggle', () => {
+    if ($('ms-fold').open && Date.now() - messagesRead > 5_000) void messages();
+  });
+
   // ---- the announcement atop the app: what is up, put up anew, or taken down.
   let announced = false;
   async function announcement() {
@@ -267,6 +313,7 @@
       set('state', res ? `● the server answered ${res.status}` : '● no answer', 'bad');
     }
     if (key && $('fx-fold').open && Date.now() - scriptsRead > 60_000) void scripts();
+    if (key && $('ms-fold').open && Date.now() - messagesRead > 15_000) void messages();
     if (document.visibilityState === 'visible') timer = setTimeout(read, EVERY_MS);
   }
 

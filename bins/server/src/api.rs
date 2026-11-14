@@ -25,6 +25,8 @@ pub struct AppState {
     pub presence: Arc<crate::presence::Presence>,
     /// What the owner tells every reader, from the status page.
     pub announcements: Arc<crate::announce::Board>,
+    /// tradoor messenger's room.
+    pub messenger: Arc<crate::messenger::Messenger>,
     pub data: DataDir,
     pub catalog: Arc<Catalog>,
     /// Absent when no ticker's liquidations are being kept.
@@ -126,6 +128,9 @@ pub fn router(state: AppState, data_dir: PathBuf, web_dir: Option<PathBuf>) -> R
     let api = Router::new()
         .route("/health", get(health))
         .route("/presence", axum::routing::post(crate::presence::ping))
+        .route("/messenger", get(crate::messenger::read).post(crate::messenger::send))
+        .route("/admin/messenger", get(crate::messenger::moderate_list))
+        .route("/admin/messenger/{id}", axum::routing::post(crate::messenger::moderate))
         .route("/admin/status", get(crate::presence::status))
         .route("/announcement", get(crate::announce::current))
         .route("/admin/announcement", get(crate::announce::read).put(crate::announce::publish).delete(crate::announce::take_down))

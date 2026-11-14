@@ -597,6 +597,15 @@ export interface CommunityScript {
 }
 
 /** A script as it is saved: a preview, when given, is the chart it is shared from. */
+/** One message in tradoor messenger: its sender's name, `@username` when signed, else a guest's. */
+export interface MessengerMessage {
+  id: number;
+  name: string;
+  signed: boolean;
+  text: string;
+  at: number;
+}
+
 export interface ScriptBody {
   name: string;
   source: string;
@@ -606,8 +615,11 @@ export interface ScriptBody {
 }
 
 export const api = {
-  /** This tab is on screen, for the count of those here now (lib/presence). */
-  here: () => send('/api/presence', { method: 'POST' }),
+  /** This tab is on screen, for the count of those here now (lib/presence); answered with that count. */
+  here: () => json<{ online: number }>('/api/presence', { method: 'POST' }),
+  /** tradoor messenger: the messages newer than `after`, those taken down lately, and how many are here. */
+  messenger: (after: number) => json<{ messages: MessengerMessage[]; gone: number[]; online: number }>(`/api/messenger?after=${after}`),
+  sendMessage: (text: string) => json<MessengerMessage>('/api/messenger', { method: 'POST', body: { text } }),
   async health(): Promise<{ ok: boolean; db: boolean }> {
     // Asked once: this is the one read whose job is to tell of a bad moment.
     const { body } = await request<{ ok: boolean; db: boolean }>('/api/health', { once: true });
