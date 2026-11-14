@@ -24,6 +24,9 @@
 //! - **No bait.** What phishing is made of when no link can be sent — asking
 //!   for a seed phrase or a key, "verify your wallet", an airdrop to claim, a
 //!   giveaway, "DM me" or a WhatsApp number, someone posing as support — is refused.
+//! - **No wallets.** A wallet address — Ethereum's and every EVM chain's, Bitcoin's,
+//!   TRON's, Solana's and the like — or a long hex string (a key, a hash) is
+//!   refused: "send to this address" is the scam a link cannot carry.
 //! - **Reports.** A reader can report a message; the moderator sees how many did.
 //! - **A name that is the sender's.** A signed-in account with a username writes
 //!   as `@username`; anyone else as a guest name worked out from the browser's id.
@@ -211,6 +214,9 @@ pub fn cleaned(raw: &str) -> Result<String, &'static str> {
     if has_link(&text) {
         return Err("links can't be sent in tradoor messenger");
     }
+    if wallet(&text) {
+        return Err("wallet addresses and keys can't be sent in tradoor messenger");
+    }
     if bait(&text) {
         return Err("that reads like a scam, so it can't be sent: tradoor never asks anyone for keys, seed phrases or logins");
     }
@@ -229,6 +235,64 @@ const BAIT: &[&str] = &[
     "contact support", "contact admin", "support team", "customer support", "customer service", "help desk", "account manager", "official support", "tradoor support", "tradoor team", "tradoor admin",
     "frasa pemulihan", "kunci pribadi", "kunci privat", "hubungi admin", "chat admin", "hubungi saya", "japri", "klaim airdrop", "verifikasi dompet",
 ];
+
+/// Base58's letters: every digit but 0, every letter but `0 O I l`.
+fn base58(c: char) -> bool {
+    c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l')
+}
+
+/// Whether the text holds a wallet address or a key, whole or broken up by spaces and marks.
+pub fn wallet(text: &str) -> bool {
+    // The text as words of letters and digits, each with the one mark before it, if one.
+    let mut tokens: Vec<(String, Option<char>)> = Vec::new();
+    let mut word = String::new();
+    let mut before: Option<char> = None;
+    let mut marks = 0;
+    for c in text.chars().filter(|c| !matches!(c, '\u{200B}'..='\u{200F}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}')) {
+        if c.is_ascii_alphanumeric() {
+            word.push(c);
+            continue;
+        }
+        if !word.is_empty() {
+            tokens.push((std::mem::take(&mut word), if marks == 1 { before } else { None }));
+            marks = 0;
+        }
+        marks += 1;
+        before = Some(c);
+    }
+    if !word.is_empty() {
+        tokens.push((word, if marks == 1 { before } else { None }));
+    }
+    // A piece of an address: digits in it, or letters in both cases as no word has.
+    let piece = |t: &str| t.len() >= 3 && (t.chars().any(|c| c.is_ascii_digit()) || (t.chars().filter(char::is_ascii_uppercase).count() >= 2 && t.chars().any(|c| c.is_ascii_lowercase())));
+    // Pieces apart by one space or mark read as one: `0x742d 35Cc…`, `bc1q-xy2k…`.
+    let mut runs: Vec<String> = Vec::new();
+    for (t, mark) in &tokens {
+        let joins = mark.is_some_and(|m| " -.:_*,/|".contains(m)) && piece(t) && runs.last().is_some_and(|r| piece(r));
+        match runs.last_mut() {
+            Some(r) if joins => r.push_str(t),
+            _ => runs.push(t.clone()),
+        }
+    }
+    runs.iter().any(|r| {
+        let lower = r.to_ascii_lowercase();
+        let hex_after = |at: usize| lower[at..].chars().take_while(char::is_ascii_hexdigit).count();
+        // Ethereum and every EVM chain: 0x and forty hex digits.
+        if lower.match_indices("0x").any(|(at, _)| hex_after(at + 2) >= 38) {
+            return true;
+        }
+        // A key or a hash: forty hex digits or more, with letters among them as no number has.
+        if lower.len() >= 40 && lower.chars().all(|c| c.is_ascii_hexdigit()) && lower.chars().any(|c| c.is_ascii_alphabetic()) && lower.chars().any(|c| c.is_ascii_digit()) {
+            return true;
+        }
+        // Bitcoin's and Litecoin's bech32: bc1… / ltc1…, and a long tail.
+        if (lower.starts_with("bc1") || lower.starts_with("ltc1")) && lower.len() >= 25 {
+            return true;
+        }
+        // Base58 — Bitcoin's 1… and 3…, TRON's T…, Solana's, XRP's and more: long, both cases and digits, as no word is.
+        r.len() >= 25 && r.chars().all(base58) && r.chars().any(|c| c.is_ascii_uppercase()) && r.chars().any(|c| c.is_ascii_lowercase()) && r.chars().any(|c| c.is_ascii_digit())
+    })
+}
 
 /// Whether the text asks for what a scam does: a phrase of `BAIT` standing as words of its own.
 pub fn bait(text: &str) -> bool {
@@ -840,6 +904,42 @@ mod tests {
         }
         for talk in ["send me your best setup", "wallet is safe on a hardware device", "the support level at 66k held", "airdrop season soon?", "double top on the 4h", "Ottawa meetup this week", "admin meme lol", "giveaways? no"] {
             assert!(!bait(talk), "{talk}");
+        }
+    }
+
+    #[test]
+    fn wallet_addresses_and_keys_are_refused_and_talk_is_not() {
+        for w in [
+            "send to 0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+            "CA: 0x742d35cc6634c0532925a3b844bc454e4438f44e",
+            "0x742d 35Cc 6634 C053 2925 a3b8 44Bc 454e 4438 f44e",
+            "0x742d-35Cc-6634-C053-2925-a3b8-44Bc-454e-4438-f44e",
+            "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+            "btc: 1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
+            "TRON TJCnKsPa7y5okkXvQAidZBzqx3QyQ6sxMW",
+            "sol 7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV",
+            "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh",
+            "key 4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+        ] {
+            assert!(wallet(w), "{w}");
+            assert!(cleaned(w).is_err(), "{w}");
+        }
+        for talk in [
+            "BTC 67000, ETH 1900, 1000PEPE pumping",
+            "0x is a cool project",
+            "long 0.5 BTC at 67,123.45 stop 66,800",
+            "TP1 68000 TP2 69500 TP3 71000",
+            "BitcoinToTheMoonAndBeyondForever",
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "what a dump 😭😭😭",
+            "Bitcoin is pumping today 5 guys and Solana too 3x",
+            "67123 67500 68000 68500 69000 69500 70000 70500 71000 71500",
+            "McDonald JavaScript iPhone 15 Pro Max 256GB",
+            "RSI 14 at 26.11, MACD 12 26 9, EMA 200",
+            "TP1 67,500 · TP2 68,200 · SL 66,100 · RR 2.4",
+        ] {
+            assert!(!wallet(talk), "{talk}");
         }
     }
 
