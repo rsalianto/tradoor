@@ -1625,6 +1625,10 @@ textarea.jr-in { resize: vertical; line-height: 1.5; }
 .fx-gutter .bad { color: var(--bear); font-weight: 700; }
 .fx-text { flex: 1; min-width: 0; padding: 8px 10px; border: 0; outline: 0; resize: none; background: none; color: var(--text); font: inherit; font-size: 12px; line-height: 18px; white-space: pre; overflow: auto; tab-size: 2; caret-color: var(--primary); }
 .fx-status { min-height: 18px; font-size: 11px; }
+.fx-mend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 6px; border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent); background: color-mix(in oklab, var(--warn) 7%, transparent); font-size: 11px; }
+.fx-mend.done { border-color: var(--border); background: var(--surface-2); }
+.fx-mend .dbtn { height: 22px; padding: 0 8px; font-size: 11px; }
+.fx-mend ul { width: 100%; margin: 2px 0 0; padding-left: 16px; }
 .fx-status .ok { color: var(--bull); }
 .fx-error { padding: 0; border: 0; background: none; color: var(--warn); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
 .fx-error:hover { text-decoration: underline; }

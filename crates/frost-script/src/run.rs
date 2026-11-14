@@ -831,17 +831,19 @@ impl Machine<'_> {
                     };
                     let sig = &mut self.signals;
                     match order {
-                        Order::Long => {
-                            sig.long = truth(v);
+                        // Given true anywhere on the bar, it stands; the last one given true sets its limit.
+                        Order::Long if truth(v) => {
+                            sig.long = true;
                             sig.long_at = at;
                         }
-                        Order::Short => {
-                            sig.short = truth(v);
+                        Order::Short if truth(v) => {
+                            sig.short = true;
                             sig.short_at = at;
                         }
-                        Order::Exit => sig.exit = truth(v),
-                        Order::Stop => sig.stop = v,
-                        Order::Target => sig.target = v,
+                        Order::Exit if truth(v) => sig.exit = true,
+                        Order::Stop => sig.stop = Some(v),
+                        Order::Target => sig.target = Some(v),
+                        _ => {}
                     }
                 }
                 Run::Eval(e) => {

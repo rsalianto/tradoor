@@ -16,6 +16,7 @@ import { splitList } from '../lib/study-style';
 import { Icon } from '../lib/icons';
 import { toast } from '../lib/toasts';
 import { doc, marketOf, patchPanel, timeframeOf } from '../workspace/store';
+import { mendable, mendPaste, mendScript, type Mended } from '../lib/mend';
 
 const CHECK_MS = 250;
 /** A description, in characters: at least, to share the script, and at most (bins/server scripts). */
@@ -55,14 +56,28 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
   let area!: HTMLTextAreaElement;
   let gutter!: HTMLDivElement;
 
+  /** What the last mending did, said under the script until it is typed in again. */
+  const [mended, setMended] = createSignal<Mended | null>(null);
+  const [mendHere, setCanMend] = createSignal(false);
+  const canMend = () => !mended() && mendHere();
+  const mend = () => {
+    const m = mendScript(source());
+    setSource(m.text);
+    setMended(m);
+  };
   // Checked a moment after typing stops, by the worker's formula module.
   createEffect(
     on(source, (text) => {
-      const timer = setTimeout(() => void describe(text).then((d) => text === source() && setCheck(d)), CHECK_MS);
+      const timer = setTimeout(() => {
+        void describe(text).then((d) => text === source() && setCheck(d));
+        // Whether mending would change it: worked out once typing stops, not on each key.
+        setCanMend(mendable(text));
+      }, CHECK_MS);
       onCleanup(() => clearTimeout(timer));
     }),
   );
   const lines = () => source().split('\n').length;
+
   const close = () => setEditing(null);
 
   const open = (f: { id?: string; name: string; source: string; public?: boolean; about?: string }) => {
@@ -292,11 +307,47 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
                 autocapitalize="off"
                 aria-label="Script"
                 value={source()}
-                onInput={(e) => setSource(e.currentTarget.value)}
+                onInput={(e) => {
+                  const v = e.currentTarget.value;
+                  // A paste from a chat that lost its line breaks: put back at once.
+                  if ((e as InputEvent).inputType === 'insertFromPaste') {
+                    const p = mendPaste(v);
+                    if (p.mended) {
+                      setSource(p.text);
+                      e.currentTarget.value = p.text;
+                      setMended({ text: p.text, changes: ['line breaks put back: the copy had lost them'], left: [] });
+                      return;
+                    }
+                  }
+                  setMended(null);
+                  setSource(v);
+                }}
                 onKeyDown={onTab}
                 onScroll={() => (gutter.scrollTop = area.scrollTop)}
               />
             </div>
+            <Show when={canMend()}>
+              <div class="fx-mend">
+                <span>This reads as a Pine Script conversion with Pine’s leftovers in it, or a copy that lost its line breaks.</span>
+                <button class="dbtn" onClick={mend}>
+                  Mend it
+                </button>
+              </div>
+            </Show>
+            <Show when={mended()}>
+              {(m) => (
+                <div class="fx-mend done">
+                  <span>
+                    <b>Mended:</b> {m().changes.join(' · ') || 'nothing to change'}.
+                  </span>
+                  <Show when={m().left.length > 0}>
+                    <ul>
+                      <For each={m().left}>{(l) => <li class="warn">{l}</li>}</For>
+                    </ul>
+                  </Show>
+                </div>
+              )}
+            </Show>
             <div class="fx-status">
               {/* Keyed: each new check is shown, not just the first. */}
               <Show when={check()} keyed fallback={<span class="dim">Checking…</span>}>

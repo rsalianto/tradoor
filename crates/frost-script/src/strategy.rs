@@ -189,13 +189,15 @@ pub struct Signals {
     pub short: bool,
     pub short_at: f64,
     pub exit: bool,
-    pub stop: f64,
-    pub target: f64,
+    /// A stop or target given on this bar: it stands from the next bar until another is given or the
+    /// position closes, as Pine's strategy.exit does. Given na, there is none.
+    pub stop: Option<f64>,
+    pub target: Option<f64>,
 }
 
 impl Default for Signals {
     fn default() -> Self {
-        Self { long: false, long_at: NA, short: false, short_at: NA, exit: false, stop: NA, target: NA }
+        Self { long: false, long_at: NA, short: false, short_at: NA, exit: false, stop: None, target: None }
     }
 }
 
@@ -753,6 +755,9 @@ impl<'a> Broker<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn record(&mut self, p: Pos, i: usize, t: f64, price: f64, fees: f64, pnl: f64, reason: Reason) {
+        // A closed position's stop and target go with it: the next is guarded by its own.
+        self.script_stop = NA;
+        self.script_target = NA;
         let (worst, best) = if p.long {
             ((p.entry - p.worst_seen.min(price)).max(0.0), (p.best_seen.max(price) - p.entry).max(0.0))
         } else {
@@ -803,8 +808,12 @@ impl<'a> Broker<'a> {
                 self.atr = (self.atr * (n - 1.0) + tr) / n;
             }
         }
-        self.script_stop = sig.stop;
-        self.script_target = sig.target;
+        if let Some(v) = sig.stop {
+            self.script_stop = v;
+        }
+        if let Some(v) = sig.target {
+            self.script_target = v;
+        }
         if let Some(p) = &mut self.pos {
             p.held += 1;
         }
@@ -818,7 +827,7 @@ impl<'a> Broker<'a> {
         let (want_long, want_short) = if want_long && want_short { (false, false) } else { (want_long, want_short) };
         let mut exit = None;
         let mut entry = None;
-        let order = |long: bool, at: f64| Entry { long, limit: at, stop: sig.stop, target: sig.target, atr: self.atr };
+        let order = |long: bool, at: f64| Entry { long, limit: at, stop: self.script_stop, target: self.script_target, atr: self.atr };
         match self.pos {
             Some(p) => {
                 let held_out = s.max_bars > 0 && p.held >= s.max_bars;

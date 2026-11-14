@@ -9,6 +9,7 @@ import { EXAMPLES, isPerp, OP_LABEL, operand, OPERAND_INFO, rulesSource, venueFe
 import { MAX_CODE, MAX_RULES, OPERANDS, OPS, type BacktestSettings, type Condition, type ExitSetting, type Operand, type RuleSet, type Rules } from '../lib/backtest-state';
 import { canWrite, community, describe, formulas, loadCommunity, setEditing, type Formula } from '../lib/formulas';
 import { Icon } from '../lib/icons';
+import { mendable, mendPaste, mendScript, type Mended } from '../lib/mend';
 import type { TesterProps } from './StrategyTester';
 
 const SOURCES = [
@@ -359,6 +360,7 @@ function CheckLine(props: { check: FormulaDescription | undefined }) {
 
 function CodeEditor(props: TesterProps) {
   const [text, setText] = createSignal(props.state.code);
+  const [mended, setMended] = createSignal<Mended | null>(null);
   createEffect(on(() => props.state.code, (c) => c !== text() && setText(c), { defer: true }));
   let timer: ReturnType<typeof setTimeout> | undefined;
   const type = (v: string) => {
@@ -400,7 +402,50 @@ function CodeEditor(props: TesterProps) {
           <code>long(condition)</code> and <code>short(condition)</code> enter, at the next open; <code>long(condition, price)</code> places a limit. <code>exit(condition)</code> closes, <code>stop(price)</code> and <code>target(price)</code> guard it. <code>inlong</code>, <code>inshort</code>, <code>entryprice</code> and <code>barsheld</code> read the position.
         </p>
       </Show>
-      <textarea class="bt-src" spellcheck={false} value={text()} placeholder={'input length = 20\naverage = ema(close, length)\nlong(crossover(close, average))\nexit(crossunder(close, average))'} onInput={(e) => type(e.currentTarget.value)} />
+      <textarea
+        class="bt-src"
+        spellcheck={false}
+        value={text()}
+        placeholder={'input length = 20\naverage = ema(close, length)\nlong(crossover(close, average))\nexit(crossunder(close, average))'}
+        onInput={(e) => {
+          // A paste from a chat that lost its line breaks: put back at once.
+          if ((e as InputEvent).inputType === 'insertFromPaste') {
+            const p = mendPaste(e.currentTarget.value);
+            if (p.mended) {
+              e.currentTarget.value = p.text;
+              setMended({ text: p.text, changes: ['line breaks put back: the copy had lost them'], left: [] });
+              type(p.text);
+              return;
+            }
+          }
+          setMended(null);
+          type(e.currentTarget.value);
+        }}
+      />
+      <Show when={!mended() && props.state.code && mendable(props.state.code)}>
+        <div class="bt-bar">
+          <span class="warn">This reads as a Pine Script conversion with Pine’s leftovers in it.</span>
+          <button
+            class="dbtn"
+            onClick={() => {
+              const m = mendScript(props.state.code);
+              setMended(m);
+              setText(m.text);
+              props.onChange({ code: m.text.slice(0, MAX_CODE) });
+            }}
+          >
+            Mend it
+          </button>
+        </div>
+      </Show>
+      <Show when={mended()}>
+        {(m) => (
+          <p class="bt-hint">
+            Mended: {m().changes.join(' · ') || 'nothing to change'}.
+            <For each={m().left}>{(l) => <span class="warn"> {l}.</span>}</For>
+          </p>
+        )}
+      </Show>
       <div class="bt-check-line">
         <Show when={props.state.code}>
           <CheckLine check={check()} />

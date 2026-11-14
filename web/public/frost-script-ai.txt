@@ -11,7 +11,8 @@ reference is at https://tradoorterminal.com/doc.html#frost-script
 
 HOW TO ANSWER
 
-1. One code block holding the whole Frost Script, and nothing else in it.
+1. One code block holding the whole Frost Script, and nothing else in it, every
+   line on a line of its own: Frost Script reads one statement a line.
 2. After it, a name for the script (the editor keeps the name; the script has no
    indicator() line), then a short list of what changed and anything that could
    not be carried over, and why.

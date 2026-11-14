@@ -353,15 +353,50 @@ fn the_furthest_against_and_for() {
 }
 
 #[test]
-fn orders_are_given_once_at_the_top_level() {
+fn a_strategy_needs_an_entry() {
     let c = cols(&flat(5));
     let bars = Bars { time: &c.time, open: &c.open, high: &c.high, low: &c.low, close: &c.close, volume: &c.volume };
-    let twice = backtest("long(close > 1)\nlong(close > 2)", &[], &bars, 2, plain(), Inner::default(), Funding::default());
-    assert!(twice.is_err_and(|e| e.message.contains("once a script")));
-    let inside = backtest("if close > 1 {\n  long(true)\n}", &[], &bars, 2, plain(), Inner::default(), Funding::default());
-    assert!(inside.is_err_and(|e| e.message.contains("top level")));
     let none = backtest("exit(true)", &[], &bars, 2, plain(), Inner::default(), Funding::default());
     assert!(none.is_err_and(|e| e.message.contains("long(condition)")));
+}
+
+#[test]
+fn orders_inside_if_as_pine_gives_them() {
+    let mut rows = flat(6);
+    rows[2] = (104.0, 106.0, 103.0, 105.0);
+    rows[4] = (110.0, 111.0, 109.0, 110.0);
+    let r = test("if bar == 1 {\n  long(true)\n}\nif bar == 3 {\n  exit(true)\n}", &rows, plain());
+    assert_eq!(r.trades.len(), 1);
+    assert_eq!((r.trades[0].entry_bar, r.trades[0].exit_bar), (2, 4));
+}
+
+#[test]
+fn an_entry_given_twice_stands_where_either_is_true() {
+    let rows = flat(8);
+    let r = test("long(bar == 1)\nlong(bar == 4)\nexit(bar == 2)", &rows, plain());
+    assert_eq!(r.trades.len(), 2);
+    assert_eq!(r.trades[1].entry_bar, 5);
+}
+
+#[test]
+fn a_stop_given_once_stands_until_the_position_closes() {
+    let mut rows = flat(8);
+    rows[5] = (100.0, 100.5, 96.0, 97.0);
+    // Given on the entry bar alone, as Pine's strategy.exit is: it guards the bars after it.
+    let r = test("long(bar == 1)\nif inlong and barsheld == 0 {\n  stop(entryprice - 3)\n}", &rows, plain());
+    let t = &r.trades[0];
+    assert_eq!(t.reason, Reason::Stop);
+    assert_eq!((t.exit_bar, t.exit_price), (5, 97.0));
+}
+
+#[test]
+fn a_closed_position_takes_its_stop_with_it() {
+    let mut rows = flat(10);
+    rows[7] = (100.0, 100.5, 95.0, 96.0);
+    // Stopped trade one's stop is gone: the second, entered at bar 5, has none and stays open.
+    let r = test("long(bar == 1 or bar == 4)\nexit(bar == 2)\nif bar == 1 {\n  stop(99)\n}", &rows, plain());
+    assert_eq!(r.trades.len(), 2);
+    assert_eq!(r.trades[1].reason, Reason::Open);
 }
 
 #[test]
@@ -392,4 +427,18 @@ fn the_order_waiting_for_the_next_open_is_said() {
     assert_eq!(r.next, 2);
     let r = test("long(bar == 1)", &rows, plain());
     assert_eq!(r.next, 0);
+}
+
+#[test]
+fn a_label_s_place_and_size_kept_in_variables_and_settings() {
+    let c = cols(&flat(5));
+    let bars = Bars { time: &c.time, open: &c.open, high: &c.high, low: &c.low, close: &c.close, volume: &c.volume };
+    // As converted scripts write them: the place worked out into a name, the size a choice setting.
+    let src = "input size = \"large\" from \"tiny\", \"small\", \"normal\", \"large\"\nwhere = close > open ? above : below\nif islast {\n  l = label(bar, close, \"x\", place = where, size = size)\n}";
+    let out = run(src, &[], &bars, 2).unwrap();
+    assert_eq!(out.labels.len(), 1);
+    assert_eq!((out.labels[0].place, out.labels[0].size), (1, 3));
+    // A variable of the same name as a word is the variable's.
+    let own = run("left = 7\nplot(left, \"L\")", &[], &bars, 2).unwrap();
+    assert_eq!(own.plots[0].values[0], 7.0);
 }

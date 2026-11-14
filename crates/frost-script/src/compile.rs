@@ -1239,11 +1239,9 @@ impl<'a> Compiler<'a> {
         let Expr::Call(name, args, named) = &node.expr else {
             return Err(Error::at(node.at, "this works out a value and keeps it nowhere: name it, as x = …"));
         };
+        // Anywhere, as Pine's strategy.entry is given inside an if: an order given on a bar stands for that bar.
         if let Some((_, order)) = ORDERS.iter().find(|(n, _)| *n == name.as_str()) {
-            if !top || !self.frames.is_empty() {
-                return Err(Error::at(node.at, format!("{name}(…) is a strategy's order, given on every bar: put it at the script's top level, outside if, for, while and functions")));
-            }
-            return Ok(vec![self.order(node, name, *order, args, named)?]);
+            return Ok(vec![self.order(node, name, *order, args, named, top && self.frames.is_empty())?]);
         }
         if DRAWS.contains(&name.as_str()) {
             if !top || !self.frames.is_empty() {
@@ -1335,6 +1333,13 @@ impl<'a> Compiler<'a> {
             Expr::Name(w) => {
                 if let Some((_, v)) = words.iter().find(|(n, _)| n == w) {
                     return Ok(Ex::Num(*v));
+                }
+                // A choice setting that holds one of the words: size = labelSize, from "tiny", "small"….
+                if let Some(Bind::ConstText(t)) = self.lookup(w) {
+                    let t = t.to_ascii_lowercase();
+                    if let Some((_, v)) = words.iter().find(|(n, _)| *n == t) {
+                        return Ok(Ex::Num(*v));
+                    }
                 }
                 self.num(node, false)
             }
@@ -1510,15 +1515,9 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    /// `long(condition, limit)`, `short(…)`, `exit(condition)`, `stop(price)`, `target(price)`: each once a script.
-    fn order(&mut self, node: &Node, name: &str, order: Order, args: &[Node], named: &[(String, Node)]) -> Result<Run, Error> {
-        if self.program.orders.contains(&order) {
-            let hint = match order {
-                Order::Long | Order::Short | Order::Exit => ": join its conditions with or",
-                _ => ": work its price out in one place",
-            };
-            return Err(Error::at(node.at, format!("{name}(…) once a script{hint}")));
-        }
+    /// `long(condition, limit)`, `short(…)`, `exit(condition)`, `stop(price)`, `target(price)`, as often as wanted:
+    /// an entry or exit given true anywhere on a bar is given, and a stop or target is the last one given.
+    fn order(&mut self, node: &Node, name: &str, order: Order, args: &[Node], named: &[(String, Node)], top: bool) -> Result<Run, Error> {
         let spec: &[&str] = match order {
             Order::Long | Order::Short => &["condition", "limit"],
             Order::Exit => &["condition"],
@@ -1526,12 +1525,14 @@ impl<'a> Compiler<'a> {
         };
         let a = self.bind(node.at, name, spec, args, named)?;
         let Some(first) = a[0] else { return Err(Error::at(node.at, shape(name, spec))) };
-        let value = self.num(first, true)?;
+        let value = self.num(first, top)?;
         let limit = match a.get(1).copied().flatten() {
-            Some(n) => Some(self.num(n, true)?),
+            Some(n) => Some(self.num(n, top)?),
             None => None,
         };
-        self.program.orders.push(order);
+        if !self.program.orders.contains(&order) {
+            self.program.orders.push(order);
+        }
         Ok(Run::Order(order, value, limit))
     }
 
@@ -1697,6 +1698,10 @@ impl<'a> Compiler<'a> {
             return Ok(Any::N(Ex::Num(f64::from(*c))));
         }
         if let Some((_, v)) = CONSTS.iter().find(|(n, _)| *n == w) {
+            return Ok(Any::N(Ex::Num(*v)));
+        }
+        // A label's place or size, kept in a variable as a script names it: place = up ? above : below.
+        if let Some((_, v)) = PLACES.iter().chain(SIZES.iter()).chain(EXTENDS.iter().filter(|(n, _)| *n == "both" || *n == "none")).find(|(n, _)| *n == w) {
             return Ok(Any::N(Ex::Num(*v)));
         }
         if MATH.iter().any(|(n, ..)| *n == w) || KEEPS.iter().any(|(n, ..)| *n == w) || self.functions.iter().any(|f| f.name == w) || SHAPES.contains(&w) {
