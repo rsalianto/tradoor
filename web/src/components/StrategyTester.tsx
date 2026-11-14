@@ -11,6 +11,7 @@ import type { PoolData } from '../engine/backtest-worker';
 import type { BacktestResult, StrategyRun } from '../engine/protocol';
 import { barOf, money, pct, ratio, REASONS, shareOf, span, statsOf, tradesCsv, tradesOf, venueFees, type Stats, type TradeRow } from '../lib/backtest';
 import type { BacktestState } from '../lib/backtest-state';
+import { mobile } from '../app/ui';
 import { Icon } from '../lib/icons';
 import { symbolOf } from '../lib/markets';
 import { formatAlertTime } from '../lib/timezone';
@@ -38,6 +39,8 @@ export interface TesterProps {
   onClose(): void;
   onShowSpan(from: number, to: number): void;
   onOpenMarket(market: string): void;
+  /** Docked beside the chart rather than under it. */
+  beside: boolean;
 }
 
 const TABS: { id: string; label: string }[] = [
@@ -70,9 +73,11 @@ export function StrategyTester(props: TesterProps) {
 
   let startY = 0;
   let startH = 0;
+  let startX = 0;
+  let startW = 0;
   const drag = (e: PointerEvent) => {
-    const h = Math.round(Math.min(window.innerHeight * 0.85, Math.max(140, startH + startY - e.clientY)));
-    props.onChange({ height: h });
+    if (props.beside) props.onChange({ width: Math.round(Math.min(window.innerWidth * 0.7, Math.max(300, startW + startX - e.clientX))) });
+    else props.onChange({ height: Math.round(Math.min(window.innerHeight * 0.85, Math.max(140, startH + startY - e.clientY))) });
   };
   const stop = () => {
     window.removeEventListener('pointermove', drag);
@@ -99,7 +104,7 @@ export function StrategyTester(props: TesterProps) {
   };
 
   return (
-    <section class="bt" style={{ height: `${props.state.height}px` }} aria-label="Strategy tester" onKeyDown={(e) => e.stopPropagation()}>
+    <section class="bt" classList={{ beside: props.beside }} style={props.beside ? { width: `${props.state.width}px` } : { height: `${props.state.height}px` }} aria-label="Strategy tester" onKeyDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
       <div
         class="bt-grip"
         aria-hidden="true"
@@ -107,6 +112,8 @@ export function StrategyTester(props: TesterProps) {
           e.preventDefault();
           startY = e.clientY;
           startH = props.state.height;
+          startX = e.clientX;
+          startW = props.state.width;
           window.addEventListener('pointermove', drag);
           window.addEventListener('pointerup', stop);
         }}
@@ -138,6 +145,11 @@ export function StrategyTester(props: TesterProps) {
         <button class="iconbtn" classList={{ on: props.state.alerts }} aria-label="Notify on the strategy's orders" data-tip={props.state.alerts ? 'A notice whenever a bar closes with an order, while tradoor is open · click to stop' : 'Tell me when a bar closes with an order, while tradoor is open'} onClick={() => void toggleAlerts(props)}>
           <Icon name="alarm" size={13} />
         </button>
+        <Show when={!mobile()}>
+          <button class="iconbtn" aria-label={props.beside ? 'Put the tester under the chart' : 'Put the tester beside the chart'} data-tip={props.beside ? 'Under the chart' : 'Beside the chart: the chart and the settings side by side'} onClick={() => props.onChange({ dock: props.beside ? 'bottom' : 'right' })}>
+            <Icon name={props.beside ? 'splitDown' : 'splitRight'} size={13} />
+          </button>
+        </Show>
         <button class="iconbtn" aria-label="Copy a link to this strategy" data-tip="Copy a link: this strategy and account, for anyone to test in their own browser" onClick={() => void share()}>
           <Icon name="link" size={13} />
         </button>

@@ -1010,6 +1010,29 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     }
   }
 
+  /** Beside the chart where the reader put it there, and never on a phone. */
+  const testerBeside = () => tester()?.dock === 'right' && !mobile();
+  const testerView = () => (
+          <StrategyTester
+            sid={sid}
+            state={tester()!}
+            result={backtest()}
+            run={strategyRun()}
+            beside={testerBeside()}
+            data={() => live?.data() ?? null}
+            market={market()}
+            timeframe={timeframe()}
+            bars={status().bars}
+            loading={status().loading}
+            exhausted={status().exhausted}
+            precision={price()?.precision ?? 2}
+            onChange={patchTester}
+            onClose={() => patchTester({ open: false })}
+            onShowSpan={(from, to) => send({ t: 'span', id: sid, from, to })}
+            onOpenMarket={(m) => setPanelMarket(id, m)}
+          />
+  );
+
   // ---------------------------------------------------------------- journal trades shown
 
   /** The journal's trades drawn where they went, on this chart when it is on their market's candles. */
@@ -2243,6 +2266,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
             )}
           </Show>
         </div>
+        <Show when={tester()?.open && testerBeside()}>{testerView()}</Show>
       </div>
 
       <Show when={studyEditing()?.panelId === id && studyEditing()!.id} keyed>
@@ -2344,27 +2368,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           <Icon name="reset" size={11} />
         </button>
       </div>
-      <Show when={tester()?.open}>
-        {(_) => (
-          <StrategyTester
-            sid={sid}
-            state={tester()!}
-            result={backtest()}
-            run={strategyRun()}
-            data={() => live?.data() ?? null}
-            market={market()}
-            timeframe={timeframe()}
-            bars={status().bars}
-            loading={status().loading}
-            exhausted={status().exhausted}
-            precision={price()?.precision ?? 2}
-            onChange={patchTester}
-            onClose={() => patchTester({ open: false })}
-            onShowSpan={(from, to) => send({ t: 'span', id: sid, from, to })}
-            onOpenMarket={(m) => setPanelMarket(id, m)}
-          />
-        )}
-      </Show>
+      <Show when={tester()?.open && !testerBeside()}>{testerView()}</Show>
     </div>
   );
 }

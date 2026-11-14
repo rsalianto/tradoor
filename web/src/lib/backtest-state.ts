@@ -76,8 +76,11 @@ export interface BacktestSettings {
 
 export interface BacktestState {
   open: boolean;
-  /** The tester's height, in pixels. */
+  /** The tester's height under the chart, and its width beside it, in pixels. */
   height: number;
+  width: number;
+  /** `bottom`: under the chart; `right`: beside it. */
+  dock: string;
   tab: string;
   /** `rules`, `code`, or `script`: one of the library's, by its study kind. */
   source: string;
@@ -131,6 +134,8 @@ export const DEFAULT_SETTINGS = (): BacktestSettings => ({
 export const defaultBacktest = (): BacktestState => ({
   open: true,
   height: 300,
+  width: 460,
+  dock: 'bottom',
   tab: 'summary',
   source: 'rules',
   rules: DEFAULT_RULES(),
@@ -179,6 +184,8 @@ export function readBacktest(raw: unknown): BacktestState | null {
   return {
     open: raw.open === true,
     height: Math.round(num(raw.height, d.height, 120, 2_000)),
+    width: Math.round(num(raw.width, d.width, 300, 3_000)),
+    dock: word(raw.dock, ['bottom', 'right'], d.dock),
     tab: word(raw.tab, ['summary', 'trades', 'charts', 'strategy', 'optimize', 'markets'], d.tab),
     source: word(raw.source, ['rules', 'code', 'script'], d.source),
     rules: { long: readSet(r.long, d.rules.long), short: readSet(r.short, d.rules.short), exitLong: readSet(r.exitLong, d.rules.exitLong), exitShort: readSet(r.exitShort, d.rules.exitShort) },
