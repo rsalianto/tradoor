@@ -264,7 +264,7 @@ To roll back, set `TRADOOR_IMAGE` in `.env` to an earlier commit's tag and run `
 <br>
 
 - **`SITE_URL`** (repository variable): canonical URL, Open Graph image, `robots.txt` and sitemap, and links in Telegram messages.
-- **`CF_BEACON`** (repository variable): a Cloudflare Web Analytics token. Page views only, no cookie; without it the page loads no analytics.
+- **Analytics:** none of tradoor's own. On Cloudflare, turn on Web Analytics for the site (Automatic setup) and Cloudflare adds its tag to each page; the page's policy allows it. Page views only, no cookie.
 - **`TRADOOR_ADMIN_KEY`** (server `.env`, `openssl rand -hex 32`): opens `/online.html`, the status page, with readers, accounts, server load, Frost Script moderation and announcements.
 - **Partner exchanges:** Rewards in the top bar lists referral links (`web/src/components/Referrals.tsx`), offered once per browser; `?noreferral` turns the offer off on a device.
 - **Flow of other coins:** signed-in readers add up to seven coins of their own; the server records at most twenty at a time.

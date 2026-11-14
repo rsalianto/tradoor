@@ -47,11 +47,9 @@ COPY scripts scripts
 COPY web web
 RUN cargo build --release --locked -p tradoor-server -p tradoor-recorder -p tradoor-backfill
 RUN ./scripts/build-wasm.sh
-# The site's public address, for its canonical URL, preview image and sitemap,
-# and a Cloudflare Web Analytics token, empty for none (web/site.ts).
+# The site's public address, for its canonical URL, preview image and sitemap (web/site.ts).
 ARG SITE_URL=""
-ARG CF_BEACON=""
-RUN cd web && SITE_URL="${SITE_URL}" CF_BEACON="${CF_BEACON}" deno task build
+RUN cd web && SITE_URL="${SITE_URL}" deno task build
 
 FROM debian:trixie-slim
 RUN apt-get update \
