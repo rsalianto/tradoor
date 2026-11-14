@@ -34,6 +34,7 @@ const PATHS = {
   command: 'M4 7l5 5-5 5M11 17h9',
   indicators: 'M3 17l5-6 4 3 8-9M3 21h18',
   replay: 'M11 6l-7 6 7 6zM20 6l-7 6 7 6z',
+  flask: 'M9 3h6M10 3v6l-5.4 9.2A1.9 1.9 0 0 0 6.2 21h11.6a1.9 1.9 0 0 0 1.6-2.8L14 9V3M7.2 15h9.6',
   play: 'M7 5l12 7-12 7z',
   pause: 'M8 5v14M16 5v14',
   stepForward: 'M6 5l10 7-10 7zM18 5v14',

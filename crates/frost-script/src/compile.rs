@@ -45,9 +45,15 @@ pub enum Series {
     Interval,
     Tick,
     Decimals,
+    /// A strategy's position at the bar, after its fills: 1 or 0.
+    InLong,
+    InShort,
+    /// Its position's entry price, and the bars since; na while flat.
+    EntryPrice,
+    BarsHeld,
 }
 
-const SERIES: [(&str, Series); 26] = [
+const SERIES: [(&str, Series); 30] = [
     ("open", Series::Open),
     ("high", Series::High),
     ("low", Series::Low),
@@ -74,6 +80,10 @@ const SERIES: [(&str, Series); 26] = [
     ("interval", Series::Interval),
     ("tick", Series::Tick),
     ("decimals", Series::Decimals),
+    ("inlong", Series::InLong),
+    ("inshort", Series::InShort),
+    ("entryprice", Series::EntryPrice),
+    ("barsheld", Series::BarsHeld),
 ];
 
 /// Worked out from its arguments alone, anywhere.
@@ -277,6 +287,8 @@ const SHAPES: [&str; 22] = [
     "get_text",
 ];
 const OTHERS: [&str; 6] = ["list", "cell", "table", "str", "duration", "barat"];
+/// A strategy's orders, at its top level: what a backtest fills (strategy.rs).
+const ORDERS: [(&str, Order); 5] = [("long", Order::Long), ("short", Order::Short), ("exit", Order::Exit), ("stop", Order::Stop), ("target", Order::Target)];
 const KEYWORDS: [&str; 18] = ["input", "state", "if", "else", "for", "to", "while", "break", "continue", "fn", "return", "and", "or", "not", "pane", "na", "true", "false"];
 
 pub fn is_keyword(w: &str) -> bool {
@@ -293,7 +305,7 @@ fn reserved(w: &str) -> bool {
 /// A built-in only ever called, as `rising(close, 3)`. A variable may share its name, as
 /// scripts written before it was added do: a call has brackets, and a variable has none.
 fn called(w: &str) -> bool {
-    MATH.iter().any(|(n, ..)| *n == w) || KEEPS.iter().any(|(n, ..)| *n == w) || DRAWS.contains(&w) || SHAPES.contains(&w) || OTHERS.contains(&w)
+    MATH.iter().any(|(n, ..)| *n == w) || KEEPS.iter().any(|(n, ..)| *n == w) || DRAWS.contains(&w) || SHAPES.contains(&w) || OTHERS.contains(&w) || ORDERS.iter().any(|(n, _)| *n == w)
 }
 
 const PLOT_STYLES: [(&str, f64); 7] = [("line", 0.0), ("solid", 0.0), ("dashed", 1.0), ("dotted", 2.0), ("steps", 3.0), ("dots", 4.0), ("circles", 4.0)];
@@ -430,6 +442,16 @@ pub enum Ret {
     Text(usize, Tx),
 }
 
+/// What a strategy asks for at a bar's close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Order {
+    Long,
+    Short,
+    Exit,
+    Stop,
+    Target,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Run {
     Set(usize, Ex),
@@ -452,6 +474,8 @@ pub enum Run {
     Background(usize, Ex),
     BarColor(Ex),
     Cell(Ex, Ex, Tx, Ex, Ex),
+    /// An order: its condition or price, and a limit price for an entry.
+    Order(Order, Ex, Option<Ex>),
     Eval(Ex),
 }
 
@@ -497,6 +521,8 @@ pub struct Program {
     pub table: (u8, u8),
     /// Whether it draws shapes, shades the background, colours candles, or fills a table.
     pub draws: bool,
+    /// The orders it gives, each once at most: a strategy where it gives an entry.
+    pub orders: Vec<Order>,
 }
 
 /// What a name stands for where it is read.
@@ -1213,6 +1239,12 @@ impl<'a> Compiler<'a> {
         let Expr::Call(name, args, named) = &node.expr else {
             return Err(Error::at(node.at, "this works out a value and keeps it nowhere: name it, as x = …"));
         };
+        if let Some((_, order)) = ORDERS.iter().find(|(n, _)| *n == name.as_str()) {
+            if !top || !self.frames.is_empty() {
+                return Err(Error::at(node.at, format!("{name}(…) is a strategy's order, given on every bar: put it at the script's top level, outside if, for, while and functions")));
+            }
+            return Ok(vec![self.order(node, name, *order, args, named)?]);
+        }
         if DRAWS.contains(&name.as_str()) {
             if !top || !self.frames.is_empty() {
                 return Err(Error::at(node.at, format!("{name}(…) draws on every bar: put it at the script's top level, outside if, for, while and functions")));
@@ -1476,6 +1508,31 @@ impl<'a> Compiler<'a> {
                 Ok(Some(Run::BarColor(c)))
             }
         }
+    }
+
+    /// `long(condition, limit)`, `short(…)`, `exit(condition)`, `stop(price)`, `target(price)`: each once a script.
+    fn order(&mut self, node: &Node, name: &str, order: Order, args: &[Node], named: &[(String, Node)]) -> Result<Run, Error> {
+        if self.program.orders.contains(&order) {
+            let hint = match order {
+                Order::Long | Order::Short | Order::Exit => ": join its conditions with or",
+                _ => ": work its price out in one place",
+            };
+            return Err(Error::at(node.at, format!("{name}(…) once a script{hint}")));
+        }
+        let spec: &[&str] = match order {
+            Order::Long | Order::Short => &["condition", "limit"],
+            Order::Exit => &["condition"],
+            Order::Stop | Order::Target => &["price"],
+        };
+        let a = self.bind(node.at, name, spec, args, named)?;
+        let Some(first) = a[0] else { return Err(Error::at(node.at, shape(name, spec))) };
+        let value = self.num(first, true)?;
+        let limit = match a.get(1).copied().flatten() {
+            Some(n) => Some(self.num(n, true)?),
+            None => None,
+        };
+        self.program.orders.push(order);
+        Ok(Run::Order(order, value, limit))
     }
 
     // ---------------------------------------------------------------- functions of the script's

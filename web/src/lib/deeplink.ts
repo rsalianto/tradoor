@@ -3,7 +3,9 @@
  * opens that pattern drawn, at its own length; `?market=…&tf=…` a market, and
  * with `&touched=<ms>` the touch of a line there, drawn. `?script=<id>`, from
  * the Community's showcase, puts that public Frost Script on the chart, and
- * `?indicator=<kind>` one of tradoor's own, as the showcase lists them too. Read
+ * `?indicator=<kind>` one of tradoor's own, as the showcase lists them too.
+ * `&bt=…`, from the strategy tester's link, opens the tester on that strategy
+ * and account, its report worked out afresh in this browser. Read
  * once the layout is in, then taken off the address so a reload does not open
  * it again.
  */
@@ -72,7 +74,8 @@ export async function followLink(): Promise<void> {
   const touched = Number(url.searchParams.get('touched'));
   const script = url.searchParams.get('script');
   const indicator = url.searchParams.get('indicator');
-  for (const key of ['signal', 'market', 'tf', 'touched', 'script', 'indicator']) url.searchParams.delete(key);
+  const bt = url.searchParams.get('bt');
+  for (const key of ['signal', 'market', 'tf', 'touched', 'script', 'indicator', 'bt']) url.searchParams.delete(key);
   history.replaceState(history.state, '', url.pathname + url.search + url.hash);
   const target = targetChart();
   if (!target) return;
@@ -95,4 +98,17 @@ export async function followLink(): Promise<void> {
       if (tf) setPanelTimeframe(target.id, tf);
     });
   }
+  if (bt && bt.length <= 60_000) await openShared(bt, target);
+}
+
+/** A strategy from the tester's link: on the chart's tester, every value checked, nothing of the sender's but the strategy. */
+async function openShared(text: string, target: ChartPanelState): Promise<void> {
+  const [{ readBacktest }, { sharedOf }] = await Promise.all([import('./backtest-state'), import('./backtest')]);
+  const state = readBacktest(sharedOf(text));
+  if (!state) {
+    toast({ tone: 'warn', title: 'Not opened', body: 'That strategy link is not whole: ask for it again.' });
+    return;
+  }
+  patchPanel(target.id, { backtest: { ...state, open: true, tab: 'summary', forwardFrom: null, alerts: false } });
+  toast({ tone: 'info', title: 'A shared strategy', body: 'In the strategy tester under the chart. Its report is worked out here, in your browser, from the exchange’s bars: read its rules before you trade on it.' });
 }

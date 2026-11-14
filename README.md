@@ -127,6 +127,13 @@ The order book by price on all fourteen exchanges: bids, asks, what traded at ea
 - A dashboard: P&amp;L, win rate, equity curve, calendar in money or R, by pair, side or strategy
 - Paper trading: 100,000 USDT on Binance's BTC, ETH and SOL perpetuals at live prices, from the chart or the DOM
 
+### Strategy tester
+
+- Backtest under any chart, in your browser: rules picked from lists, or a Frost Script strategy
+- Filled at the next open, with each exchange's fees, slippage, funding and liquidation; a bar that hit both stop and target is decided by its 1m bars
+- Report: figures against buy and hold, trades on the chart, equity, drawdown, months, Monte Carlo
+- Optimizer with a held-out part of the bars, the same strategy on other markets, forward testing, order notices and shareable links
+
 ### On a phone
 
 <p align="center">
@@ -150,7 +157,8 @@ tradoor's own language for indicators.
 - **Language:** texts, lists, your own functions, loops, and colours as `#hex` or `rgb()`.
 - **Settings:** numbers, tick boxes, colours, choices and dates, like any built-in.
 - **Built-ins as source:** 18 built-ins are written in Frost Script. Open one's settings and the Source tab shows it, giving the same numbers. The six that need more than candles say why.
-- **From Pine Script v6:** the editor copies instructions for an AI chat (Claude, ChatGPT, Gemini…) that converts a Pine v6 indicator.
+- **Strategies:** `long`, `short`, `exit`, `stop` and `target` make a script a strategy for the strategy tester.
+- **From Pine Script v6:** the editor copies instructions for an AI chat (Claude, ChatGPT, Gemini…) that converts a Pine v6 indicator or strategy.
 - **Community:** share a script under a username chosen once, with a description. Every public one is drawn live on the [showcase](https://tradoorterminal.com/community.html).
 - **Docs:** the [reference](https://tradoorterminal.com/doc.html) has the whole language.
 
@@ -187,7 +195,7 @@ Keys: `a–z` symbol · `← →` timeframe · `/` or `Ctrl K` commands · `?` h
 - **Live:** exchange WebSockets straight to the browser; the server relays only when a browser can't reach an exchange.
 - **Frost Script:** `crates/frost-script`, its own WebAssembly module; the server checks every saved script with the same crate.
 - **Server:** Rust (Axum, Tokio) and PostgreSQL 18 for metadata only. Candles never enter the database.
-- **UI:** SolidJS, about 59 kB brotli.
+- **UI:** SolidJS, about 67 kB brotli at start; the rest loads when it is first used.
 
 ```text
 crates/core          candles, timeframes, indicators and studies

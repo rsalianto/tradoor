@@ -4,7 +4,7 @@
  */
 import { createStore } from 'solid-js/store';
 import { nextPrice, type LastPrice } from '../lib/last-price';
-import type { CallName, Calls, ChartEvent, ChartStatus, FromWorker, Legend, ReplayState, StudyDefinition, StudyMeta, ToWorker } from './protocol';
+import type { CallName, ChartBars, Calls, ChartEvent, ChartStatus, FromWorker, Legend, ReplayState, StudyDefinition, StudyMeta, ToWorker } from './protocol';
 
 export interface SlotHandlers {
   cursor(value: string): void;
@@ -13,6 +13,8 @@ export interface SlotHandlers {
   event(event: ChartEvent): void;
   status(value: ChartStatus): void;
   replay(value: ReplayState): void;
+  /** The chart's closed bars, while its strategy tester watches them. */
+  bars?(value: ChartBars): void;
 }
 
 
@@ -73,6 +75,7 @@ function dispatch(msg: FromWorker): void {
       else if (msg.t === 'studies') h.studies(msg.value);
       else if (msg.t === 'event') h.event(msg.event);
       else if (msg.t === 'replay') h.replay(msg.value);
+      else if (msg.t === 'bars') h.bars?.(msg.value);
       else h.status(msg.value);
     }
   }

@@ -9,7 +9,8 @@
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use crate::compile::{math, Ex, Fmt, Keep, ListOp, Program, Ret, Run, Series, ShapeOp, Target, Tx};
+use crate::compile::{math, Ex, Fmt, Keep, ListOp, Order, Program, Ret, Run, Series, ShapeOp, Target, Tx};
+use crate::strategy::{Broker, Report, Signals};
 use crate::syntax::{At, Op};
 use crate::{Bars, BoxArt, Cell, Error, Fill, LabelArt, LineArt, Mark, Output, Plot, Table, MAX_AHEAD, MAX_BOXES, MAX_LABELS, MAX_LINES, MAX_LIST, MAX_LOOKBACK, MAX_LOOP, MAX_STEPS, TABLE_COLUMNS, TABLE_ROWS};
 use tradoor_core::format::fixed;
@@ -558,14 +559,26 @@ struct Machine<'a> {
     shapes: Shapes,
     cells: Vec<Cell>,
     empty: Rc<str>,
+    /// A backtest's fills, where the script is run as one.
+    broker: Option<Broker<'a>>,
+    signals: Signals,
+}
+
+/// The bar length of `bars`: the commonest gap among the first ones.
+pub fn interval_of(bars: &Bars) -> f64 {
+    let mut gaps: Vec<f64> = bars.time.windows(2).take(21).map(|w| w[1] - w[0]).filter(|g| *g > 0.0).collect();
+    tradoor_core::sort::insertion_sort_by(&mut gaps, |a, b| a < b);
+    gaps.get(gaps.len() / 2).copied().unwrap_or(NA)
 }
 
 pub fn run(p: &Program, bars: &Bars, decimals: u8) -> Result<Output, Error> {
+    run_with(p, bars, decimals, None).map(|(out, _)| out)
+}
+
+/// Run as a strategy: its orders filled by `broker` as the bars go by.
+pub fn run_with<'a>(p: &Program, bars: &'a Bars<'a>, decimals: u8, broker: Option<Broker<'a>>) -> Result<(Output, Option<Report>), Error> {
     let n = bars.len();
-    // A bar's length: the commonest gap among the first ones.
-    let mut gaps: Vec<f64> = bars.time.windows(2).take(21).map(|w| w[1] - w[0]).filter(|g| *g > 0.0).collect();
-    tradoor_core::sort::insertion_sort_by(&mut gaps, |a, b| a < b);
-    let interval = gaps.get(gaps.len() / 2).copied().unwrap_or(NA);
+    let interval = interval_of(bars);
     let empty: Rc<str> = Rc::from("");
     let mut m = Machine {
         bars,
@@ -589,9 +602,15 @@ pub fn run(p: &Program, bars: &Bars, decimals: u8) -> Result<Output, Error> {
         shapes: Shapes::default(),
         cells: Vec::new(),
         empty,
+        broker,
+        signals: Signals::default(),
     };
     for i in 0..n {
         m.i = i;
+        if let Some(b) = &mut m.broker {
+            b.open_bar(i, bars);
+        }
+        m.signals = Signals::default();
         for (slot, kept) in p.kept.iter().enumerate() {
             if !kept {
                 m.nums[slot] = NA;
@@ -603,6 +622,10 @@ pub fn run(p: &Program, bars: &Bars, decimals: u8) -> Result<Output, Error> {
             }
         }
         m.lines(&p.body)?;
+        let signals = m.signals;
+        if let Some(b) = &mut m.broker {
+            b.close_bar(i, bars, signals);
+        }
         m.count(p.kept_back, None)?;
         for (slot, &deep) in p.remembered.iter().enumerate() {
             if deep > 0 {
@@ -629,7 +652,8 @@ pub fn run(p: &Program, bars: &Bars, decimals: u8) -> Result<Output, Error> {
     let labels = m.shapes.labels.into_iter().map(|(_, l)| l).filter(|l| ok(&[l.x, l.y])).map(|l| LabelArt { x: reach(l.x), ..l }).collect();
     let boxes = m.shapes.boxes.into_iter().map(|(_, b)| b).filter(|b| ok(&[b.x1, b.y1, b.x2, b.y2])).map(|b| BoxArt { x1: reach(b.x1), x2: reach(b.x2), ..b }).collect();
     let table = (!m.cells.is_empty()).then_some(Table { down: p.table.0, across: p.table.1, cells: m.cells });
-    Ok(Output { own_pane: p.own_pane, plots, fills, marks, backgrounds: m.backgrounds, bar_colors: m.bar_colors, lines, labels, boxes, table })
+    let report = m.broker.map(|b| b.finish(bars));
+    Ok((Output { own_pane: p.own_pane, plots, fills, marks, backgrounds: m.backgrounds, bar_colors: m.bar_colors, lines, labels, boxes, table }, report))
 }
 
 /// `v` as a text: a whole number bare, else up to eight decimals with no zeros left over.
@@ -799,6 +823,27 @@ impl Machine<'_> {
                         None => self.cells.push(cell),
                     }
                 }
+                Run::Order(order, e, limit) => {
+                    let v = self.ex(e)?;
+                    let at = match limit {
+                        Some(l) => self.ex(l)?,
+                        None => NA,
+                    };
+                    let sig = &mut self.signals;
+                    match order {
+                        Order::Long => {
+                            sig.long = truth(v);
+                            sig.long_at = at;
+                        }
+                        Order::Short => {
+                            sig.short = truth(v);
+                            sig.short_at = at;
+                        }
+                        Order::Exit => sig.exit = truth(v),
+                        Order::Stop => sig.stop = v,
+                        Order::Target => sig.target = v,
+                    }
+                }
                 Run::Eval(e) => {
                     self.ex(e)?;
                 }
@@ -845,6 +890,10 @@ impl Machine<'_> {
             Series::Interval => self.interval,
             Series::Tick => 10f64.powi(-i32::from(self.decimals)),
             Series::Decimals => f64::from(self.decimals),
+            Series::InLong => self.broker.as_ref().map_or(0.0, |b| flag(b.side_at(i) > 0.0)),
+            Series::InShort => self.broker.as_ref().map_or(0.0, |b| flag(b.side_at(i) < 0.0)),
+            Series::EntryPrice => self.broker.as_ref().map_or(NA, |b| b.entry_at(i)),
+            Series::BarsHeld => self.broker.as_ref().map_or(NA, |b| b.held_at(i)),
         }
     }
 

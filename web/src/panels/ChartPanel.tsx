@@ -8,7 +8,8 @@ import { lazy } from '../lib/lazy';
 import { armedTool, chartControllers, controllersChanged, covered, drawingsChanged, magnet, mobile, setArmedTool, setControllersChanged, setDrawingsChanged, setMobileMenu, setOverlay, setShownPattern, setShownTrades, setStudyEditing, sharedRail, shownPattern, shownTrades, smoothZoom, studyEditing, type ShownPattern, type ShownTrades } from '../app/ui';
 import { DrawingRail } from './DrawingRail';
 import { call, debugClient, heardAt, holdChart, lastPrice, releaseChart, send } from '../engine/client';
-import type { ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, ReplayState, StudyMeta, TpoHover } from '../engine/protocol';
+import type { BacktestResult, ChartEvent, ChartStatus, DrawingPoint, Legend, LiveStatus, PointerKind, ReplayState, StrategyRun, StudyMeta, TpoHover } from '../engine/protocol';
+import type { BacktestState } from '../lib/backtest-state';
 import { api, catalog, errorText, type AlertStyle, type ChartKind, type Drawing, type Product } from '../lib/api';
 import type { DrawingPatch } from '../components/DrawingSettings';
 import { defaultStyle, visibleOn, type Style } from '../lib/drawing-style';
@@ -17,7 +18,7 @@ import { captureChart } from '../lib/capture';
 import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
 import { fetchFootprint, flatten, foldMinutes, fromHours, recordedMarkets, SeenBars, type Levels, type Minute } from '../lib/footprint';
-import { formulaRuns } from '../lib/formulas';
+import { formulaOf, formulaRuns } from '../lib/formulas';
 import { replayFootprint, REPLAY_SPEEDS, REPLAY_STEPS } from '../lib/replay';
 import { recordable, recorderSettings } from '../lib/fp-settings';
 /** The recorder, the trade streams and the minute book: a chunk of its own, loaded when a chart needs one (lib/fp-kit). */
@@ -39,7 +40,7 @@ import { toast } from '../lib/toasts';
 import { TIMEFRAMES, tfLabel, tfMs, tfName } from '../lib/timeframes';
 import { tabsOf, TPO_SPLITS, tpoFits, type ChartPanelState } from '../workspace/model';
 import { canSplit, mergeLeft, mergeRight, splitProfile, toggleExpanded } from '../lib/tpo-edits';
-import { behindMaximized, doc, marketOf, maximized, patchPanel, setPanelTimeframe, timeframeOf, toggleFavoriteTimeframe, toggleMaximized } from '../workspace/store';
+import { behindMaximized, doc, marketOf, maximized, patchPanel, setPanelMarket, setPanelTimeframe, timeframeOf, toggleFavoriteTimeframe, toggleMaximized } from '../workspace/store';
 
 // Drawing settings load when a drawing is first selected: nobody needs them to see a chart.
 const DrawingSettings = lazy(() => import('../components/DrawingSettings').then((m) => ({ default: m.DrawingSettings })));
@@ -47,6 +48,7 @@ const StudySettings = lazy(() => import('../components/StudySettings').then((m) 
 const AlertStyleSettings = lazy(() => import('../components/AlertStyleSettings').then((m) => ({ default: m.AlertStyleSettings })));
 const ChartMark = lazy(() => import('../components/ChartMark').then((m) => ({ default: m.ChartMark })));
 const DrawingToolbar = lazy(() => import('../components/DrawingToolbar').then((m) => ({ default: m.DrawingToolbar })));
+const StrategyTester = lazy(() => import('../components/StrategyTester').then((m) => ({ default: m.StrategyTester })));
 
 
 /** What each click is for, in order — on a position tool the order is the meaning. */
@@ -238,6 +240,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       if (value.at !== null) setReplayOpen(true);
       if (value.ended) setReplayPlaying(false);
     },
+    bars: (value) => live?.setBars(value),
   });
   const sid = chart.id;
   const price = () => {
@@ -912,6 +915,97 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     })();
   };
 
+  // ---------------------------------------------------------------- the strategy tester
+
+  /** The rule builder, the settings, the report's working and the live backtest: loaded with the first tester. */
+  type Kit = typeof import('../lib/backtest') & typeof import('../lib/backtest-live');
+  const [btKit, setBtKit] = createSignal<Kit | null>(null);
+  const loadKit = () =>
+    Promise.all([import('../lib/backtest'), import('../lib/backtest-live')]).then(([a, b]) => {
+      const k: Kit = { ...a, ...b };
+      setBtKit(k);
+      return k;
+    });
+  createEffect(() => {
+    if (!props.training && props.panel.backtest !== undefined && !btKit()) void loadKit().catch(() => undefined);
+  });
+  /** The tester's state, every value checked, where it has been opened on this chart. */
+  const tester = createMemo((): BacktestState | null => {
+    const k = btKit();
+    return k && !props.training && props.panel.backtest !== undefined ? k.readBacktest(props.panel.backtest) : null;
+  });
+  const [backtest, setBacktest] = createSignal<BacktestResult | null>(null);
+  const patchTester = (patch: Partial<BacktestState>) => {
+    const k = btKit();
+    if (k) patchPanel(id, { backtest: { ...(tester() ?? k.defaultBacktest()), ...patch } });
+  };
+  const toggleTester = () => {
+    void loadKit().then((k) => {
+      const t = tester();
+      patchPanel(id, { backtest: t ? { ...t, open: !t.open } : k.defaultBacktest() });
+    });
+  };
+  // What the worker backtests: run while the tester is open, or its notices are on.
+  const strategyRun = createMemo<StrategyRun | null>(
+    () => {
+      const t = tester();
+      const k = btKit();
+      return t && k && (t.open || t.alerts) ? k.runOf(t, market(), t.source === 'script' && t.script ? formulaOf(t.script) : undefined) : null;
+    },
+    null,
+    { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) },
+  );
+  /** The backtest run as the chart's bars change, while there is a strategy to run. */
+  let live: import('../lib/backtest-live').LiveBacktest | null = null;
+  createEffect(() => {
+    const run = strategyRun();
+    const k = btKit();
+    if (!run || !k) {
+      live?.dispose();
+      live = null;
+      setBacktest(null);
+      return;
+    }
+    live ??= new k.LiveBacktest(sid, (r) => {
+      setBacktest(r);
+      noteOrders(r);
+    });
+    live.set(run);
+  });
+  onCleanup(() => {
+    live?.dispose();
+    live = null;
+  });
+  // A stretch longer than the chart holds: older bars read in behind them.
+  let depthAsked = '';
+  createEffect(() => {
+    const t = tester();
+    const st = status();
+    if (!t || !(t.open || t.alerts) || t.settings.days <= 0 || st.loading || st.exhausted) return;
+    const need = Math.min(100_000, Math.ceil((t.settings.days * 86_400_000) / tfMs(timeframe())) + 300);
+    const key = `${market()}|${timeframe()}|${need}`;
+    if (st.bars >= need || key === depthAsked) return;
+    depthAsked = key;
+    send({ t: 'depth', id: sid, bars: need });
+  });
+  /** The newest closed bar the last report was of: a notice for an order only as a new one closes. */
+  let noticedBar = '';
+  function noteOrders(v: BacktestResult | null): void {
+    const k = untrack(btKit);
+    if (!k || !v || !untrack(tester)?.alerts) return;
+    const n = k.orderNotice(v, noticedBar);
+    noticedBar = n.seen;
+    if (!n.what) return;
+    toast({ tone: 'info', title: n.title, body: n.what });
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+      try {
+        new Notification(n.title, { body: n.what, tag: `tradoor-bt-${id}` });
+      } catch {
+        // A phone's browser may take notices from a service worker alone: the toast said it.
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- journal trades shown
 
   /** The journal's trades drawn where they went, on this chart when it is on their market's candles. */
@@ -1303,8 +1397,9 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       label={s.label}
       off={s.hidden}
       onToggle={() => toggleLayer(s.id)}
-      onRemove={() => removeStudy(s.id)}
-      onSettings={() => editStudy(s.id)}
+      // The strategy tester's rows: taken off by the tester, set in it.
+      onRemove={() => (s.id === 'bt' ? patchTester({ open: false, alerts: false }) : s.id === 'bt-trades' ? patchTester({ draw: false }) : removeStudy(s.id))}
+      onSettings={() => (s.id.startsWith('bt') ? patchTester({ open: true, tab: 'strategy' }) : editStudy(s.id))}
       // VWAP levels are read off their labels: two dozen figures would fill the row.
       values={s.hidden || s.id.startsWith('vwaplevels') ? [] : s.lines.filter((line) => !plotStyle(props.panel.studyStyles, s.id, line.id.slice(s.id.length + 1)).off).map((line) => ({ color: line.color, text: () => legend()?.values[line.id] ?? '—' }))}
       stats={s.hidden || plotStyle(props.panel.studyStyles, s.id, 'stats').off ? [] : s.stats}
@@ -1477,6 +1572,10 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           >
             <Icon name="replay" size={13} />
             <span>Replay</span>
+          </button>
+          <button class="tb" classList={{ on: !!tester()?.open }} aria-label="Strategy tester" data-tip="Strategy tester — backtest a strategy on this chart’s bars, worked out in your browser" onClick={toggleTester}>
+            <Icon name="flask" size={13} />
+            <span class="tb-word">Backtest</span>
           </button>
         </Show>
         <Show when={!props.training}>
@@ -2241,6 +2340,27 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           <Icon name="reset" size={11} />
         </button>
       </div>
+      <Show when={tester()?.open}>
+        {(_) => (
+          <StrategyTester
+            sid={sid}
+            state={tester()!}
+            result={backtest()}
+            run={strategyRun()}
+            data={() => live?.data() ?? null}
+            market={market()}
+            timeframe={timeframe()}
+            bars={status().bars}
+            loading={status().loading}
+            exhausted={status().exhausted}
+            precision={price()?.precision ?? 2}
+            onChange={patchTester}
+            onClose={() => patchTester({ open: false })}
+            onShowSpan={(from, to) => send({ t: 'span', id: sid, from, to })}
+            onOpenMarket={(m) => setPanelMarket(id, m)}
+          />
+        )}
+      </Show>
     </div>
   );
 }

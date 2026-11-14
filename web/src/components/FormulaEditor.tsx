@@ -339,12 +339,15 @@ export function FormulaEditor(props: { id?: string; seed?: { name: string; sourc
                     Drawing: <code>plot(value, "Title", colour, width)</code>, <code>histogram</code>, <code>hline(80, "Upper")</code>, <code>fill("Upper", "Lower")</code>, <code>mark(condition, "Buy", below, green)</code>. <code>pane own</code> draws below the chart.
                     Settings: <code>input length = 14 min 2 max 500 "Length"</code>.
                   </p>
+                  <p>
+                    A strategy, for the chart's strategy tester: <code>long(condition)</code>, <code>short(condition)</code>, <code>exit(condition)</code>, <code>stop(price)</code>, <code>target(price)</code>; <code>inlong inshort entryprice barsheld</code> read its position.
+                  </p>
                   <p class="dim">A script reads candles and draws lines: it cannot reach the network, your account or the page. Loops go round 1,000 times at most, and one that asks too much stops with an error.</p>
                 </div>
               </details>
               <button
                 class="fx-ai"
-                data-tip="Instructions that teach an AI chat (Claude, ChatGPT, Gemini…) Frost Script. Paste them, then a Pine Script v6 indicator, and it answers in Frost Script to paste here."
+                data-tip="Instructions that teach an AI chat (Claude, ChatGPT, Gemini…) Frost Script. Paste them, then a Pine Script v6 indicator or strategy, and it answers in Frost Script to paste here."
                 onClick={() => void copyAi()}
               >
                 Pine Script → Frost: copy AI instructions

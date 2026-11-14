@@ -1,6 +1,6 @@
 # Frost Script
 
-tradoor's own language for indicators. A script reads the chart's candles and draws on the chart; it has no way to reach the page, the network, storage or an account.
+tradoor's own language for indicators and strategies. A script reads the chart's candles and draws on the chart, or gives orders for a backtest; it has no way to reach the page, the network, storage or an account.
 
 ```
 input length = 20 min 2 max 500 "Length"
@@ -16,6 +16,7 @@ mark(crossover(close, average), "Up", below, green)
 ## What it does
 
 - **Draws:** lines, histograms, levels, fills, marks, labels, boxes, a table, background shading and candle colours, on the price chart or in a pane of its own.
+- **Backtests:** a script that gives orders (`long`, `short`, `exit`, `stop`, `target`) is a strategy. It is filled bar by bar as an exchange would fill it: at the next open, with fees, slippage, funding and liquidation, and with a lower timeframe's bars deciding a bar that reached both its stop and its target ([`src/strategy.rs`](src/strategy.rs)).
 - **Language:** numbers, texts, lists, functions of your own, `if`, `for … by`, `while`, `break`, `continue`, `state` kept from bar to bar, `x[n]` to look back.
 - **Built in:** the usual averages and windows (`sma`, `ema`, `rsi`, `atr`, `highest`, `pivothigh`, `crossover`…), maths, dates, and colours as `#hex`, `rgb()` and `alpha()`.
 - **Settings:** numbers, tick boxes, colours, choices and dates, shown in the chart's settings like any built-in's.

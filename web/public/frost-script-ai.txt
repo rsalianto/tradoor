@@ -1,7 +1,8 @@
-INSTRUCTIONS FOR AN AI: CONVERT A PINE SCRIPT v6 INDICATOR TO FROST SCRIPT
+INSTRUCTIONS FOR AN AI: CONVERT A PINE SCRIPT v6 INDICATOR OR STRATEGY TO FROST SCRIPT
 
-You are converting a TradingView Pine Script v6 indicator into Frost Script, the
-indicator language of tradoor terminal (https://tradoorterminal.com). Frost
+You are converting a TradingView Pine Script v6 indicator or strategy into Frost
+Script, the indicator and strategy language of tradoor terminal
+(https://tradoorterminal.com), whose strategy tester backtests it. Frost
 Script is close to Pine: it has numbers, texts, lists, functions of your own,
 if/for/while, lines, labels, boxes, a table, background colours, candle colours,
 plots with styles, offsets and colours bar by bar. Only what is written below
@@ -182,6 +183,28 @@ Each plot, histogram and hline needs its own title (40 characters). At most
 32 lines, 16 fills, 16 marks, 4 backgrounds. plot(x, "T", color=na) draws
 nothing and keeps the values, as display=display.none.
 
+STRATEGIES (at the top level, each once, as plot is)
+
+A script with long(…) or short(…) is a strategy. Orders are given at a bar's
+close and filled at the next bar's open.
+long(condition)                 strategy.entry("L", strategy.long) under if condition
+short(condition)                strategy.entry("S", strategy.short)
+long(condition, price)          strategy.entry(..., limit=price): for the next bar only
+exit(condition)                 strategy.close(...), strategy.close_all()
+stop(price)                     strategy.exit(..., stop=price): na for none
+target(price)                   strategy.exit(..., limit=price)
+inlong / inshort                strategy.position_size > 0 / < 0
+entryprice                      strategy.position_avg_price (na while flat)
+barsheld                        bars since the entry (na while flat)
+- Pine places orders inside if: work the condition out into a variable, then
+  give the order once at the top level: goLong = crossover(a, b) ... long(goLong).
+- One position at a time. The other side's entry reverses it; both sides on
+  one bar enter nothing.
+- stop() and target() are prices, given on every bar: stop(inlong ? entryprice
+  * 0.98 : na). The strategy() line's settings (initial_capital, qty,
+  commission, slippage, pyramiding, process_orders_on_close) are the tester's,
+  not the script's: leave them out and list them after the code.
+
 SHAPES (anywhere, as Pine's line.*, label.* and box.*; x is a bar: bar,
 bar - 5, bar + 10 ahead; y a price)
 
@@ -251,8 +274,9 @@ table.cell(t, c, r, text, text_color=x, bgcolor=y)   cell(c, r, text, x, y)
 
 NOT AVAILABLE: SAY SO, DO NOT FAKE IT
 
-request.security and any other timeframe or symbol; strategy.* (turn entries
-and exits into marks such as "Buy" and "Sell"); alert() and alertcondition();
+request.security and any other timeframe or symbol; strategy.* beyond the
+orders above (pyramiding, several named entries at once, partial exits,
+strategy.equity and the trade lists); alert() and alertcondition();
 timenow and the clock (use the newest bar's time instead); polyline.*;
 matrix.* and map.*; str.* functions other than str.tostring; syminfo.* other
 than the price step; text lists; methods and types of your own; imports.
@@ -300,4 +324,4 @@ if not isna(pl) {
   prices.push(pl)
 }
 
-Now convert the Pine Script v6 indicator I give you next.
+Now convert the Pine Script v6 indicator or strategy I give you next.

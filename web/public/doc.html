@@ -96,6 +96,7 @@
       <li><a href="#drawing">Plots, marks and shading</a></li>
       <li><a href="#shapes">Lines, labels and boxes</a></li>
       <li><a href="#table">The table</a></li>
+      <li><a href="#strategies">Strategies and backtests</a></li>
       <li><a href="#examples">Examples</a></li>
       <li><a href="#from-pine">From Pine Script, with an AI</a></li>
       <li><a href="#mistakes">Mistakes and messages</a></li>
@@ -398,6 +399,26 @@ if islast {
       <li><code>cell(column, row, text, color, background)</code> sets one cell, anywhere: columns 0 to 3, rows 0 to 15. Set them on the last bar, with <code>if islast</code>.</li>
     </ul>
 
+    <h2 id="strategies">Strategies and backtests</h2>
+    <p>A script that gives orders is a strategy, and the chart's <b>Backtest</b> button tests it on the chart's bars, in your browser. Orders are given at a bar's close and filled at the next bar's open: never on the bar that gave them, so a strategy cannot trade on what it has not seen yet.</p>
+<pre><code>input fast = 9 min 2 max 200 "Fast"
+input slow = 21 min 3 max 500 "Slow"
+a = ema(close, fast)
+b = ema(close, slow)
+long(crossover(a, b))
+short(crossunder(a, b))
+stop(inlong ? entryprice * 0.98 : entryprice * 1.02)</code></pre>
+    <ul>
+      <li><code>long(condition)</code> and <code>short(condition)</code> enter at the next open where the condition is true. The other side's entry closes a position and opens the other way. Both on one bar enter nothing.</li>
+      <li><code>long(condition, price)</code> places a limit order for the next bar alone: filled at its price where the bar reaches it, or at the open where the bar opens past it. Give it again on each bar it should stand.</li>
+      <li><code>exit(condition)</code> closes at the next open.</li>
+      <li><code>stop(price)</code> and <code>target(price)</code> guard the position from the next bar on, at the price given on this bar's close; <code>na</code> is none. A stop gapped past fills at the open. Where one bar reached both, its lower-timeframe bars say which came first; where none can be read, the stop is taken as first, and the report counts those bars.</li>
+      <li>Each order is given once, at the top level, as <code>plot</code> is.</li>
+      <li><code>inlong</code>, <code>inshort</code>, <code>entryprice</code> and <code>barsheld</code> read the position after this bar's fills: 1 or 0, the entry's price, and the bars since it, <code>na</code> while flat.</li>
+    </ul>
+    <p>The tester's own settings add the account around it: capital and order size (a share of the equity, a fixed amount, or a share risked at the stop), leverage and liquidation, each exchange's fees, slippage, a stop, target and trailing stop by percent, ATRs or R, the longest a position is held, a perpetual's funding, and the stretch tested. Without a script, its rule builder writes one: pick the conditions from lists, then open it as code to take it further.</p>
+    <p>Its report: the figures (net profit against holding the coin, drawdown, profit factor, Sharpe and more), every trade, the equity and its drawdowns, the months, how the results spread, how far each trade went against it, and the trades drawn again at random a thousand times. The optimizer tries a grid of a script's settings, and can keep part of the bars back to judge its pick on bars it never saw; <b>Markets</b> runs the same strategy on your watchlists' markets. A forward test reports the trades from the moment it starts apart, and a notice can say when a bar closes with an order, while tradoor is open.</p>
+
     <h2 id="examples">Examples</h2>
     <p>The editor's examples are tradoor's built-in indicators written in Frost Script, each giving exactly the built-in's numbers: SMA, EMA, the EMA 12/25 ribbon and EMA 200, Bollinger Bands, Keltner Channels, Ichimoku, RSI, Stochastic RSI, MACD, ATR, VWAP, anchored VWAP, the historical key levels, the swing structure map, trading sessions, moon phases and volume, and a SuperTrend. Open any of them, or any built-in's <b>Source</b> tab, to read it.</p>
     <h3>SuperTrend, with a mark at each turn</h3>
@@ -441,10 +462,10 @@ if islast {
 }</code></pre>
 
     <h2 id="from-pine">From Pine Script, with an AI</h2>
-    <p>An indicator written in TradingView's Pine Script v6 can be turned into Frost Script by an AI chat — Claude, ChatGPT, Gemini or another. The instructions below teach it the whole language and how each part of Pine Script maps onto it: its arrays, functions, lines, labels, boxes and tables included.</p>
+    <p>An indicator or a strategy written in TradingView's Pine Script v6 can be turned into Frost Script by an AI chat — Claude, ChatGPT, Gemini or another. The instructions below teach it the whole language and how each part of Pine Script maps onto it: its arrays, functions, lines, labels, boxes, tables and a strategy's orders included.</p>
     <ol>
       <li>Copy the instructions: the button below, or <b>Pine Script → Frost: copy AI instructions</b> in the Frost Script editor.</li>
-      <li>Paste them into the AI chat, and then the Pine Script v6 source of the indicator.</li>
+      <li>Paste them into the AI chat, and then the Pine Script v6 source of the indicator or strategy.</li>
       <li>Paste the script it answers with into the editor. It is checked at once: if a line is wrong, give the AI the message and the line, and ask it to put it right.</li>
       <li>Before you rely on it, put it on a chart beside the original and compare the numbers on a few bars.</li>
     </ol>

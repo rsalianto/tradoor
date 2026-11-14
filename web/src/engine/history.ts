@@ -207,7 +207,7 @@ async function fetchExchange(url: string): Promise<Response> {
   return fetch(`/api/relay/rest?url=${encodeURIComponent(url)}`, { signal: abort.signal });
 }
 
-async function getJson(url: string): Promise<unknown> {
+export async function getJson(url: string): Promise<unknown> {
   const host = new URL(url).host;
   for (let attempt = 0; ; attempt += 1) {
     // Binance asked to be left alone: not asked again until its minute turns, or it bans the address.
@@ -253,6 +253,17 @@ async function klines(ref: MarketRef, interval: string, range: Range, limit = pa
   const cols = emptyCols();
   for (const [i, key] of KEYS.entries()) cols[key] = Float64Array.from(closed, (r) => r[i] ?? -1);
   return { cols, raw: rows.length };
+}
+
+/**
+ * A market's closed bars of `interval` from `start` to `end`, as the exchange
+ * has them, in one request: a backtest's look inside one bar.
+ */
+export async function rangeCols(market: string, interval: string, start: number, end: number): Promise<Cols> {
+  const ref = parseMarket(market);
+  if (!ref || ref.venue === 'index') return emptyCols();
+  // Rows past the bar, where an exchange sends them, are passed over by the backtest's own look up.
+  return (await klines(ref, interval, { start, end: end - 1 }, Math.min(pageLimit(ref), Math.max(2, Math.ceil((end - start) / intervalMs(interval)))))).cols;
 }
 
 /**

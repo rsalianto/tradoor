@@ -196,7 +196,79 @@ export interface FormulaInput {
 
 /** A formula checked (crates/frost-script): what it offers and draws, or its first mistake, by line and column. */
 export type FormulaDescription =
-  | { ok: true; ownPane: boolean; inputs: FormulaInput[]; plots: { kind: string; color: number | null; title: string }[]; marks: string[]; draws: boolean }
+  | { ok: true; ownPane: boolean; inputs: FormulaInput[]; plots: { kind: string; color: number | null; title: string }[]; marks: string[]; draws: boolean; strategy: boolean }
+  | { ok: false; line: number; col: number; message: string };
+
+/** A strategy backtested over a chart's bars (crates/frost-script strategy), as lib/backtest-live runs it. */
+export interface StrategyRun {
+  /** The strategy tester's name for it, for the legend. */
+  name: string;
+  source: string;
+  inputs: number[];
+  /** As `fx_backtest` reads them; see lib/backtest settingsOf. */
+  settings: number[];
+  /** Its trades drawn on the chart. */
+  draw: boolean;
+  /** A perpetual's funding paid while a position is held. */
+  funding: boolean;
+  /** A bar that reached both a stop and a target read from the lower timeframe's bars inside it. */
+  magnify: boolean;
+}
+
+/** What the strategy tester draws on a chart: a formula's text and numbers (crates/frost-script-wasm). */
+export interface StrategyDrawing {
+  label: string;
+  meta: string;
+  values: Float64Array;
+}
+
+/** A chart's closed bars, as the strategy tester backtests them. */
+export interface ChartBars {
+  market: string;
+  timeframe: string;
+  barMs: number;
+  decimals: number;
+  time: Float64Array;
+  open: Float64Array;
+  high: Float64Array;
+  low: Float64Array;
+  close: Float64Array;
+  volume: Float64Array;
+}
+
+/** Numbers a trade is written as in `BacktestResult.trades`: see TRADE_FIELDS in lib/backtest. */
+export const TRADE_SIZE = 17;
+
+/** A backtest's report, for the strategy tester to read. */
+export type BacktestResult =
+  | {
+      ok: true;
+      market: string;
+      timeframe: string;
+      /** The bars it ran over: their opens, and closes for buy and hold. */
+      time: Float64Array;
+      close: Float64Array;
+      /** TRADE_SIZE numbers a trade, oldest first. */
+      trades: Float64Array;
+      /** The equity at each bar's close. */
+      equity: Float64Array;
+      /** Bars a stop and a target both reached, with no lower bars at hand: taken as stopped. */
+      ambiguous: number;
+      /** Bars the lower timeframe's bars decided, and its length. */
+      magnified: number;
+      inner: string;
+      /** Lower bars still being read: the report changes as they come in. */
+      reading: boolean;
+      skipped: number;
+      held: number;
+      /** The order waiting for the next bar's open: 1 a long entry, -1 short, 2 an exit, 0 none; and an entry's limit. */
+      next: number;
+      nextLimit: number;
+      /** `paid`, `reading`, `none` where the exchange's history is not read, `off`, `spot`. */
+      funding: string;
+      /** Settlements paid at. */
+      settlements: number;
+    }
   | { ok: false; line: number; col: number; message: string };
 
 /** Request/response calls, answered by `reply`. */
@@ -215,6 +287,10 @@ export interface Calls {
   capture: { args: { id: string; wide: number; mark?: boolean }; result: { picture: ImageBitmap; px: number } };
   /** Fetch a market's history before a chart asks for it. */
   prefetch: { args: { market: string; timeframe: string }; result: null };
+  /** Each bar's lower-timeframe bars, for a backtest to read which of its high and low came first; null where not read. */
+  lowerBars: { args: { market: string; interval: string; barMs: number; times: number[] }; result: ({ time: Float64Array; open: Float64Array; high: Float64Array; low: Float64Array; close: Float64Array } | null)[] };
+  /** Another market's closed bars at a timeframe, `bars` of them at most: the strategy tester's markets tab. */
+  marketBars: { args: { market: string; timeframe: string; bars: number }; result: Omit<ChartBars, 'market' | 'timeframe'> };
   /** `?debug`: whether the worker hears the page — how many messages it has had, and the market a chart was last asked for. */
   ping: { args: { id: string }; result: { worker: string; up: number; got: number; slots: number; asked: string | null } };
 }
@@ -239,6 +315,12 @@ export type ToWorker =
   | { t: 'studies'; id: string; value: string }
   /** The reader's formulas on this chart, worked out on its closed bars. */
   | { t: 'formulas'; id: string; value: FormulaRun[] }
+  /** The chart's closed bars handed to the page as they change, while its strategy tester runs. */
+  | { t: 'watchBars'; id: string; on: boolean }
+  /** The strategy tester's drawing on the chart: none takes it off. */
+  | { t: 'strategyDrawing'; id: string; own: StrategyDrawing | null; trades: StrategyDrawing | null }
+  /** At least this many closed bars held, for a backtest over a longer stretch. */
+  | { t: 'depth'; id: string; bars: number }
   | { t: 'hidden'; id: string; value: string }
   | { t: 'studyStyles'; id: string; value: string }
   | { t: 'log'; id: string; value: boolean }
@@ -304,4 +386,5 @@ export type FromWorker =
   | { t: 'status'; id: string; value: ChartStatus }
   | { t: 'price'; id: string; market: string; price: number; precision: number }
   | { t: 'replay'; id: string; value: ReplayState }
+  | { t: 'bars'; id: string; value: ChartBars }
   | { t: 'reply'; req: number; value?: unknown; error?: string };

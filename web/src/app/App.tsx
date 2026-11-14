@@ -489,7 +489,7 @@ export function App() {
     const chart = targetChart();
     if (chart) focusPanel(chart.id);
     // A link from Telegram opens its chart once the layout is in; new signals are told as they come.
-    void syncWithServer().then(() => /[?&](signal|market|script|indicator)=/.test(location.search) && void import('../lib/deeplink').then((m) => m.followLink()));
+    void syncWithServer().then(() => /[?&](signal|market|script|indicator|bt)=/.test(location.search) && void import('../lib/deeplink').then((m) => m.followLink()));
     startAlerts();
     // Signed out by the server or another browser: said once, with the way back.
     const notice = takeNotice();

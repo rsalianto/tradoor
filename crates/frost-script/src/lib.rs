@@ -1,4 +1,4 @@
-//! Frost Script: tradoor's own small language for indicators.
+//! Frost Script: tradoor's own small language for indicators and strategies.
 //!
 //! ```text
 //! // Relative Strength Index
@@ -22,8 +22,10 @@
 //! much ends with an error saying which line.
 mod compile;
 mod run;
+mod strategy;
 mod syntax;
 
+pub use strategy::{Exit, Funding, Inner, Reason, Report, Settings, Size, Trade, MAX_ASKED, MAX_TRADES};
 pub use syntax::At;
 
 /// The longest script, in bytes.
@@ -294,6 +296,8 @@ pub struct Description {
     pub marks: Vec<String>,
     /// Whether it draws lines, labels or boxes, shades the background, colours candles, fills a table.
     pub draws: bool,
+    /// Whether it gives orders: `long(…)` or `short(…)`, and so can be backtested.
+    pub strategy: bool,
 }
 
 fn program(src: &str, inputs: &[f64]) -> Result<compile::Program, Error> {
@@ -311,6 +315,7 @@ pub fn describe(src: &str) -> Result<Description, Error> {
         plots: p.plots.iter().map(|s| (s.title.clone(), s.kind, s.color)).collect(),
         marks: p.marks.iter().map(|m| m.text.clone()).collect(),
         draws: p.draws,
+        strategy: p.orders.iter().any(|o| matches!(o, compile::Order::Long | compile::Order::Short)),
         inputs: p.inputs,
     })
 }
@@ -328,5 +333,27 @@ pub fn run(src: &str, inputs: &[f64], bars: &Bars, decimals: u8) -> Result<Outpu
     run::run(&program(src, inputs)?, bars, decimals.min(12))
 }
 
+/// Run as a strategy over `bars`: its orders filled as the settings say, a bar's order of high and
+/// low read from `inner` where it holds the bars inside it, a perpetual's `funding` paid as it settles.
+pub fn backtest<'a>(src: &str, inputs: &[f64], bars: &'a Bars<'a>, decimals: u8, settings: Settings, inner: Inner<'a>, funding: Funding<'a>) -> Result<(Output, Report), Error> {
+    let n = bars.len();
+    if [bars.time.len(), bars.open.len(), bars.high.len(), bars.low.len(), bars.volume.len()].iter().any(|l| *l != n) {
+        return Err(Error::whole("the bars' columns differ in length"));
+    }
+    if n > MAX_BARS {
+        return Err(Error::whole(format!("{MAX_BARS} bars at most")));
+    }
+    let p = program(src, inputs)?;
+    if !p.orders.iter().any(|o| matches!(o, compile::Order::Long | compile::Order::Short)) {
+        return Err(Error::whole("a strategy enters with long(condition) or short(condition)"));
+    }
+    let broker = strategy::Broker::new(settings, inner, funding, run::interval_of(bars), n);
+    let (out, report) = run::run_with(&p, bars, decimals.min(12), Some(broker))?;
+    Ok((out, report.unwrap_or_default()))
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod strategy_tests;

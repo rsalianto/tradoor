@@ -29,14 +29,15 @@ use crate::dns::Doh;
 /// in `/`, where the market is part of the path (Kraken Futures' charts).
 /// Hyperliquid's are POSTs and are not relayed.
 const REST: [(&str, &[&str]); 18] = [
-    // `depth`: the order book a DOM lays the stream's changes over.
+    // `depth`: the order book a DOM lays the stream's changes over. `fundingRate` and the
+    // others' funding histories: what a backtest pays on a perpetual.
     ("api.binance.com", &["/api/v3/klines", "/api/v3/ping", "/api/v3/depth"]),
     ("data-api.binance.vision", &["/api/v3/klines", "/api/v3/ping", "/api/v3/depth"]),
-    ("fapi.binance.com", &["/fapi/v1/klines", "/fapi/v1/ping", "/fapi/v1/depth"]),
-    ("api.bybit.com", &["/v5/market/kline", "/v5/market/time"]),
+    ("fapi.binance.com", &["/fapi/v1/klines", "/fapi/v1/ping", "/fapi/v1/depth", "/fapi/v1/fundingRate"]),
+    ("api.bybit.com", &["/v5/market/kline", "/v5/market/time", "/v5/market/funding/history"]),
     // `instruments`: the coins in a swap contract, which its sizes count.
-    ("www.okx.com", &["/api/v5/market/candles", "/api/v5/market/history-candles", "/api/v5/public/instruments"]),
-    ("api.bitget.com", &["/api/v2/spot/market/candles", "/api/v2/spot/market/history-candles", "/api/v2/mix/market/candles", "/api/v2/mix/market/history-candles"]),
+    ("www.okx.com", &["/api/v5/market/candles", "/api/v5/market/history-candles", "/api/v5/public/instruments", "/api/v5/public/funding-rate-history"]),
+    ("api.bitget.com", &["/api/v2/spot/market/candles", "/api/v2/spot/market/history-candles", "/api/v2/mix/market/candles", "/api/v2/mix/market/history-candles", "/api/v2/mix/market/history-fund-rate"]),
     ("api.kraken.com", &["/0/public/OHLC"]),
     ("futures.kraken.com", &["/api/charts/v1/trade/"]),
     ("mainnet.zklighter.elliot.ai", &["/api/v1/candles"]),
@@ -274,6 +275,7 @@ mod tests {
         let ok = |u: &str| allowed_rest(&reqwest::Url::parse(u).unwrap());
         assert!(ok("https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=1000"));
         assert!(ok("https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=1"));
+        assert!(ok("https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&startTime=0&limit=1000"), "funding history, for a backtest");
         assert!(!ok("https://fapi.binance.com/fapi/v1/order"), "no trading endpoints");
         assert!(!ok("https://evil.example/fapi/v1/klines"), "no other hosts");
         assert!(!ok("http://fapi.binance.com/fapi/v1/klines"), "https only");

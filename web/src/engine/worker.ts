@@ -9,11 +9,11 @@ import { decimalsOf, MAX_PRICE_DECIMALS } from '../lib/format';
 import { demoHit } from '../lib/demo';
 import { MARK_ORDER, markIndex } from '../lib/mark-order';
 import { parseMarket, ratioLegs, type MarketRef } from '../lib/markets';
-import { concatCols, emptyCols, formingRows, intervalMs, lowerBound, openSeries, sameCols, sliceCols, type CandleSeries, type Cols, type Series } from './history';
+import { concatCols, emptyCols, formingRows, intervalMs, lowerBound, openSeries, rangeCols, sameCols, sliceCols, type CandleSeries, type Cols, type Series } from './history';
 import type { RatioSeries } from './ratio';
 import { lacksUtcOf, marketInterval } from './intervals';
 import { nativeOf } from '../lib/native';
-import type { CallName, Calls, ChartEvent, ChartStatus, DailyBars, FormulaRun, FromWorker, IndicatorValues, PointerKind, StudyDefinition, ToWorker } from './protocol';
+import type { CallName, Calls, ChartEvent, ChartStatus, DailyBars, FormulaRun, FromWorker, IndicatorValues, PointerKind, StrategyDrawing, StudyDefinition, ToWorker } from './protocol';
 import { followLiquidations } from '../lib/liquidation-feed';
 import { serverTicker } from '../lib/liquidation-venues';
 import { coinOf, oiVenues, OpenInterestFeed } from './open-interest';
@@ -95,7 +95,7 @@ interface ProfileSpec {
   from: string;
 }
 
-const scope = self as unknown as { postMessage(msg: FromWorker): void; onmessage: ((e: MessageEvent<ToWorker>) => void) | null };
+const scope = self as unknown as { postMessage(msg: FromWorker, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<ToWorker>) => void) | null };
 const post = (msg: FromWorker): void => scope.postMessage(msg);
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 /**
@@ -207,6 +207,8 @@ class Slot {
   private market = '';
   private timeframe = '';
   private bars = CHART_BARS;
+  /** Bars a backtest asked to be held, past the usual: the window keeps them. */
+  private depth = 0;
   private series: CandleSeries | null = null;
   /** Closed bars at the chart's timeframe, as the engine holds them. */
   private closed: Cols = emptyCols();
@@ -255,6 +257,10 @@ class Slot {
   /** The reader's formulas on this chart, and the closed bars the engine last had, which they run over. */
   private formulas: FormulaRun[] = [];
   private formulaBars: FormulaBars | null = null;
+  /** The strategy tester's: its bars are handed to the page as they change, and its trades drawn as it says. */
+  private watching = false;
+  /** The formula ids its drawing goes under now. */
+  private strategyIds: string[] = [];
   private readonly openInterest = new OpenInterestFeed((steps) => {
     this.engine.set_open_interest(steps.time, steps.open, steps.high, steps.low, steps.close);
     this.metaDirty = true;
@@ -381,9 +387,53 @@ class Slot {
     this.runFormulas();
   }
 
+  private keepFormulas(): void {
+    this.engine.keep_formulas([...this.formulas.map((f) => f.id), ...this.strategyIds].join(','));
+  }
+
+  /** The chart's closed bars to the page, now and as they change, while its strategy tester runs. */
+  watchBars(on: boolean): void {
+    this.watching = on;
+    if (on && this.formulaBars) this.postBars(this.formulaBars);
+  }
+
+  private postBars(k: FormulaBars): void {
+    const c = copyBars(k);
+    scope.postMessage({ t: 'bars', id: this.id, value: { market: this.market, timeframe: this.timeframe, barMs: info(this.timeframe).barMs, decimals: this.engine.precision(), ...c } }, Object.values(c).map((a) => a.buffer));
+  }
+
+  /** What the strategy tester drew: its script's own drawing, and its trades on the price. */
+  drawStrategy(own: StrategyDrawing | null, trades: StrategyDrawing | null): void {
+    if (own) this.engine.set_formula('bt', own.label, own.meta, own.values);
+    if (trades) this.engine.set_formula('bt-trades', trades.label, trades.meta, trades.values);
+    this.strategyIds = [...(own ? ['bt'] : []), ...(trades ? ['bt-trades'] : [])];
+    this.keepFormulas();
+    this.metaDirty = true;
+  }
+
+  /** At least `bars` closed bars held, for a backtest over a longer stretch: read behind those held, the view kept. */
+  async deepen(bars: number): Promise<void> {
+    const series = this.series;
+    const want = Math.min(100_000, Math.max(0, Math.round(bars)));
+    if (!series || want <= this.closed.time.length || want <= this.depth) return;
+    const gen = this.gen;
+    this.depth = want;
+    const tf = info(this.timeframe);
+    if (Number.isFinite(this.window)) this.window = this.rest = Math.max(this.window, this.restWindow(tf));
+    this.setStatus({ loading: true });
+    try {
+      await series.ensure(baseBars(series, tf, want));
+      if (gen !== this.gen) return;
+      this.refold();
+      this.setStatus({ loading: false, exhausted: series.exhausted });
+    } catch (e) {
+      if (gen === this.gen) this.setStatus({ loading: false, error: `older history: ${message(e)}` });
+    }
+  }
+
   /** Each formula over the closed bars the engine holds, its lines handed to it; the module loads with the first. */
   private runFormulas(): void {
-    this.engine.keep_formulas(this.formulas.map((f) => f.id).join(','));
+    this.keepFormulas();
     const bars = this.formulaBars;
     if (this.formulas.length === 0 || !bars) return;
     const x = formulaModule();
@@ -563,6 +613,7 @@ class Slot {
     this.market = market;
     this.timeframe = timeframe;
     this.bars = bars;
+    this.depth = 0;
     this.closed = emptyCols();
     this.extra = [];
     this.takers.clear();
@@ -700,7 +751,7 @@ class Slot {
   private restWindow(tf: TfInfo): number {
     if (tf.barMs > WINDOW_MAX_BAR_MS) return Number.POSITIVE_INFINITY;
     const sinceMonday = Math.ceil((((this.replayAt ?? Date.now()) - MONDAY_MS) % WEEK_MS) / tf.barMs);
-    return Math.max(WINDOW_BARS, this.bars, sinceMonday + 100);
+    return Math.max(WINDOW_BARS, this.bars, this.depth, sinceMonday + 100);
   }
 
   /**
@@ -750,6 +801,7 @@ class Slot {
     this.levels?.push();
     this.formulaBars = k;
     this.runFormulas();
+    if (this.watching) this.postBars(k);
     this.engine.set_message(k.time.length > 0 ? '' : this.replayAt === null ? 'No closed candles for this market and timeframe yet.' : 'No bars this far back on this market and timeframe.');
     this.candlesIn = true;
     this.pushLive();
@@ -1166,6 +1218,8 @@ async function hold(market: string, timeframe: string, bars: number): Promise<{ 
 }
 
 const lastBars = (c: Cols, n: number): Cols => sliceCols(c, Math.max(0, c.time.length - n));
+/** Bars to hand the page: copies, whose buffers can be given away. */
+const copyBars = (k: FormulaBars) => ({ time: k.time.slice(), open: k.open.slice(), high: k.high.slice(), low: k.low.slice(), close: k.close.slice(), volume: k.volume.slice() });
 
 /** Source bars in one profile session. */
 const SESSION_BARS: Record<string, number> = { '1d': 24, '1w': 7, '1M': 31 };
@@ -1220,6 +1274,22 @@ const calls: Handlers = {
   daily: dailyCall,
   capture: captureCall,
   prefetch: prefetchCall,
+  lowerBars: async ({ market, interval, barMs, times }) => {
+    const out = [];
+    // One at a time, as a chart's own history is read: the exchange is asked gently.
+    for (const t of times.slice(0, 40)) out.push(await rangeCols(market, interval, t, t + barMs).catch(() => null));
+    return out;
+  },
+  marketBars: async ({ market, timeframe, bars }) => {
+    const held = await hold(market, timeframe, bars);
+    try {
+      const c = held.series.cols;
+      const k = lastBars(fold_candles(timeframe, c.time, c.open, c.high, c.low, c.close, c.volume, c.buy, Date.now()) as unknown as Cols, bars);
+      return { ...copyBars(k), barMs: held.tf.barMs, decimals: precisionOf(k) };
+    } finally {
+      held.release();
+    }
+  },
   ping: ({ id }) => ({ worker: WORKER, up: Math.round((Date.now() - STARTED) / 1000), got, slots: slots.size, asked: slots.get(id)?.asked ?? null }),
 };
 
@@ -1414,6 +1484,15 @@ function handle(msg: ToWorker): void {
       break;
     case 'formulas':
       slot.setFormulas(msg.value);
+      break;
+    case 'watchBars':
+      slot.watchBars(msg.on);
+      break;
+    case 'strategyDrawing':
+      slot.drawStrategy(msg.own, msg.trades);
+      break;
+    case 'depth':
+      void slot.deepen(msg.bars);
       break;
     case 'hidden':
       slot.engine.set_hidden(msg.value);

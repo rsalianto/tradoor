@@ -107,6 +107,9 @@ export interface ChartPanelState extends PanelBase {
   legendShut: boolean;
   /** Stoch RSI in a pane of its own rather than in RSI's. */
   pctApart?: boolean;
+  /** The strategy tester under the chart, where it has been opened: kept as stored, and read
+   *  with every value checked by lib/backtest-state readBacktest before anything uses it. */
+  backtest?: unknown;
 }
 
 export interface WatchlistPanelState extends PanelBase {
@@ -400,6 +403,7 @@ function readPanel(id: string, raw: unknown): Panel | null {
       }
       const row = Number(raw.footprintStatsRow);
       if (Number.isFinite(row) && row >= 12 && row <= 40) p.footprintStatsRow = row;
+      if (isObj(raw.backtest) && JSON.stringify(raw.backtest).length <= 64_000) p.backtest = raw.backtest;
     }
     else p.tpo = '1w';
     if (isObj(raw.tpoSettings)) {
