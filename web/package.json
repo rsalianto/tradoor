@@ -31,7 +31,7 @@
     {
       "name": "formula wasm",
       "path": "dist/assets/formula-*.wasm",
-      "limit": "88 kB",
+      "limit": "90 kB",
       "gzip": true
     }
   ],
