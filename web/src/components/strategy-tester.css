@@ -4,6 +4,8 @@
 .bt-grip:hover { background: color-mix(in oklab, var(--primary) 30%, transparent); }
 .bt-head { display: flex; align-items: center; gap: 8px; flex: 0 0 24px; height: 24px; padding: 0 2px 0 8px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; }
 .bt-title { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-weight: 600; }
+/* The icon on the letters' middle, not the line's: 13px beside 11px text sat a pixel and more low. */
+.bt-title svg { flex: none; position: relative; top: -1px; }
 .bt-kpis { display: inline-flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; color: var(--muted); }
 .bt-kpis .warn { overflow: hidden; text-overflow: ellipsis; }
 .bt-head .spacer { flex: 1; }

@@ -992,10 +992,11 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   let noticedBar = '';
   function noteOrders(v: BacktestResult | null): void {
     const k = untrack(btKit);
-    if (!k || !v || !untrack(tester)?.alerts) return;
+    if (!k || !v) return;
+    // Followed with notices off too: the first bar to close once they are on says its order.
     const n = k.orderNotice(v, noticedBar);
     noticedBar = n.seen;
-    if (!n.what) return;
+    if (!n.what || !untrack(tester)?.alerts) return;
     toast({ tone: 'info', title: n.title, body: n.what });
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
       try {
