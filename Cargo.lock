@@ -2461,7 +2461,7 @@ dependencies = [
 
 [[package]]
 name = "tradoor-backfill"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2477,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "tradoor-codec"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "flate2",
  "serde",
@@ -2486,18 +2486,18 @@ dependencies = [
 
 [[package]]
 name = "tradoor-core"
-version = "0.8.0"
+version = "0.8.1"
 
 [[package]]
 name = "tradoor-formula"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "tradoor-core",
 ]
 
 [[package]]
 name = "tradoor-formula-wasm"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "tradoor-core",
  "tradoor-formula",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "tradoor-ingest"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "tradoor-recorder"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2537,14 +2537,14 @@ dependencies = [
 
 [[package]]
 name = "tradoor-render"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "tradoor-core",
 ]
 
 [[package]]
 name = "tradoor-server"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2574,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "tradoor-store"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "refinery",
  "serde_json",
@@ -2590,7 +2590,7 @@ dependencies = [
 
 [[package]]
 name = "tradoor-venues"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "tradoor-wasm"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "js-sys",
  "tradoor-codec",
