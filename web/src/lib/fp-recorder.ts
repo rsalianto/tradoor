@@ -16,7 +16,8 @@ import { foldMinutes, recordedMarkets, type Footprint, type Minute, type Setting
 import type { Filling, Stopped } from './fp-fill';
 import { cover, levelFor, merge, MINUTE, MinuteBook, pack, toMinute, trimSpans, unpack, type Levels } from './fp-minutes';
 import { addMinutes, forget, prune, readMarket, readMinutes, writeMarket, type MarketRecord } from './fp-store';
-import { isRatio, parseMarket } from './markets';
+import { parseMarket } from './markets';
+import { recordable, recorderSettings as settings, storeRecorderSettings, type RecorderSettings } from './fp-settings';
 import { listenPrints } from './orderflow';
 
 export type { Stopped };
@@ -28,49 +29,16 @@ const FLUSH_MS = 10_000;
 const LIVE_MS = 1_000;
 /** A market no chart shows any more keeps recording this long, for a chart put back. */
 const LINGER_MS = 60_000;
-const SETTINGS_KEY = 'tradoor.footprint';
-
-export interface RecorderSettings {
-  /** Record in this browser at all. */
-  on: boolean;
-  /** Days kept: older minutes are let go. */
-  days: number;
-}
-
-const DEFAULTS: RecorderSettings = { on: true, days: 7 };
-export const KEEP_DAYS = [1, 3, 7, 14, 30] as const;
-
-function loadSettings(): RecorderSettings {
-  try {
-    const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<RecorderSettings>;
-    return { on: raw.on !== false, days: KEEP_DAYS.includes(raw.days as (typeof KEEP_DAYS)[number]) ? raw.days! : DEFAULTS.days };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
-
-const [settings, setSettingsSignal] = createSignal<RecorderSettings>(loadSettings());
-export const recorderSettings = settings;
+export { KEEP_DAYS, recordable, recorderSettings, type RecorderSettings } from './fp-settings';
 
 export function setRecorderSettings(patch: Partial<RecorderSettings>): void {
   const was = settings();
   const next = { ...was, ...patch };
-  setSettingsSignal(next);
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-  } catch {
-    // Kept for this page only.
-  }
+  storeRecorderSettings(next);
   if (next.on !== was.on) for (const market of wanted.keys()) restart(market);
   tidied = 0;
   void tidy();
 }
-
-/** Whether a market's trades can be recorded here: an exchange's, not an index or a ratio. */
-export const recordable = (market: string): boolean => {
-  const venue = parseMarket(market)?.venue;
-  return !!venue && venue !== 'index' && !isRatio(market);
-};
 
 // ---------------------------------------------------------------- telling charts
 

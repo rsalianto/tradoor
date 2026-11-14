@@ -14,8 +14,8 @@
   "size-limit": [
     {
       "name": "app js",
-      "path": ["dist/assets/index-*.js", "dist/assets/web-*.js", "dist/assets/solid-*.js"],
-      "limit": "61 kB"
+      "path": ["dist/assets/index-*.js", "dist/assets/solid-*.js", "dist/assets/store-*.js", "dist/assets/api-*.js", "dist/assets/markets-*.js", "dist/assets/prefs-*.js"],
+      "limit": "67 kB"
     },
     {
       "name": "engine worker js",

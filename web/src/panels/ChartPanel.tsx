@@ -18,10 +18,10 @@ import { demoRate, forceFlatRenderer } from '../lib/demo';
 import { flowMarks, watchFlowMarks } from '../lib/flow-marks';
 import { fetchFootprint, flatten, foldMinutes, fromHours, recordedMarkets, SeenBars, type Levels, type Minute } from '../lib/footprint';
 import { formulaRuns } from '../lib/formulas';
-import { MinuteBook, toMinute } from '../lib/fp-minutes';
 import { replayFootprint, REPLAY_SPEEDS, REPLAY_STEPS } from '../lib/replay';
-import { listenPrints } from '../lib/orderflow';
-import { onRecorded, recordable, recordedFootprint, recorderSettings, recordStatus, want as wantRecorded } from '../lib/fp-recorder';
+import { recordable, recorderSettings } from '../lib/fp-settings';
+/** The recorder, the trade streams and the minute book: a chunk of its own, loaded when a chart needs one (lib/fp-kit). */
+type FpKit = typeof import('../lib/fp-kit');
 import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
@@ -274,15 +274,23 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   // Volume by price, in place of the candles. The server records nine markets
   // at a minute apiece; a chart of longer bars adds those minutes together.
   const [recorded, setRecorded] = createSignal<Map<string, number>>(new Map());
-  void recordedMarkets().then(setRecorded);
+  /** Whether the server's list is in: until it is, no market can be told for the browser to record. */
+  const [recordedRead, setRecordedRead] = createSignal(false);
+  void recordedMarkets().then((m) => {
+    setRecorded(m);
+    setRecordedRead(true);
+  });
+  /** The recorder, trade streams and minute book, once this chart has needed them. */
+  const [kit, setKit] = createSignal<FpKit | null>(null);
   /** The footprint comes from this browser's own recordings, not the server's. */
   const browserFootprint = () => !recorded().has(market()) && recorderSettings().on && recordable(market());
   /** Whether this market's footprint can be asked for at all. */
   const footprintable = () => recorded().has(market()) || browserFootprint();
   // Every chart's market recorded here while it is open, so its footprint is there when asked for.
   createEffect(() => {
-    if (props.training) return;
-    onCleanup(wantRecorded(market()));
+    const k = kit();
+    if (props.training || !k) return;
+    onCleanup(k.want(market()));
   });
   const footprintOn = () => !props.training && props.panel.footprint === true && footprintable() && !tpoShown();
   /** The footprint is being fetched or read, and nothing of it is on the chart yet. */
@@ -300,7 +308,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     if (replaying() && fpNone() && !fpLoading()) return { text: 'no footprint this far back', tip: 'The server keeps footprint minutes for a month, and hours for good only where they were archived. These bars replay as candles.', progress: null };
     const venue = venueLabel(market());
     if (!browserFootprint()) return fpLoading() ? { text: 'loading footprint…', tip: "The server's recorded footprint for these bars", progress: 'busy' } : null;
-    const status = recordStatus(market());
+    const status = kit()?.recordStatus(market());
     const filling = status?.filling;
     if (filling) {
       return {
@@ -340,6 +348,12 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   };
   /** A TPO chart's volume profiles split by who took the volume: the footprint's trades, where they are recorded. */
   const tpoFlow = () => tpoShown() && footprintable() && tpoValue(props.panel.tpoSettings, 'vp') === '1' && tpoValue(props.panel.tpoSettings, 'vpMode') !== 'total';
+  // The kit loaded the first time this chart shows a footprint, splits a profile by side, or
+  // records a market the server does not: a layout of the server's markets never loads it.
+  createEffect(() => {
+    const needed = !props.training && (props.panel.footprint === true || tpoFlow() || (recordedRead() && browserFootprint()));
+    if (needed && !kit()) void import('../lib/fp-kit').then(setKit, () => undefined);
+  });
   /** The bars and settings the footprint on the chart is of. */
   let fpDrawn = '';
   createEffect(() => {
@@ -348,6 +362,12 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       send({ t: 'footprint', id: sid, flat: new Float64Array(), grid: 0, fitted: true });
       setFpLoading(false);
       fpDrawn = '';
+      return;
+    }
+    // Shown as loading until the kit is in; this runs again then.
+    const k = kit();
+    if (!k) {
+      setFpLoading(true);
       return;
     }
     setFpLoading(true);
@@ -372,7 +392,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           back: browser ? Infinity : hours ? (flow ? 1_000 : 400) * barMs : days * 86_400_000,
           ahead: browser ? Infinity : hours ? 200 * barMs : 86_400_000,
           bars: browser
-            ? () => recordedFootprint(market_, barMs, Date.now() - recorderSettings().days * 86_400_000, settings)
+            ? () => k.recordedFootprint(market_, barMs, Date.now() - recorderSettings().days * 86_400_000, settings)
             : (from, to) => fetchFootprint(market_, barMs, from, to, settings, Math.ceil((to - from) / 86_400_000) + 1),
           tick: browser ? 0 : (recorded().get(market_) ?? 0),
           minutes: (from, to) => api.footprint(market_, from, to).then((a) => a.bars.map((b) => ({ at: b.at, levels: b.levels }))),
@@ -406,7 +426,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         if (busy) return void (again = (again ?? false) || full);
         busy = true;
         const last = Math.max(from, ...held.keys());
-        const fp = await recordedFootprint(market_, barMs, full ? from : last, settings, full ? undefined : by);
+        const fp = await k.recordedFootprint(market_, barMs, full ? from : last, settings, full ? undefined : by);
         busy = false;
         if (dropped) return;
         if (fp) {
@@ -427,7 +447,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         }
       };
       void load(true);
-      const off = onRecorded(market_, (full) => void load(full));
+      const off = k.onRecorded(market_, (full) => void load(full));
       onCleanup(() => {
         dropped = true;
         off();
@@ -455,7 +475,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     // and what traded since off the exchange's own socket — the server itself
     // is asked only now and then, and hands out finished minutes alone.
     const tick = recorded().get(market_) ?? 0;
-    const book = !flow && tick > 0 ? new MinuteBook(tick, Date.now()) : null;
+    const book = !flow && tick > 0 ? new k.MinuteBook(tick, Date.now()) : null;
     let barMinutes: Minute[] = [];
     let lastServer = 0;
     const seen = new SeenBars(barMs);
@@ -464,7 +484,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
       let bars = shown;
       if (book && grid > 0) {
         const barStart = Math.floor(Date.now() / barMs) * barMs;
-        const since = [...book.minutes].filter(([at]) => at > lastServer && at >= barStart).map(([at, levels]) => toMinute(at, levels, tick));
+        const since = [...book.minutes].filter(([at]) => at > lastServer && at >= barStart).map(([at, levels]) => k.toMinute(at, levels, tick));
         const minutes = [...barMinutes.filter((m) => m.at >= barStart), ...since];
         const bar = minutes.length > 0 ? foldMinutes(minutes, tick, barMs, settings, Math.max(1, Math.round(grid / tick))).bars.find((b) => b.time === barStart) : undefined;
         bars = seen.over(shown, bar, barStart);
@@ -505,7 +525,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
         draw();
       };
       let pending: ReturnType<typeof setTimeout> | undefined;
-      offPrints = listenPrints(market_, {
+      offPrints = k.listenPrints(market_, {
         print(time, price, qty, buy) {
           if (book.add(time, price, qty, buy)) pending ??= setTimeout(() => ((pending = undefined), draw()), 500);
         },
