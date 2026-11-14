@@ -13,6 +13,7 @@ use crate::compile::{math, Ex, Fmt, Keep, ListOp, Program, Ret, Run, Series, Sha
 use crate::syntax::{At, Op};
 use crate::{Bars, BoxArt, Cell, Error, Fill, LabelArt, LineArt, Mark, Output, Plot, Table, MAX_AHEAD, MAX_BOXES, MAX_LABELS, MAX_LINES, MAX_LIST, MAX_LOOKBACK, MAX_LOOP, MAX_STEPS, TABLE_COLUMNS, TABLE_ROWS};
 use tradoor_core::format::fixed;
+use tradoor_core::num::Within;
 use tradoor_core::time::{civil, month_index, week_index, weekday, year_of, DAY};
 
 const NA: f64 = f64::NAN;
@@ -622,7 +623,7 @@ pub fn run(p: &Program, bars: &Bars, decimals: u8) -> Result<Output, Error> {
         .collect();
     let marks = p.marks.iter().zip(m.marks).map(|(s, hits)| Mark { text: s.text.clone(), above: s.above, color: s.color, hits }).collect();
     let fills = p.fills.iter().map(|(upper, lower, color)| Fill { upper: *upper, lower: *lower, color: *color }).collect();
-    let reach = |x: f64| x.clamp(-MAX_AHEAD, n as f64 - 1.0 + MAX_AHEAD);
+    let reach = |x: f64| x.within(-MAX_AHEAD, n as f64 - 1.0 + MAX_AHEAD);
     let ok = |v: &[f64]| v.iter().all(|x| x.is_finite());
     let lines = m.shapes.lines.into_iter().map(|(_, l)| l).filter(|l| ok(&[l.x1, l.y1, l.x2, l.y2])).map(|l| LineArt { x1: reach(l.x1), x2: reach(l.x2), ..l }).collect();
     let labels = m.shapes.labels.into_iter().map(|(_, l)| l).filter(|l| ok(&[l.x, l.y])).map(|l| LabelArt { x: reach(l.x), ..l }).collect();
@@ -948,7 +949,7 @@ impl Machine<'_> {
                     Fmt::Plain => plain(v),
                     Fmt::Fixed(d) => {
                         let d = self.ex(d)?;
-                        if v.is_nan() { "NaN".to_string() } else { fixed(v, d.round().clamp(0.0, 10.0) as usize) }
+                        if v.is_nan() { "NaN".to_string() } else { fixed(v, d.round().within(0.0, 10.0) as usize) }
                     }
                     Fmt::Duration if v.is_nan() => "NaN".to_string(),
                     Fmt::Duration => tradoor_core::studies::format_duration(v),
@@ -1076,8 +1077,8 @@ impl Machine<'_> {
             None => None,
         };
         let s = &mut self.shapes;
-        let width = |w: f64| if w.is_finite() { w.clamp(0.5, 10.0) as f32 } else { 1.0 };
-        let small = |w: f64, top: f64| if w.is_finite() { w.round().clamp(0.0, top) as u8 } else { 0 };
+        let width = |w: f64| if w.is_finite() { w.within(0.5, 10.0) as f32 } else { 1.0 };
+        let small = |w: f64, top: f64| if w.is_finite() { w.round().within(0.0, top) as u8 } else { 0 };
         match op {
             ShapeOp::Line => {
                 let serial = s.next;

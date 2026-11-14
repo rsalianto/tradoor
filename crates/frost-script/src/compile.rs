@@ -9,6 +9,7 @@
 //! is; one that calls itself, or that grows the script past its limit once
 //! written out, is refused.
 use std::rc::Rc;
+use tradoor_core::num::Within;
 
 use crate::syntax::{At, Default as Given, Expr, Input, Line, Node, Op, Stmt};
 use crate::{
@@ -665,7 +666,7 @@ fn rgba(r: f64, g: f64, b: f64, a: f64) -> f64 {
     if [r, g, b, a].iter().any(|v| v.is_nan()) {
         return f64::NAN;
     }
-    let ch = |v: f64| v.round().clamp(0.0, 255.0) as u32;
+    let ch = |v: f64| v.round().within(0.0, 255.0) as u32;
     f64::from(ch(r) << 24 | ch(g) << 16 | ch(b) << 8 | ch(a))
 }
 
@@ -728,9 +729,9 @@ pub fn math(f: Math, v: &[f64]) -> f64 {
         Math::Atan => atan(a),
         Math::Atan2 => atan2(a, b.unwrap_or(nan)),
         // An opacity from 0 to 1, as CSS writes it.
-        Math::Rgb => rgba(a, b.unwrap_or(nan), v.get(2).copied().unwrap_or(nan), v.get(3).map_or(255.0, |o| o.clamp(0.0, 1.0) * 255.0)),
+        Math::Rgb => rgba(a, b.unwrap_or(nan), v.get(2).copied().unwrap_or(nan), v.get(3).map_or(255.0, |o| o.within(0.0, 1.0) * 255.0)),
         Math::Alpha => match (channels(a), b) {
-            (Some([r, g, bl, _]), Some(o)) => rgba(r, g, bl, o.clamp(0.0, 1.0) * 255.0),
+            (Some([r, g, bl, _]), Some(o)) => rgba(r, g, bl, o.within(0.0, 1.0) * 255.0),
             _ => nan,
         },
         Math::Gradient => {
@@ -739,7 +740,7 @@ pub fn math(f: Math, v: &[f64]) -> f64 {
             if a.is_nan() || lo.is_nan() || hi.is_nan() {
                 return nan;
             }
-            let t = if hi == lo { 1.0 } else { ((a - lo) / (hi - lo)).clamp(0.0, 1.0) };
+            let t = if hi == lo { 1.0 } else { ((a - lo) / (hi - lo)).within(0.0, 1.0) };
             let mix = |i: usize| c0[i] + (c1[i] - c0[i]) * t;
             rgba(mix(0), mix(1), mix(2), mix(3))
         }
