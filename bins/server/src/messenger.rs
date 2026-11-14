@@ -309,6 +309,72 @@ pub fn has_link(text: &str) -> bool {
             from = start + dot.len();
         }
     }
+    // A name and an ending with anything else between: `name[]com`, `name , com`, `name com`, `name-com`.
+    if separated(&chars) {
+        return true;
+    }
+    false
+}
+
+/// Endings read past a separator of spaces alone, or a dash: none a word anyone writes.
+const BARE: &[&str] = &["com", "xyz", "biz"];
+/// Endings read past punctuation with spaces round it: plainly a site's, and not a word.
+const STRONG: &[&str] = &["com", "org", "io", "xyz", "gg", "ly", "ru", "cn", "biz", "info"];
+
+/// Punctuation and symbols that can stand for a dot between a name and its ending.
+fn separator(c: char) -> bool {
+    (c.is_ascii_punctuation() && !"/-_@!?&%$'.".contains(c)) || ('\u{2000}'..='\u{2BFF}').contains(&c) || ('\u{1F000}'..='\u{1FAFF}').contains(&c)
+}
+
+/// Whether a name and an ending stand apart by something other than a dot: what
+/// is between them decides which endings count, so talk such as "gross, net",
+/// "yes, me too" or "BTC,ETH,SOL" stays talk.
+fn separated(chars: &[char]) -> bool {
+    let word = |c: char| c.is_ascii_alphanumeric();
+    let mut i = 0;
+    while i < chars.len() {
+        if !word(chars[i]) || (i + 1 < chars.len() && word(chars[i + 1])) {
+            i += 1;
+            continue;
+        }
+        // chars[i] ends a word: what follows, up to the next letter, is the gap.
+        let name_len = chars[..=i].iter().rev().take_while(|c| word(**c)).count();
+        let mut j = i + 1;
+        while j < chars.len() && !chars[j].is_ascii_alphanumeric() && j - i <= 6 {
+            j += 1;
+        }
+        if j >= chars.len() || j == i + 1 || !chars[j].is_ascii_alphabetic() {
+            i += 1;
+            continue;
+        }
+        let gap = &chars[i + 1..j];
+        let ending: String = chars[j..].iter().take_while(|c| c.is_ascii_alphabetic()).collect();
+        let ends_there = chars.get(j + ending.len()).is_none_or(|c| !c.is_ascii_alphabetic());
+        if ends_there {
+            let spaces = gap.iter().any(|c| c.is_whitespace());
+            let marks = gap.iter().filter(|c| separator(**c)).count();
+            let only = |f: &dyn Fn(char) -> bool| gap.iter().all(|c| f(*c));
+            let hit = if marks > 0 && !spaces && only(&|c| separator(c)) {
+                // `name[]com`, `name,net`: punctuation alone between, any ending.
+                ENDINGS.contains(&ending.as_str())
+            } else if marks > 0 && only(&|c| separator(c) || c.is_whitespace()) {
+                // `name [ ] com`, `name , com`: punctuation and spaces, an ending that is plainly a site's.
+                STRONG.contains(&ending.as_str())
+            } else if only(&|c| c == ' ') && gap.len() <= 3 {
+                // `name com`: spaces alone, an ending no one writes as a word, after a name of some length.
+                name_len >= 3 && BARE.contains(&ending.as_str())
+            } else if only(&|c| c == '-' || c == '_' || c == '/') && gap.len() == 1 {
+                // `name-com`, `name/com`.
+                name_len >= 4 && BARE.contains(&ending.as_str())
+            } else {
+                false
+            };
+            if hit {
+                return true;
+            }
+        }
+        i = j;
+    }
     false
 }
 
@@ -539,6 +605,21 @@ mod tests {
             "scam  .  com",
             "xn--80ak6aa92e.com",
             "visit xn--e1afmkfd",
+            "tradoorterminal[]com",
+            "tradoorterminal[ ]com",
+            "tradoorterminal ( ) com",
+            "tradoorterminal{}io",
+            "tradoorterminal,com",
+            "tradoorterminal , com",
+            "tradoorterminal;net",
+            "tradoorterminal|xyz",
+            "tradoorterminal*com",
+            "tradoorterminal★com",
+            "tradoorterminal com",
+            "tradoorterminal-com",
+            "tradoorterminal/com",
+            "scam<>gg",
+            "tradoorterminal🔥com",
         ] {
             assert!(has_link(link), "{link}");
             assert!(cleaned(link).is_err(), "{link}");
@@ -561,6 +642,15 @@ mod tests {
             "buy dot to the moon, dot in profit",
             "polkadot today and polkadot news",
             "Nice . To the moon",
+            "gross, net profit was fine",
+            "yes, me too",
+            "BTC,ETH,SOL pumping",
+            "long/short ratio, long-term view",
+            "nice gg everyone",
+            "e-com and dot-com bubble",
+            "TP1 (67k), TP2 [68k]",
+            "Don't get liquidated folks. enjoy your weekend",
+            "BTC🚀ETH🚀SOL",
         ] {
             assert!(!has_link(talk), "{talk}");
             assert!(cleaned(talk).is_ok(), "{talk}");
