@@ -461,22 +461,43 @@ input.box:focus { border-color: var(--primary); outline: 0; }
    their own row, they were not so much discreet as undiscoverable. Anywhere
    on the legend brings them out faintly, the row under the pointer fully, and
    a layer already hidden keeps its crossed eye so it can be brought back. */
-.layer .btns { display: flex; gap: 3px; opacity: 0; transition: opacity 0.1s; }
+/* Larger than the text, but kept from making the row any taller. */
+.layer .btns { display: flex; gap: 1px; margin-block: -3px; padding: 0 1px; border: 1px solid transparent; opacity: 0; transition: opacity 0.1s; }
 .legend:hover .layer .btns { opacity: 0.5; }
 .layer:hover .btns, .layer.off .btns { opacity: 1; }
-.layer .btns button { padding: 0 1px; }
+/* The row under the pointer has its buttons in a box, as TradingView's. */
+.layer:hover .btns { border-color: var(--border); background: var(--surface); }
+.layer .btns button { padding: 2px 3px; }
 /* A finger cannot hover, so on a touch screen the eye and the rest are always
    out: without them an indicator there could be neither hidden nor removed. */
 @media (hover: none) {
   .layer { padding: 2px 3px; }
-  .layer .btns { gap: 6px; opacity: 1; }
-  .layer .btns button { padding: 2px; }
+  .layer .btns { gap: 4px; margin-block: -2px; opacity: 1; }
+  .layer .btns button { padding: 1px 2px; }
   /* The handle under the list, at the size of a fingertip. */
   .legend .fold { padding: 5px 9px; }
 }
 .layer .btns button { display: flex; color: var(--dim); }
 .layer .btns button:hover { color: var(--primary); }
 .layer .val { font-variant-numeric: tabular-nums; }
+/* A pane's own legend, at its top. */
+.legend.pane-legend { top: 0; }
+/* A pane's buttons at its top right, by the price axis: faint while the pointer is on the chart, full on them. */
+.pane-tools { position: absolute; z-index: 6; display: flex; gap: 2px; padding: 1px; border: 1px solid var(--border); background: var(--surface); transform: translateX(-100%); opacity: 0; transition: opacity 0.1s; }
+.canvasbox:hover .pane-tools { opacity: 0.6; }
+.canvasbox .pane-tools:hover { opacity: 1; }
+.pane-tools button { display: flex; padding: 2px 3px; color: var(--muted); }
+.pane-tools button:hover { color: var(--primary); }
+@media (hover: none) { .pane-tools { opacity: 0.8; } }
+/* A narrow chart, a phone's: a row keeps its name and first figure, the symbol line its prices. */
+@container (max-width: 520px) {
+  .layer .val.extra, .layer > .dim { display: none; }
+  .layer .name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend .line .where, .legend .line .vol { display: none; }
+  /* The symbol and the bar's change on one line, the four prices smaller on the next. */
+  .legend .line { gap: 0 8px; }
+  .legend .line .ohlc { order: 1; flex-basis: 100%; gap: 6px; font-size: 10px; }
+}
 .rangebar { display: flex; align-items: center; gap: 1px; flex: 0 0 22px; height: 22px; padding: 0 4px; border-top: 1px solid var(--border); background: var(--surface-2); font-size: 11px; white-space: nowrap; overflow: hidden; }
 .rangebar .tb { padding: 1px 5px; font-size: 10px; color: var(--dim); }
 /* Beside the bars' count, and meant to be found: a frame and its word. */

@@ -26,7 +26,7 @@ import { FOOTPRINT_EXTRAS, FOOTPRINT_MODES } from '../workspace/model';
 import { useDismiss } from '../lib/dismiss';
 import { decimalsOf, formatPrice, formatTurnover, MAX_PRICE_DECIMALS } from '../lib/format';
 import type { LastPrice } from '../lib/last-price';
-import { Icon } from '../lib/icons';
+import { Icon, type IconName } from '../lib/icons';
 import { VenueTag } from '../lib/exchanges';
 import { WatchlistToggle } from '../components/WatchlistToggle';
 import { liquidationVenues } from '../lib/liquidation-venues';
@@ -826,6 +826,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
   const tpoSet = (key: string, value: string) => patchPanel(id, { tpoSettings: withTpoValue(props.panel.tpoSettings, key, value) });
   const tpoOn = (key: string) => tpoValue(props.panel.tpoSettings, key) === '1';
   createEffect(() => send({ t: 'paneWeights', id: sid, value: props.panel.paneWeights }));
+  createEffect(() => send({ t: 'pctApart', id: sid, value: props.panel.pctApart === true }));
   createEffect(() => send({ t: 'footprintShown', id: sid, value: footprintOn() }));
   // The mode and what else a column carries, as the engine reads them.
   createEffect(() =>
@@ -1253,8 +1254,42 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
     send({ t: 'range', id: sid, days: days === 'ytd' ? (Date.now() - Date.UTC(year, 0, 1)) / 86_400_000 : days });
   };
 
-  /** What the legend holds under its arrow: the layers drawn and the studies. */
+  /** The panes below the price pane, by group, and where each one's top stands: kept as they were until one moves. */
+  const paneTops = createMemo(() => new Map((legend()?.panes ?? []).map((p) => [p.group, Math.round(p.top)] as const)), new Map<string, number>(), {
+    equals: (a, b) => a.size === b.size && [...a].every(([k, v]) => b.get(k) === v),
+  });
+  const paneGroups = createMemo(() => [...paneTops().keys()], [], { equals: (a, b) => a.join() === b.join() });
+  /** The studies listed under the symbol: the price pane's, and those whose pane is not drawn. A pane's own are listed at its top. */
+  const topStudies = () => studies().filter((s) => !paneTops().has(s.group));
+  const paneStudies = (group: string) => studies().filter((s) => s.group === group);
+  /** RSI and Stoch RSI both shown: only then do they share a pane, or part. */
+  const kindShown = (kind: string) => studies().some((s) => !s.hidden && s.id.split(':')[0] === kind);
+  /** A pane's move, at its top right as TradingView has it: Stoch RSI down into a pane of its own, or up into RSI's. */
+  const paneMove = (group: string): { tip: string; icon: IconName; move(): void } | undefined => {
+    if (!kindShown('rsi') || !kindShown('stochrsi')) return undefined;
+    const apart = props.panel.pctApart === true;
+    if (group === 'pct' && !apart) return { tip: 'Stoch RSI down, in a pane of its own', icon: 'down', move: () => patchPanel(id, { pctApart: true }) };
+    if (group === 'stoch' && apart) return { tip: "Stoch RSI up, into RSI's pane", icon: 'up', move: () => patchPanel(id, { pctApart: false }) };
+    return undefined;
+  };
+  const removePane = (group: string) => batch(() => paneStudies(group).forEach((s) => removeStudy(s.id)));
+
+  /** What the legend holds under its arrow: every row, the lower panes' too, as one handle folds them all. */
   const folded = () => layers().length + studies().length;
+
+  /** A study's row in a legend: its name, its figures, and its buttons. */
+  const studyRow = (s: StudyMeta) => (
+    <LayerRow
+      label={s.label}
+      off={s.hidden}
+      onToggle={() => toggleLayer(s.id)}
+      onRemove={() => removeStudy(s.id)}
+      onSettings={() => editStudy(s.id)}
+      // VWAP levels are read off their labels: two dozen figures would fill the row.
+      values={s.hidden || s.id.startsWith('vwaplevels') ? [] : s.lines.filter((line) => !plotStyle(props.panel.studyStyles, s.id, line.id.slice(s.id.length + 1)).off).map((line) => ({ color: line.color, text: () => legend()?.values[line.id] ?? '—' }))}
+      stats={s.hidden || plotStyle(props.panel.studyStyles, s.id, 'stats').off ? [] : s.stats}
+    />
+  );
 
   /** A finger off the glass; true when the chart should hear nothing of it. */
   const lift = (e: PointerEvent) => {
@@ -1880,7 +1915,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
           <div class="legend">
             <div class="line">
               <span class="title">{symbolOf(market())}</span>
-              <span class="dim">
+              <span class="dim where">
                 {tfLabel(timeframe())}
                 {split() ? ` · TPO ${TPO_SPLITS.find((t) => t.value === split())?.label}` : ''} · {venueLabel(market())}
                 <Show when={fpNote()}>
@@ -1908,7 +1943,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
                     <span class="num" classList={{ bull: l().up, bear: !l().up }}>
                       {l().change}
                     </span>
-                    <span class="num dim">{l().volume}</span>
+                    <span class="num dim vol">{l().volume}</span>
                   </>
                 )}
               </Show>
@@ -1916,20 +1951,7 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
             <Show when={!props.panel.legendShut}>
               <For each={layers()}>{(layer) => <LayerRow label={layerLabel(layer.id, layer.label)} off={hidden().has(layer.id)} onToggle={() => toggleLayer(layer.id)} onRemove={() => removeLayer(layer.id)} onSettings={() => editStudy(layer.id)} />}</For>
             </Show>
-            <For each={props.panel.legendShut ? [] : studies()}>
-              {(s) => (
-                <LayerRow
-                  label={s.label}
-                  off={s.hidden}
-                  onToggle={() => toggleLayer(s.id)}
-                  onRemove={() => removeStudy(s.id)}
-                  onSettings={() => editStudy(s.id)}
-                  // VWAP levels are read off their labels: two dozen figures would fill the row.
-                  values={s.hidden || s.id.startsWith('vwaplevels') ? [] : s.lines.filter((line) => !plotStyle(props.panel.studyStyles, s.id, line.id.slice(s.id.length + 1)).off).map((line) => ({ color: line.color, text: () => legend()?.values[line.id] ?? '—' }))}
-                  stats={s.hidden || plotStyle(props.panel.studyStyles, s.id, 'stats').off ? [] : s.stats}
-                />
-              )}
-            </For>
+            <For each={props.panel.legendShut ? [] : topStudies()}>{(s) => studyRow(s)}</For>
             {/* The list's own handle, under it: folded, the count is all that
                 says what is down there. */}
             <Show when={folded() > 0}>
@@ -1948,6 +1970,31 @@ export function ChartPanel(props: { panel: ChartPanelState; training?: TrainingC
               </button>
             </Show>
           </div>
+          {/* A pane's own studies at its own top, as TradingView lists them; the one handle above folds them with the rest.
+              Its buttons at its top right, by the price axis. */}
+          <For each={paneGroups()}>
+            {(group) => (
+              <>
+                <Show when={!props.panel.legendShut}>
+                  <div class="legend pane-legend" style={{ top: `${(paneTops().get(group) ?? 0) + 3}px` }}>
+                    <For each={paneStudies(group)}>{(s) => studyRow(s)}</For>
+                  </div>
+                </Show>
+                <div class="pane-tools" style={{ top: `${(paneTops().get(group) ?? 0) + 3}px`, left: `${axisX() - 4}px` }} onPointerDown={(e) => e.stopPropagation()}>
+                  <Show when={paneMove(group)}>
+                    {(m) => (
+                      <button data-tip={m().tip} aria-label={m().tip} onClick={() => m().move()}>
+                        <Icon name={m().icon} size={15} />
+                      </button>
+                    )}
+                  </Show>
+                  <button data-tip="Remove this pane's indicators" aria-label="Remove this pane's indicators" onClick={() => removePane(group)}>
+                    <Icon name="trash" size={15} />
+                  </button>
+                </div>
+              </>
+            )}
+          </For>
           <Show when={alertMenu()}>
             {(m) => (
               <div class="menu" style={{ left: `${m().x}px`, top: `${m().y}px` }} onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
@@ -2199,9 +2246,10 @@ function LayerRow(props: {
       >
         {props.label}
       </span>
+      {/* After the first figure the rest are extra: a narrow chart leaves them out (styles.css). */}
       <For each={props.values ?? []}>
-        {(v) => (
-          <span class="val" style={{ color: v.color }}>
+        {(v, i) => (
+          <span class="val" classList={{ extra: i() > 0 }} style={{ color: v.color }}>
             {v.text()}
           </span>
         )}
@@ -2214,21 +2262,22 @@ function LayerRow(props: {
         )}
       </For>
       {/* Only the buttons keep the press: a drag that starts on the legend text still pans. */}
+      {/* Hide first, then settings, as TradingView has them. */}
       <span class="btns" onPointerDown={(e) => e.stopPropagation()}>
+        <button data-tip={props.off ? 'Show' : 'Hide'} aria-label={props.off ? 'Show' : 'Hide'} onClick={() => props.onToggle()}>
+          <Icon name={props.off ? 'eyeOff' : 'eye'} size={15} />
+        </button>
         <Show when={props.onSettings}>
           {(open) => (
-            <button data-tip="Settings" onClick={() => open()()}>
-              <Icon name="settings" size={13} />
+            <button data-tip="Settings" aria-label="Settings" onClick={() => open()()}>
+              <Icon name="settings" size={15} />
             </button>
           )}
         </Show>
-        <button data-tip={props.off ? 'Show' : 'Hide'} onClick={() => props.onToggle()}>
-          <Icon name={props.off ? 'eyeOff' : 'eye'} size={13} />
-        </button>
         <Show when={props.onRemove}>
           {(remove) => (
-            <button data-tip="Remove" onClick={() => remove()()}>
-              <Icon name="close" size={13} />
+            <button data-tip="Remove" aria-label="Remove" onClick={() => remove()()}>
+              <Icon name="trash" size={15} />
             </button>
           )}
         </Show>

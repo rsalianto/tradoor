@@ -197,6 +197,9 @@ pub struct Legend {
     /// The tradoor mark's top left and its inks, where the page draws it over a
     /// live chart (`set_page_mark`).
     pub mark: Option<(f32, f32, Color, Color)>,
+    /// Each pane below the price pane, by its group, and where its top stands:
+    /// for the page to list a pane's studies at its own top.
+    pub panes: Vec<(&'static str, f32)>,
 }
 
 /// One footprint row under the pointer: its bar, the prices it covers, what
@@ -531,6 +534,8 @@ pub struct Chart {
     formulas: Vec<ComputedStudy>,
     hidden: Hidden,
     log_scale: bool,
+    /// Stoch RSI in a pane of its own rather than in RSI's.
+    pct_apart: bool,
     time: TimeScale,
     view_ready: bool,
     /// A span of time asked to fill the plot, framed again as bars arrive — a
@@ -629,6 +634,7 @@ impl Chart {
             formulas: Vec::new(),
             hidden: Hidden::default(),
             log_scale: false,
+            pct_apart: false,
             time: TimeScale::new(),
             view_ready: false,
             span: None,
@@ -1425,6 +1431,7 @@ impl Chart {
             let group = match key.trim() {
                 "price" => Group::Price,
                 "pct" => Group::Pct,
+                "stoch" => Group::Stoch,
                 "macd" => Group::Macd,
                 "atr" => Group::Atr,
                 "delta" => Group::Delta,
@@ -1639,6 +1646,19 @@ impl Chart {
 
     // ------------------------------------------------------------------ layout
 
+    /// The pane a study draws in: its own group's, but Stoch RSI's apart from RSI's when the reader parts them.
+    fn pane_group(&self, s: &ComputedStudy) -> Group {
+        if self.pct_apart && s.kind == StudyKind::StochRsi { Group::Stoch } else { s.group }
+    }
+
+    /// RSI and Stoch RSI in one pane, or each in its own.
+    pub fn set_pct_apart(&mut self, apart: bool) {
+        if self.pct_apart != apart {
+            self.pct_apart = apart;
+            self.touch();
+        }
+    }
+
     fn visible_studies(&self) -> impl Iterator<Item = (usize, &ComputedStudy)> {
         self.studies.iter().chain(&self.formulas).filter(|s| !self.hidden.contains(&s.id)).enumerate()
     }
@@ -1665,8 +1685,9 @@ impl Chart {
     fn layout(&mut self) {
         let mut groups = vec![Group::Price];
         for (_, s) in self.visible_studies() {
-            if !groups.contains(&s.group) {
-                groups.push(s.group);
+            let g = self.pane_group(s);
+            if !groups.contains(&g) {
+                groups.push(g);
             }
         }
         for g in &groups {
@@ -1818,7 +1839,7 @@ impl Chart {
     }
 
     fn pane_extent(&self, group: Group, i0: usize, i1: usize) -> (f64, f64) {
-        if group == Group::Pct {
+        if matches!(group, Group::Pct | Group::Stoch) {
             return (0.0, 100.0);
         }
         let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -1854,7 +1875,7 @@ impl Chart {
             }
         }
         // VWAP levels are labels at the edge: a year's, far off, would squeeze the bars.
-        for (_, study) in self.visible_studies().filter(|(_, s)| s.group == group && s.kind != StudyKind::VwapLevels) {
+        for (_, study) in self.visible_studies().filter(|(_, s)| self.pane_group(s) == group && s.kind != StudyKind::VwapLevels) {
             for line in study.lines.iter().filter(|l| !self.styles.of(&study.id, l.key).off) {
                 series(&line.values, &mut take);
                 if line.kind == LineType::Histogram {
@@ -2223,7 +2244,7 @@ impl Chart {
 
         // ---- guides under everything in the lower panes
         let guides = self.styles.of("pct", "guides");
-        for pane in self.panes.iter().filter(|p| p.group == Group::Pct && !guides.off) {
+        for pane in self.panes.iter().filter(|p| matches!(p.group, Group::Pct | Group::Stoch) && !guides.off) {
             f.clip(Some(pane.plot));
             for level in [self.styles.number("pct", "lower", 20.0), self.styles.number("pct", "upper", 80.0)] {
                 let y = pane.scale.y(level) as f32;
@@ -2338,7 +2359,7 @@ impl Chart {
 
         // ---- studies, each in its pane
         for (index, study) in self.visible_studies() {
-            let Some(pane) = self.panes.iter().find(|p| p.group == study.group) else { continue };
+            let Some(pane) = self.panes.iter().find(|p| p.group == self.pane_group(study)) else { continue };
             f.clip(Some(pane.plot));
             self.paint_study_candles(f, &pane.scale, &study.candles, i0, i1, body, &study.id);
             // A line can run past the last bar: to what is on screen, not to the bars.
@@ -2574,7 +2595,7 @@ impl Chart {
             }
         }
         for (index, study) in self.visible_studies() {
-            let Some(pane_index) = self.panes.iter().position(|pn| pn.group == study.group) else { continue };
+            let Some(pane_index) = self.panes.iter().position(|pn| pn.group == self.pane_group(study)) else { continue };
             let pane = self.panes[pane_index];
             for (li, line) in study.lines.iter().enumerate().filter(|(_, l)| l.kind == LineType::Line && l.badge && !self.styles.of(&study.id, l.key).off) {
                 if let Some(v) = last_value(&line.values) {
@@ -2605,7 +2626,7 @@ impl Chart {
             let ticks = ticks::price_ticks(&pane.scale, 44.0);
             let decimals = match pane.group {
                 Group::Price => p,
-                Group::Pct => 2,
+                Group::Pct | Group::Stoch => 2,
                 _ => ticks::step_decimals(&ticks).max(2),
             };
             let label = |v: f64| if matches!(pane.group, Group::Oi | Group::Delta) { format_compact(v) } else { format_price(v, Some(decimals)) };
@@ -2618,7 +2639,7 @@ impl Chart {
                 }
                 f.text(plot_w + 6.0, y, label(v), t.text, Align::Left, Baseline::Middle, font, None, Some(axis));
             }
-            if pane.group == Group::Pct {
+            if matches!(pane.group, Group::Pct | Group::Stoch) {
                 for level in [20.0, 80.0] {
                     let y = pane.scale.y(level) as f32;
                     f.crisp_rect(plot_w + 1.0, y - badge_h / 2.0, self.axis_width - 1.0, badge_h, t.border);
@@ -3073,6 +3094,7 @@ impl Chart {
                 .filter(|_| self.tool.is_none())
                 .and_then(|(k, bar)| tpo::hover(self.tpo_profiles.as_ref()?, &self.tpo_settings, k, self.bar(bar).map(|b| (bar, b.time)))),
             mark: mark_at(pane.plot, self.table_top().unwrap_or(pane.plot.bottom())).filter(|_| self.page_mark).map(|(x, y)| (x, y, self.theme.ribbon_fast, self.theme.bear)),
+            panes: self.panes.iter().skip(1).map(|p| (p.group.as_str(), p.plot.y)).collect(),
         }
     }
 
@@ -3109,7 +3131,7 @@ impl Chart {
                 StudyMeta {
                     id: s.id.clone(),
                     label: s.label.clone(),
-                    group: s.group.as_str(),
+                    group: self.pane_group(s).as_str(),
                     hidden,
                     lines: lines
                         .iter()
@@ -5719,6 +5741,26 @@ mod tests {
         c.set_footprint_options("delta;1;0;1");
         c.render(1_800_000_000_000);
         assert_eq!(c.legend().mark.map(|m| m.1), Some(c.panes[0].plot.bottom() - 46.0), "back down with the table off");
+    }
+
+    #[test]
+    fn stoch_rsi_parts_from_rsi_into_a_pane_of_its_own_and_back() {
+        let mut c = chart();
+        c.set_studies("rsi:14,stochrsi:14:14:3:3");
+        c.render(1_800_000_000_000);
+        assert_eq!(c.panes.iter().map(|p| p.group).collect::<Vec<_>>(), [Group::Price, Group::Pct]);
+        c.set_pct_apart(true);
+        c.render(1_800_000_000_000);
+        assert_eq!(c.panes.iter().map(|p| p.group).collect::<Vec<_>>(), [Group::Price, Group::Pct, Group::Stoch]);
+        let meta = c.studies_meta();
+        assert_eq!(meta.iter().map(|m| m.group).collect::<Vec<_>>(), ["pct", "stoch"], "the page lists each in its own pane");
+        let panes = c.legend().panes;
+        assert_eq!(panes.iter().map(|p| p.0).collect::<Vec<_>>(), ["pct", "stoch"]);
+        assert!(panes[0].1 < panes[1].1, "each pane's top, in order down the chart");
+        assert_eq!(c.pane_extent(Group::Stoch, 0, 10), (0.0, 100.0), "on the same scale as RSI's");
+        c.set_pct_apart(false);
+        c.render(1_800_000_000_000);
+        assert_eq!(c.panes.len(), 2);
     }
 
     #[test]

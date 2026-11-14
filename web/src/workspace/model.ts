@@ -105,6 +105,8 @@ export interface ChartPanelState extends PanelBase {
   tpoEdits: string;
   /** The layers under the symbol are folded away. */
   legendShut: boolean;
+  /** Stoch RSI in a pane of its own rather than in RSI's. */
+  pctApart?: boolean;
 }
 
 export interface WatchlistPanelState extends PanelBase {
@@ -381,6 +383,7 @@ function readPanel(id: string, raw: unknown): Panel | null {
     p.studyStyles = readStyles(raw.studyStyles);
     p.log = raw.log === true;
     p.legendShut = raw.legendShut === true;
+    p.pctApart = raw.pctApart === true;
     p.paneWeights = str(raw.paneWeights, '');
     // A TPO panel from before TPO was a chart style keeps its weekly split, as
     // does a chart saved while TPO was an on/off switch.

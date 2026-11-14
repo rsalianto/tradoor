@@ -30,6 +30,8 @@ export interface Legend {
   tpo: TpoHover | null;
   /** Where the page draws the tradoor mark over the price pane, and in what inks; null where it has no room. */
   mark: { x: number; y: number; accent: string; bear: string } | null;
+  /** Each pane below the price pane, by its group, and the y of its top: where its own legend stands. */
+  panes: { group: string; top: number }[];
 }
 
 /** A TPO profile under the pointer: when it runs, its neighbours' starts, how it
@@ -247,6 +249,8 @@ export type ToWorker =
   /** Profiles expanded, merged and split by hand, `e=t,t;m=t;s=t`. */
   | { t: 'tpoEdits'; id: string; value: string }
   | { t: 'paneWeights'; id: string; value: string }
+  /** RSI and Stoch RSI in one pane, or each in its own. */
+  | { t: 'pctApart'; id: string; value: boolean }
   /** `style`: what the new drawing will look like, so its draft matches. */
   | { t: 'tool'; id: string; value: string; style: Record<string, string | number | boolean> }
   | { t: 'magnet'; id: string; value: MagnetMode }

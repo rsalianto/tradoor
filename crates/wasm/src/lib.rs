@@ -229,6 +229,11 @@ impl ChartEngine {
         self.chart.set_pane_weights(raw);
     }
 
+    /// RSI and Stoch RSI in one pane, or each in its own.
+    pub fn set_pct_apart(&mut self, apart: bool) {
+        self.chart.set_pct_apart(apart);
+    }
+
     pub fn set_theme_value(&mut self, key: &str, value: &str) -> bool {
         let ok = self.chart.set_theme_value(key, value);
         if ok && key == "fontPx" {
@@ -509,6 +514,14 @@ impl ChartEngine {
             None => set(&o, "cursor", JsValue::NULL),
         }
         set(&o, "axisX", f64::from(l.axis_x));
+        let panes = Array::new();
+        for (group, top) in l.panes {
+            let p = obj();
+            set(&p, "group", group);
+            set(&p, "top", f64::from(top));
+            panes.push(&p);
+        }
+        set(&o, "panes", panes);
         set(&o, "barX", opt(l.bar_x.map(f64::from)));
         match l.alert {
             Some((id, y)) => {

@@ -66,6 +66,8 @@ impl StudyKind {
 pub enum Group {
     Price,
     Pct,
+    /// Stoch RSI in a pane of its own, apart from RSI's, when the chart says so.
+    Stoch,
     Macd,
     Atr,
     /// Open interest: its own pane, in coins or dollars.
@@ -87,6 +89,7 @@ impl Group {
         match self {
             Self::Price => "price",
             Self::Pct => "pct",
+            Self::Stoch => "stoch",
             Self::Macd => "macd",
             Self::Atr => "atr",
             Self::Oi => "oi",

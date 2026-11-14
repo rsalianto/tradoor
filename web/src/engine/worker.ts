@@ -370,6 +370,12 @@ class Slot {
     this.syncLevels();
   }
 
+  /** RSI and Stoch RSI in one pane or two: the studies' panes, and so the page's legends, change with it. */
+  setPctApart(apart: boolean): void {
+    this.engine.set_pct_apart(apart);
+    this.metaDirty = true;
+  }
+
   setFormulas(list: FormulaRun[]): void {
     this.formulas = list;
     this.runFormulas();
@@ -1432,6 +1438,9 @@ function handle(msg: ToWorker): void {
       break;
     case 'paneWeights':
       slot.engine.set_pane_weights(msg.value);
+      break;
+    case 'pctApart':
+      slot.setPctApart(msg.value);
       break;
     case 'tool':
       slot.engine.set_tool(msg.value, msg.style);
