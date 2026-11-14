@@ -28,10 +28,46 @@ interface Listed {
   about: string;
   more?: boolean;
   preview: Preview | null;
+  /** One of tradoor's own, by its kind: a built-in indicator, written in Frost Script. */
+  kind?: string;
 }
 interface Full extends Listed {
   source: string;
 }
+
+// ---------------------------------------------------------------- tradoor's own
+
+/**
+ * tradoor's own indicators, as Frost Script: the sources the app's Source tab
+ * shows, read here under a query of the page's own, so the app's chunks stay
+ * the app's. Each one's name and description are its first comment lines.
+ */
+const OWN_SOURCES = import.meta.glob<string>('../../../crates/formula/sources/*.frost', { query: '?raw&showcase', import: 'default', eager: true });
+/** An example in the editor rather than one of the built-ins. */
+const NOT_BUILT_IN = new Set(['supertrend']);
+/** The timeframe each is best seen on; the rest on the hour. */
+const OWN_TIMEFRAMES: Record<string, string> = { sessions: '15m', vwap: '15m', moon: '1d', ichimoku: '4h', swingmap: '4h' };
+
+function ownScripts(): Full[] {
+  return Object.entries(OWN_SOURCES)
+    .flatMap(([path, source]) => {
+      const kind = path.slice(path.lastIndexOf('/') + 1).replace(/\.frost$/, '');
+      if (NOT_BUILT_IN.has(kind)) return [];
+      const head: string[] = [];
+      for (const line of source.split('\n')) {
+        if (!line.startsWith('//')) break;
+        head.push(line.replace(/^\/\/\s?/, '').replaceAll('`', ''));
+      }
+      const [first = kind, ...rest] = head;
+      const colon = first.indexOf(': ');
+      const name = colon > 0 ? first.slice(0, colon) : first;
+      const sub = colon > 0 ? first.slice(colon + 2) : '';
+      const about = [sub && `${sub[0]!.toUpperCase()}${sub.slice(1)}.`, rest.join(' ')].filter(Boolean).join(' ');
+      return [{ id: `tradoor${kind}`, kind, name, username: 'tradoor', updated: 0, created: 0, about, preview: { market: 'binance-perp:BTCUSDT', timeframe: OWN_TIMEFRAMES[kind] ?? '1h', inputs: [] }, source }];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+const OWN = ownScripts();
 
 /** Where a script shared before previews were kept is drawn. */
 const DEFAULT_PREVIEW: Preview = { market: 'binance-perp:BTCUSDT', timeframe: '1h', inputs: [] };
@@ -64,7 +100,7 @@ async function read<T>(path: string): Promise<T> {
   return body;
 }
 
-const scripts = new Map<string, Promise<Full>>();
+const scripts = new Map<string, Promise<Full>>(OWN.map((s) => [s.id, Promise.resolve(s)]));
 const script = (id: string): Promise<Full> => {
   let got = scripts.get(id);
   if (!got) {
@@ -273,7 +309,7 @@ function card(s: Listed): HTMLElement {
     show();
   });
   const foot = el('div', 'meta');
-  foot.append(by, el('span', 'when', day(s.updated)));
+  foot.append(by, el('span', 'when', s.kind ? 'built into tradoor' : day(s.updated)));
   c.append(thumb, el('h3', 'name', s.name), el('p', 'about', s.about + (s.more ? '…' : '')), foot);
   c.addEventListener('click', () => void open(s.id));
   c.addEventListener('keydown', (e) => e.key === 'Enter' && void open(s.id));
@@ -388,11 +424,11 @@ async function open(id: string): Promise<void> {
   const by = $<HTMLAnchorElement>('o-by');
   by.textContent = `@${s.username}`;
   by.href = `?q=${encodeURIComponent(`@${s.username}`)}`;
-  $('o-when').textContent = s.created === s.updated ? `shared ${day(s.created)}` : `changed ${day(s.updated)}`;
+  $('o-when').textContent = s.kind ? 'built into tradoor' : s.created === s.updated ? `shared ${day(s.created)}` : `changed ${day(s.updated)}`;
   $('o-market').textContent = `${symbol} · ${venue} · ${p.timeframe}${p.inputs.length ? ` · settings ${p.inputs.join(', ')}` : ''}`;
   $('o-about').textContent = s.about;
   $('o-source').textContent = s.source;
-  $<HTMLAnchorElement>('o-use').href = `/?script=${encodeURIComponent(s.id)}`;
+  $<HTMLAnchorElement>('o-use').href = s.kind ? `/?indicator=${encodeURIComponent(s.kind)}` : `/?script=${encodeURIComponent(s.id)}`;
   const r = box.getBoundingClientRect();
   const { chart, ready } = chartOf(s, { width: r.width || 800, height: r.height || 400 }, devicePixelRatio, false, box);
   live = { chart, stop: steer(chart) };
@@ -433,12 +469,17 @@ $('o-copy').addEventListener('click', async () => {
 // ---------------------------------------------------------------- start
 
 find.value = new URL(location.href).searchParams.get('q') ?? '';
+// The community's first, the last changed first, then tradoor's own; without the server, tradoor's own alone.
+const start = (shared: Listed[]) => {
+  listed = [...shared, ...OWN];
+  show();
+  const id = location.hash.slice(1);
+  if (/^[a-z0-9]{6,16}$/.test(id)) void open(id);
+};
 read<{ scripts: Listed[] }>('/api/community').then(
-  (r) => {
-    listed = r.scripts;
-    show();
-    const id = location.hash.slice(1);
-    if (/^[a-z0-9]{6,16}$/.test(id)) void open(id);
+  (r) => start(r.scripts),
+  (e: unknown) => {
+    start([]);
+    grid.prepend(el('p', 'empty bad', `The community's scripts did not load: ${e instanceof Error ? e.message : String(e)}.`));
   },
-  (e: unknown) => grid.replaceChildren(el('p', 'empty bad', `The scripts did not load: ${e instanceof Error ? e.message : String(e)}.`)),
 );
